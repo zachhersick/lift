@@ -13,7 +13,7 @@ import { ramp } from "@/lib/color";
 import { TEMPLATES } from "@/lib/exercises.js";
 import {
   dailyVolume, dateKey, defaultWeeklyGoal, e1rm, exerciseHistory, isPersonalRecord, lastDoneAt, muscleSets, nextSplitDay,
-  orderedDays, personalRecords, previousEntry, startOfWeek, weekStreak, weekSummary
+  orderedDays, personalRecords, previousEntry, startOfWeek, trackOf, weekStreak, weekSummary
 } from "@/lib/model.js";
 import { go } from "@/lib/router.js";
 import { activeWorkout, bodyweights, exerciseIndex, exerciseName, finishedWorkouts, sessions, settings, splitDays } from "@/lib/store.js";
@@ -170,7 +170,9 @@ function UpNext({ next, days, onChoose, blocked }: { next: any; days: any[]; onC
           <div className="flex flex-wrap gap-2">
             {items.slice(0, 6).map((item: any, i: number) => {
               const prev = previousEntry(list, item.exerciseId);
-              const top = prev?.entry.sets.filter((s: any) => s.done && s.type !== "warmup").sort((a: any, b: any) => b.weight - a.weight || b.reps - a.reps)[0];
+              const track = trackOf(exerciseIndex.value.get(item.exerciseId));
+              const sets = prev?.entry.sets.filter((s: any) => s.done && s.type !== "warmup") || [];
+              const top = track === "strength" ? sets.sort((a: any, b: any) => b.weight - a.weight || b.reps - a.reps)[0] : sets.sort((a: any, b: any) => (b.seconds || 0) - (a.seconds || 0))[0];
               return (
                 <motion.span
                   animate={{ opacity: 1, y: 0 }}
@@ -180,7 +182,7 @@ function UpNext({ next, days, onChoose, blocked }: { next: any; days: any[]; onC
                   transition={{ delay: 0.15 + i * 0.04 }}
                 >
                   <span className="max-w-40 truncate font-medium">{exerciseName(item.exerciseId)}</span>
-                  {top ? <span className="text-white/65 tabular">{format.weight(top.weight)}×{top.reps}</span> : null}
+                  {top ? <span className="text-white/65 tabular">{format.shortSet(top, track)}</span> : null}
                 </motion.span>
               );
             })}
@@ -242,21 +244,23 @@ function WeekRings() {
   const list = useValue(sessions) as any[];
   const days = useValue(splitDays) as any[];
   const s = useValue(settings) as any;
+  const index = useValue(exerciseIndex) as Map<string, any>;
   const [a, b, c] = tintColors(s.tint);
   const week = useMemo(() => {
     const from = startOfWeek();
     const lastFrom = startOfWeek(from - 3 * 86_400_000);
-    return { now: weekSummary(list, from), last: weekSummary(list, lastFrom, from) };
-  }, [list]);
+    return { now: weekSummary(list, from, Infinity, index), last: weekSummary(list, lastFrom, from, index) };
+  }, [list, index]);
   const goal = s.weeklyGoal || defaultWeeklyGoal(days);
   const kilo = (v: number) => Math.round(v / 1000);
   const activities = [
-    { label: "Workouts", color: a, colorEnd: a, size: 132, current: week.now.count, target: goal, unit: "" },
-    { label: "Sets", color: b, colorEnd: b, size: 100, current: week.now.sets, target: Math.max(week.last.sets, 30), unit: "" },
-    { label: `Volume (k ${s.unit})`, color: c, colorEnd: c, size: 68, current: kilo(week.now.volume), target: Math.max(kilo(week.last.volume), 10), unit: "" }
+    { label: "Workouts", color: a, colorEnd: a, size: 148, current: week.now.count, target: goal, unit: "" },
+    { label: "Sets", color: b, colorEnd: b, size: 118, current: week.now.sets, target: Math.max(week.last.sets, 30), unit: "" },
+    { label: `Volume (k ${s.unit})`, color: c, colorEnd: c, size: 88, current: kilo(week.now.volume), target: Math.max(kilo(week.last.volume), 10), unit: "" },
+    { label: "Cardio (min)", color: "#22c55e", colorEnd: "#4ade80", size: 58, current: Math.round(week.now.cardioMinutes), target: Math.max(Math.round(week.last.cardioMinutes), 60), unit: "" }
   ];
   return (
-    <Section action={<span>vs. last week</span>} footer={`Workouts against your goal of ${goal} a week; sets and volume against last week.`} title="This week">
+    <Section action={<span>vs. last week</span>} footer={`Workouts against your goal of ${goal} a week; sets, volume and cardio minutes against last week.`} title="This week">
       <Card>
         <AppleActivityCard activities={activities} key={`${s.tint}-${week.now.count}`} title="" />
       </Card>
@@ -365,6 +369,7 @@ function BodyCard({ onLog }: { onLog: () => void }) {
 function RecentPRs() {
   const list = useValue(sessions) as any[];
   const s = useValue(settings) as any;
+  const index = useValue(exerciseIndex) as Map<string, any>;
   const prs = useMemo(() => {
     const from = Date.now() - 14 * 86_400_000;
     const found = new Map<string, any>();
@@ -372,15 +377,16 @@ function RecentPRs() {
       for (const entry of workout.entries || []) {
         const prior = personalRecords(exerciseHistory(list, entry.exerciseId, { before: workout.startedAt }));
         for (const set of entry.sets || []) {
-          if (!isPersonalRecord(set, prior)) continue;
-          const value = e1rm(set.weight, set.reps);
+          const track = trackOf(index.get(entry.exerciseId));
+          if (!isPersonalRecord(set, prior, track)) continue;
+          const value = track === "strength" ? e1rm(set.weight, set.reps) : Number(set.seconds) || 0;
           const current = found.get(entry.exerciseId);
-          if (!current || value > current.e1rm) found.set(entry.exerciseId, { exerciseId: entry.exerciseId, weight: set.weight, reps: set.reps, e1rm: value, date: workout.startedAt });
+          if (!current || value > current.e1rm) found.set(entry.exerciseId, { exerciseId: entry.exerciseId, set, track, weight: set.weight, reps: set.reps, e1rm: value, date: workout.startedAt });
         }
       }
     }
     return [...found.values()].sort((a, b) => b.date - a.date).slice(0, 5);
-  }, [list]);
+  }, [list, index]);
   if (!prs.length) return null;
   return (
     <Section title="Recent PRs">
@@ -401,7 +407,7 @@ function RecentPRs() {
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="truncate text-[15.5px] font-semibold">{exerciseName(pr.exerciseId)}</span>
               <span className="text-[13px] text-muted-foreground tabular">
-                {format.weight(pr.weight)} {s.unit} × {pr.reps} · e1RM {format.weight(Math.round(pr.e1rm))}
+                {pr.track === "strength" ? `${format.weight(pr.weight)} ${s.unit} × ${pr.reps} · e1RM ${format.weight(Math.round(pr.e1rm))}` : format.describeSet(pr.set, pr.track, s.unit)}
               </span>
             </span>
             <span className="text-[13px] text-muted-foreground">{format.relativeDay(pr.date)}</span>

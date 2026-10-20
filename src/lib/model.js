@@ -37,6 +37,26 @@ export function lastDoneAt(splitDayId, workouts) {
 export const isWorking = (set) => Boolean(set?.done) && set.type !== "warmup";
 export const workingSets = (entry) => (entry?.sets || []).filter(isWorking);
 
+// ---------- tracking types ----------
+
+// How an exercise is logged. Strength is weight × reps; cardio is incline,
+// speed and time; timed (plyo, planks) is time with optional reps.
+export const TRACKS = ["strength", "cardio", "timed"];
+export const FIELDS = { strength: ["weight", "reps"], cardio: ["incline", "speed", "seconds"], timed: ["seconds", "reps"] };
+export const trackOf = (exercise) => (TRACKS.includes(exercise?.track) ? exercise.track : "strength");
+
+// A set counts once its required fields are in: reps for strength (weight
+// may be 0 for bodyweight), time for cardio and timed.
+export function isComplete(set, track = "strength") {
+  if (track === "strength") return (Number(set?.reps) || 0) > 0 && set?.weight != null;
+  return (Number(set?.seconds) || 0) > 0;
+}
+
+export const setSeconds = (set) => Number(set?.seconds) || 0;
+
+// Distance from speed (per hour) and time, in miles or km.
+export const setDistance = (set) => ((Number(set?.speed) || 0) * setSeconds(set)) / 3600;
+
 export function e1rm(weight, reps) {
   const w = Number(weight) || 0;
   const r = Number(reps) || 0;
@@ -87,8 +107,9 @@ export function exerciseHistory(workouts, exerciseId, { excludeId = null, before
       if (entry.exerciseId !== exerciseId) continue;
       const sets = workingSets(entry);
       if (!sets.length) continue;
-      const top = topSetOf(sets);
-      points.push({
+      const timed = sets.some((set) => set.seconds != null);
+      const top = timed ? sets.reduce((best, set) => (setSeconds(set) > setSeconds(best) ? set : best), sets[0]) : topSetOf(sets);
+      const point = {
         workoutId: workout.id,
         date: workout.startedAt,
         sets,
@@ -96,16 +117,35 @@ export function exerciseHistory(workouts, exerciseId, { excludeId = null, before
         topWeight: Number(top.weight) || 0,
         bestE1rm: Math.max(...sets.map((set) => e1rm(set.weight, set.reps))),
         volume: sets.reduce((sum, set) => sum + setVolume(set), 0),
-        totalReps: sets.reduce((sum, set) => sum + (Number(set.reps) || 0), 0)
-      });
+        totalReps: sets.reduce((sum, set) => sum + (Number(set.reps) || 0), 0),
+        seconds: sets.reduce((sum, set) => sum + setSeconds(set), 0),
+        longest: Math.max(...sets.map(setSeconds)),
+        distance: sets.reduce((sum, set) => sum + setDistance(set), 0),
+        topSpeed: Math.max(...sets.map((set) => Number(set.speed) || 0)),
+        maxIncline: Math.max(...sets.map((set) => Number(set.incline) || 0)),
+        maxReps: Math.max(...sets.map((set) => Number(set.reps) || 0))
+      };
+      // What "better" means for the trend: e1RM for lifts, distance (or time)
+      // for cardio, the longest set (or reps) for timed work.
+      point.score = point.bestE1rm || point.distance || point.longest || point.totalReps;
+      points.push(point);
     }
   }
   return points;
 }
 
 export function personalRecords(history) {
-  const records = { weight: null, e1rm: null, volume: null, reps: null, repsAtWeight: new Map() };
+  const records = { weight: null, e1rm: null, volume: null, reps: null, repsAtWeight: new Map(), longest: null, session: null, distance: null, speed: null, incline: null };
   for (const point of history) {
+    if (point.seconds > 0) {
+      if (!records.longest || point.longest > records.longest.seconds) records.longest = { seconds: point.longest, date: point.date };
+      if (!records.session || point.seconds > records.session.seconds) records.session = { seconds: point.seconds, date: point.date };
+      if (point.distance > 0 && (!records.distance || point.distance > records.distance.value)) records.distance = { value: point.distance, date: point.date };
+      if (point.topSpeed > 0 && (!records.speed || point.topSpeed > records.speed.value)) records.speed = { value: point.topSpeed, date: point.date };
+      if (point.maxIncline > 0 && (!records.incline || point.maxIncline > records.incline.value)) records.incline = { value: point.maxIncline, date: point.date };
+      if (point.maxReps > 0 && (!records.reps || point.maxReps > records.reps.reps)) records.reps = { weight: 0, reps: point.maxReps, date: point.date };
+      continue;
+    }
     for (const set of point.sets) {
       const weight = Number(set.weight) || 0;
       const reps = Number(set.reps) || 0;
@@ -122,8 +162,19 @@ export function personalRecords(history) {
 
 // Whether a completed set beats everything logged before this workout. The
 // first time you do an exercise there's nothing to beat, so no PR yet.
-export function isPersonalRecord(set, priorRecords) {
-  if (!isWorking(set) || !priorRecords?.weight) return false;
+export function isPersonalRecord(set, priorRecords, track = "strength") {
+  if (!isWorking(set)) return false;
+  if (track !== "strength") {
+    if (!priorRecords?.longest) return false;
+    if (setSeconds(set) > priorRecords.longest.seconds) return true;
+    if (track === "cardio") {
+      if ((Number(set.speed) || 0) > (priorRecords.speed?.value ?? Infinity)) return true;
+      if ((Number(set.incline) || 0) > (priorRecords.incline?.value ?? Infinity)) return true;
+      return false;
+    }
+    return (Number(set.reps) || 0) > (priorRecords.reps?.reps ?? Infinity);
+  }
+  if (!priorRecords?.weight) return false;
   const weight = Number(set.weight) || 0;
   const reps = Number(set.reps) || 0;
   if (weight > 0 && weight > priorRecords.weight.weight) return true;
@@ -136,9 +187,18 @@ const fmt = (n) => String(Math.round(n * 100) / 100);
 
 // Double progression: work up to the top of the rep range on every set, then
 // add weight and start back at the bottom of the range.
-export function suggestion(previous, target = {}, step = 5) {
+export function suggestion(previous, target = {}, step = 5, track = "strength", speedUnit = "mph") {
   const sets = workingSets(previous);
   if (!sets.length) return null;
+  if (track === "cardio") {
+    const top = sets.reduce((best, set) => (setSeconds(set) > setSeconds(best) ? set : best), sets[0]);
+    const parts = [top.incline != null ? `${fmt(Number(top.incline))}%` : "", top.speed != null ? `${fmt(Number(top.speed))} ${speedUnit}` : ""].filter(Boolean).join(" · ");
+    return { kind: "cardio", seconds: setSeconds(top), text: `Last time ${clockText(setSeconds(top))}${parts ? ` at ${parts}` : ""}. Try +1% or +2 min` };
+  }
+  if (track === "timed") {
+    const longest = Math.max(...sets.map(setSeconds));
+    return { kind: "timed", seconds: longest, text: `Beat ${clockText(longest)}` };
+  }
   const top = Math.max(...sets.map((set) => Number(set.weight) || 0));
   const atTop = sets.filter((set) => (Number(set.weight) || 0) === top);
   const reps = atTop.map((set) => Number(set.reps) || 0);
@@ -162,15 +222,30 @@ export function placeholderFor(entry, setIndex, previous, hint) {
   const done = previous?.sets?.filter((item) => item.done) || [];
   const sameType = done.filter((item) => (item.type || "working") === type);
   const prev = sameType[Math.min(typeIndex, sameType.length - 1)] || (type === "warmup" ? null : done[Math.min(setIndex, done.length - 1)]) || null;
-  if (hint?.kind === "up" && type !== "warmup") return { weight: hint.weight, reps: hint.reps, prev };
-  return { weight: prev ? Number(prev.weight) || 0 : null, reps: prev ? Number(prev.reps) || 0 : null, prev };
+  if (hint?.kind === "up" && type !== "warmup") return { weight: hint.weight, reps: hint.reps, incline: null, speed: null, seconds: null, prev };
+  const value = (field) => (prev && prev[field] != null ? Number(prev[field]) : null);
+  // Strength rows always had both numbers; a missing weight meant bodyweight.
+  const strength = prev && prev.seconds == null;
+  return {
+    weight: strength ? Number(prev.weight) || 0 : value("weight"),
+    reps: strength ? Number(prev.reps) || 0 : value("reps"),
+    incline: value("incline"),
+    speed: value("speed"),
+    seconds: value("seconds"),
+    prev
+  };
 }
+
+const clockText = (seconds) => {
+  const s = Math.max(0, Math.round(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
 
 // Up, flat or down: the average best e1RM of the last three sessions against
 // the three before them.
 export function trend(history) {
   if (history.length < 2) return "new";
-  const values = history.map((point) => point.bestE1rm || point.totalReps);
+  const values = history.map((point) => point.score ?? (point.bestE1rm || point.totalReps));
   const recent = values.slice(-3);
   const earlier = values.slice(-6, -3).length ? values.slice(-6, -3) : values.slice(0, 1);
   const avg = (list) => list.reduce((sum, value) => sum + value, 0) / list.length;
@@ -329,7 +404,9 @@ export function muscleSets(workouts, exerciseIndex, from = 0) {
   for (const workout of finished(workouts)) {
     if (workout.rest || (workout.startedAt || 0) < from) continue;
     for (const entry of workout.entries || []) {
-      const muscle = exerciseIndex.get(entry.exerciseId)?.muscle || "other";
+      const exercise = exerciseIndex.get(entry.exerciseId);
+      const muscle = exercise?.muscle || "other";
+      if (muscle === "cardio" || trackOf(exercise) === "cardio") continue;
       const sets = workingSets(entry).length;
       if (sets) counts.set(muscle, (counts.get(muscle) || 0) + sets);
     }
@@ -432,13 +509,28 @@ export function defaultWeeklyGoal(splitDays) {
 }
 
 // Workouts, working sets and volume for sessions in [from, to).
-export function weekSummary(workouts, from, to = Infinity) {
+export function weekSummary(workouts, from, to = Infinity, exerciseIndex = null) {
   const list = finished(workouts).filter((w) => !w.rest && w.startedAt >= from && w.startedAt < to);
   return {
     count: list.length,
     sets: list.reduce((sum, w) => sum + workoutSetCount(w), 0),
-    volume: list.reduce((sum, w) => sum + workoutVolume(w), 0)
+    volume: list.reduce((sum, w) => sum + workoutVolume(w), 0),
+    cardioMinutes: list.reduce((sum, w) => sum + cardioSeconds(w, exerciseIndex), 0) / 60
   };
+}
+
+// Seconds of completed cardio in a workout. Without an exercise index, any
+// set with a speed or incline counts as cardio.
+export function cardioSeconds(workout, exerciseIndex = null) {
+  let total = 0;
+  for (const entry of workout?.entries || []) {
+    const exercise = exerciseIndex?.get(entry.exerciseId);
+    for (const set of workingSets(entry)) {
+      const cardio = exercise ? trackOf(exercise) === "cardio" : set.speed != null || set.incline != null;
+      if (cardio) total += setSeconds(set);
+    }
+  }
+  return total;
 }
 
 // The last finished session of the same split day before this one.

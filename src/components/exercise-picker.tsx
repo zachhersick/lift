@@ -11,7 +11,10 @@ import { capitalize } from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
 import { Card, Chip, Row, Section, Sheet, SheetAction } from "./kit";
 
-type Exercise = { id: string; name: string; muscle?: string; equipment?: string; builtIn?: boolean };
+type Exercise = { id: string; name: string; muscle?: string; equipment?: string; builtIn?: boolean; track?: string };
+
+const TRACK_LABEL: Record<string, string> = { cardio: "Cardio", timed: "Timed" };
+const TRACK_HELP: Record<string, string> = { strength: "Weight and reps", cardio: "Incline, speed and time", timed: "Time, with optional reps" };
 
 function Highlight({ text, matches }: { text: string; matches: number[] }) {
   if (!matches.length) return <>{text}</>;
@@ -84,7 +87,7 @@ export function ExercisePicker({ open, onClose, onPick, title = "Add Exercise", 
     <Row
       key={e.id}
       onClick={() => pick(e)}
-      subtitle={`${capitalize(e.muscle || "other")} · ${capitalize(e.equipment || "other")}${e.builtIn ? "" : " · Custom"}`}
+      subtitle={`${capitalize(e.muscle || "other")} · ${capitalize(e.equipment || "other")}${e.track && TRACK_LABEL[e.track] ? ` · ${TRACK_LABEL[e.track]}` : ""}${e.builtIn ? "" : " · Custom"}`}
       title={<Highlight matches={matches} text={e.name} />}
     />
   );
@@ -172,9 +175,10 @@ function CreateExercise({ open, draft, onBack, onClose, onSaved }: { open: boole
   const [name, setName] = useState(draft.name);
   const [muscle, setMuscle] = useState(draft.muscle);
   const [equipment, setEquipment] = useState(draft.equipment);
+  const [track, setTrack] = useState(draft.muscle === "cardio" ? "cardio" : "strength");
   const submit = async () => {
     if (!name.trim()) return;
-    onSaved(await save({ id: uid("x"), kind: "exercise", name: name.trim(), muscle, equipment }));
+    onSaved(await save({ id: uid("x"), kind: "exercise", name: name.trim(), muscle, equipment, track }));
   };
   return (
     <Sheet left={<SheetAction onClick={onBack}>Back</SheetAction>} onClose={onClose} open={open} right={<SheetAction bold disabled={!name.trim()} onClick={submit}>Add</SheetAction>} tall title="New Exercise">
@@ -186,6 +190,15 @@ function CreateExercise({ open, draft, onBack, onClose, onSaved }: { open: boole
           {MUSCLES.map((m: string) => (
             <Chip key={m} on={muscle === m} onClick={() => setMuscle(m)}>
               {capitalize(m)}
+            </Chip>
+          ))}
+        </div>
+      </Section>
+      <Section footer={TRACK_HELP[track]} title="Logged as">
+        <div className="flex flex-wrap gap-2">
+          {["strength", "cardio", "timed"].map((t) => (
+            <Chip key={t} on={track === t} onClick={() => setTrack(t)}>
+              {capitalize(t)}
             </Chip>
           ))}
         </div>

@@ -3,7 +3,7 @@
 import { ChevronDown, Delete } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useEffect, useState } from "react";
-import { closePad, currentValue, locate, next, pad, press } from "@/lib/keypad.js";
+import { closePad, currentValue, FIELD, locate, next, pad, press } from "@/lib/keypad.js";
 import { exerciseName, settings } from "@/lib/store.js";
 import { haptic } from "@/lib/haptics.js";
 import * as format from "@/lib/format.js";
@@ -78,6 +78,11 @@ export function Keypad() {
 
   const found = target ? locate(target) : null;
   const open = Boolean(target && found?.set);
+  const field = target?.field as keyof typeof FIELD;
+  const config = FIELD[field] || FIELD.reps;
+  const step = config.step();
+  const stepLabel = field === "seconds" ? `${step}s` : format.weight(step);
+  const title: Record<string, string> = { weight: `Weight (${s.unit})`, reps: "Reps", incline: "Incline (%)", speed: `Speed (${format.speedUnit(s.unit)})`, seconds: "Time" };
 
   return (
     <>
@@ -95,7 +100,7 @@ export function Keypad() {
             <div className="mx-auto max-w-xl">
               <div className="flex items-center gap-2 px-1 pb-3">
                 <p className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
-                  <span className="font-semibold text-foreground">{target.field === "weight" ? `Weight (${s.unit})` : "Reps"}</span>
+                  <span className="font-semibold text-foreground">{title[field]}</span>
                   {" · "}
                   {found.set.type === "warmup" ? "Warm-up" : `Set ${found.entry.sets.slice(0, found.setIndex + 1).filter((x: any) => x.type !== "warmup").length}`}
                   {" · "}
@@ -106,14 +111,14 @@ export function Keypad() {
                 </button>
               </div>
               <KeyGrid
-                decimal={target.field === "weight"}
+                decimal={Boolean("decimal" in config && config.decimal)}
                 onKey={press}
                 side={[
-                  <Key key="m" label={`Minus ${target.field === "weight" ? s.step : 1}`} onPress={() => press("minus")} variant="fn">
-                    −{target.field === "weight" ? format.weight(s.step) : 1}
+                  <Key key="m" label={`Minus ${stepLabel}`} onPress={() => press("minus")} variant="fn">
+                    −{stepLabel}
                   </Key>,
-                  <Key key="p" label={`Plus ${target.field === "weight" ? s.step : 1}`} onPress={() => press("plus")} variant="fn">
-                    +{target.field === "weight" ? format.weight(s.step) : 1}
+                  <Key key="p" label={`Plus ${stepLabel}`} onPress={() => press("plus")} variant="fn">
+                    +{stepLabel}
                   </Key>,
                   target.field === "weight" ? (
                     <Key key="pl" label="Plate calculator" onPress={() => setPlates(true)} variant="fn">

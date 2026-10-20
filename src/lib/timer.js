@@ -19,7 +19,7 @@ export function unlockAudio() {
   } catch {}
 }
 
-function beep() {
+export function beep() {
   if (!audio) return;
   try {
     const start = audio.currentTime;

@@ -7,9 +7,9 @@ import SwooshText from "@/components/kokonutui/swoosh-text";
 import { Card, Empty, FadeIn, Page, Row, Section, StatTiles, TopBar } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { ask } from "@/lib/dialogs";
-import { byNewest, dateKey, e1rm, exerciseHistory, isPersonalRecord, personalRecords, previousSession, workoutSetCount, workoutVolume } from "@/lib/model.js";
+import { byNewest, cardioSeconds, dateKey, e1rm, exerciseHistory, isPersonalRecord, personalRecords, previousSession, trackOf, workoutSetCount, workoutVolume } from "@/lib/model.js";
 import { go, route } from "@/lib/router.js";
-import { exerciseName, records, remove, sessions, settings } from "@/lib/store.js";
+import { exerciseIndex, exerciseName, records, remove, sessions, settings } from "@/lib/store.js";
 import * as format from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
 import { cn } from "@/lib/utils";
@@ -142,6 +142,8 @@ export function WorkoutDetail({ id }: { id: string }) {
   const list = useValue(sessions) as any[];
   const s = useValue(settings) as any;
   const r = useValue(route) as any;
+  const index = useValue(exerciseIndex) as Map<string, any>;
+  const trackFor = (exerciseId: string) => trackOf(index.get(exerciseId));
   const workout = all.get(id);
   const justFinished = r.query.get("done") === "1";
 
@@ -150,10 +152,10 @@ export function WorkoutDetail({ id }: { id: string }) {
     const found: any[] = [];
     for (const entry of workout.entries || []) {
       const prior = personalRecords(exerciseHistory(list, entry.exerciseId, { before: workout.startedAt, excludeId: workout.id }));
-      for (const set of entry.sets) if (isPersonalRecord(set, prior)) found.push({ set, exerciseId: entry.exerciseId });
+      for (const set of entry.sets) if (isPersonalRecord(set, prior, trackFor(entry.exerciseId))) found.push({ set, exerciseId: entry.exerciseId });
     }
     return found;
-  }, [workout, list]);
+  }, [workout, list, index]);
 
   if (!workout || workout.deleted) {
     return (
@@ -224,7 +226,8 @@ export function WorkoutDetail({ id }: { id: string }) {
         items={[
           { label: "Time", value: format.duration(minutes) },
           { label: "Sets", value: sets },
-          { label: "Volume", value: format.volume(volume, "").trim(), unit: s.unit }
+          ...(volume > 0 || !cardioSeconds(workout, index) ? [{ label: "Volume", value: format.volume(volume, "").trim(), unit: s.unit }] : []),
+          ...(cardioSeconds(workout, index) ? [{ label: "Cardio", value: Math.round(cardioSeconds(workout, index) / 60), unit: "min" }] : [])
         ]}
       />
 
@@ -248,7 +251,7 @@ export function WorkoutDetail({ id }: { id: string }) {
         <Section title="Personal records">
           <Card className="divide-y divide-border">
             {prs.map((pr) => (
-              <Row icon={Trophy} iconClass="bg-gradient-to-br from-amber-300 to-orange-500 text-white" key={pr.set.id} subtitle={`e1RM ${format.weight(Math.round(e1rm(pr.set.weight, pr.set.reps)))} ${s.unit}`} title={exerciseName(pr.exerciseId)} value={`${format.weight(pr.set.weight)} × ${pr.set.reps}`} />
+              <Row icon={Trophy} iconClass="bg-gradient-to-br from-amber-300 to-orange-500 text-white" key={pr.set.id} subtitle={trackFor(pr.exerciseId) === "strength" ? `e1RM ${format.weight(Math.round(e1rm(pr.set.weight, pr.set.reps)))} ${s.unit}` : format.describeSet(pr.set, trackFor(pr.exerciseId), s.unit)} title={exerciseName(pr.exerciseId)} value={format.shortSet(pr.set, trackFor(pr.exerciseId))} />
             ))}
           </Card>
         </Section>
@@ -266,14 +269,12 @@ export function WorkoutDetail({ id }: { id: string }) {
                     <span className={cn("grid size-8 place-items-center rounded-lg bg-muted text-[13px] font-semibold tabular", set.type === "warmup" && "text-amber-500", set.type === "drop" && "text-violet-400", set.type === "failure" && "text-red-400")}>
                       {set.type === "warmup" ? "W" : set.type === "drop" ? "D" : set.type === "failure" ? "F" : n}
                     </span>
-                    <span className="flex-1 text-[15.5px] tabular">
-                      {format.weight(set.weight)} {s.unit} × {set.reps}
-                    </span>
+                    <span className="flex-1 text-[15.5px] tabular">{format.describeSet(set, trackFor(entry.exerciseId), s.unit)}</span>
                     {prIds.has(set.id) ? (
                       <span className="flex items-center gap-1 rounded-full bg-amber-400/15 px-2 py-0.5 text-[12px] font-bold text-amber-500">
                         <Trophy className="size-3.5" strokeWidth={2.6} /> PR
                       </span>
-                    ) : set.type !== "warmup" && set.weight > 0 ? (
+                    ) : trackFor(entry.exerciseId) === "strength" && set.type !== "warmup" && set.weight > 0 ? (
                       <span className="text-[13px] text-muted-foreground tabular">e1RM {format.weight(Math.round(e1rm(set.weight, set.reps)))}</span>
                     ) : null}
                   </div>

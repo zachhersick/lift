@@ -2,12 +2,14 @@
 // panel with −15 / +15 / Skip, the way Live Activities do. Below it, the
 // Kokonut status island shows short notices (a PR, the next exercise).
 import NumberFlow from "@number-flow/react";
-import { Timer } from "lucide-react";
+import { Timer, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { StatusIsland } from "@/components/kokonutui/status-island";
 import { dismissNotice, notices } from "@/lib/notify";
 import { adjustRest, now, restTimer, stopRest } from "@/lib/timer.js";
+import { cancelSetTimer, setTimer } from "@/lib/set-timer.js";
+import { finishSetTimer } from "@/lib/logging.js";
 import { useValue } from "@/lib/use-signal";
 import { cn } from "@/lib/utils";
 
@@ -120,10 +122,52 @@ export function RestIsland() {
   );
 }
 
+// The running set timer: a countdown to the target (then overtime), or a
+// stopwatch. Stop logs the time on the set.
+export function SetTimerIsland() {
+  const timer = useValue(setTimer) as any;
+  const tick = useValue(now);
+  if (!timer) return null;
+  const elapsed = Math.max(0, Math.round((Math.max(tick, timer.startedAt) - timer.startedAt) / 1000));
+  const remaining = timer.target ? timer.target - elapsed : null;
+  const over = remaining !== null && remaining < 0;
+  const shown = remaining === null ? elapsed : Math.abs(remaining);
+  const fraction = timer.target ? Math.max(0, Math.min(1, remaining! / timer.target)) : 1;
+  return (
+    <motion.div
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      className="pointer-events-auto w-[min(92vw,360px)] overflow-hidden rounded-[28px] bg-zinc-950 p-4 text-white shadow-2xl shadow-black/40 ring-1 ring-white/10"
+      initial={{ opacity: 0, y: -12, scale: 0.9 }}
+      layout
+      transition={MORPH}
+    >
+      <div className="flex items-center gap-3">
+        <Ring done={over} fraction={over ? 1 : fraction} size={44} />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-[12px] font-medium text-white/55">
+            {timer.name} · {remaining === null ? "Stopwatch" : over ? "Past target" : "Countdown"}
+          </span>
+          <span className={cn("flex items-baseline text-[30px] leading-none font-semibold", over && "text-emerald-400")}>
+            {over ? "+" : ""}
+            <Clock seconds={shown} />
+          </span>
+        </div>
+        <button aria-label="Cancel timer" className="grid size-9 place-items-center rounded-full bg-white/10 text-white/70 active:bg-white/20" onClick={cancelSetTimer} type="button">
+          <X className="size-4" strokeWidth={2.6} />
+        </button>
+        <button className="h-11 rounded-2xl bg-[var(--tint)] px-4 text-[15px] font-semibold" onClick={() => finishSetTimer()} type="button">
+          Stop
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
 export function Islands() {
   const tasks = useValue(notices);
   return (
     <div className="pt-safe pointer-events-none fixed inset-x-0 top-0 z-[60] flex flex-col items-center gap-2 px-4 pt-2">
+      <SetTimerIsland />
       <RestIsland />
       <div className="pointer-events-auto">
         <StatusIsland dismissAfter={2600} onDismiss={dismissNotice} tasks={tasks} />

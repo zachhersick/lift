@@ -3,8 +3,8 @@
 // and reps go through the docked number pad. Also edits finished workouts.
 import NumberFlow from "@number-flow/react";
 import {
-  ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronUp, Eye, Flame, Flag, Link2, MoreHorizontal, NotebookPen, Plus,
-  Repeat2, Timer, Trash2, Trophy, Unlink, X
+  ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronUp, Eye, Flame, Flag, Link2, MoreHorizontal, NotebookPen, Play, Plus,
+  Repeat2, Square, Timer, Trash2, Trophy, Unlink, X
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
@@ -20,7 +20,7 @@ import { haptic } from "@/lib/haptics.js";
 import { closePad, openPad, pad } from "@/lib/keypad.js";
 import {
   dateKey, exerciseHistory, fromDateKey, isPersonalRecord, newEntry, newSet, nextInSuperset, personalRecords, placeholderFor,
-  previousEntry, restsAfter, splitDiff, suggestion, supersetLabels, uid, warmupSets, workoutVolume
+  previousEntry, splitDiff, suggestion, supersetLabels, uid, warmupSets, workoutVolume, FIELDS, trackOf, cardioSeconds
 } from "@/lib/model.js";
 import { notify } from "@/lib/notify";
 import { back, go } from "@/lib/router.js";
@@ -28,6 +28,8 @@ import { exerciseIndex, exerciseName, records, remove, save, saveExerciseNote, s
 import { keepAwake, now, startRest, stopRest, unlockAudio } from "@/lib/timer.js";
 import * as format from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
+import { completeSet, finishSetTimer } from "@/lib/logging.js";
+import { setTimer, startSetTimer } from "@/lib/set-timer.js";
 import { cn } from "@/lib/utils";
 
 const REST_OPTIONS = [0, 30, 45, 60, 75, 90, 120, 150, 180, 240, 300];
@@ -77,6 +79,7 @@ export function WorkoutPage({ id }: { id: string }) {
   const doneSets = entries.reduce((sum, entry) => sum + entry.sets.filter((set: any) => set.done).length, 0);
   const totalSets = entries.reduce((sum, entry) => sum + entry.sets.length, 0);
   const volume = workoutVolume({ entries: entries.map((e) => ({ ...e, sets: e.sets.filter((x: any) => x.done) })) });
+  const cardioMinutes = Math.round(cardioSeconds(workout, exerciseIndex.value) / 60);
 
   const finishNow = async () => {
     closePad();
@@ -147,7 +150,8 @@ export function WorkoutPage({ id }: { id: string }) {
         items={[
           { label: live ? "Elapsed" : "Date", value: live ? <span className="tabular">{format.clock((tick - workout.startedAt) / 1000)}</span> : format.shortDate(workout.startedAt) },
           { label: "Sets", value: <NumberFlow value={doneSets} />, unit: `/${totalSets}` },
-          { label: "Volume", value: <NumberFlow format={{ notation: volume >= 10000 ? "compact" : "standard", maximumFractionDigits: 1 }} value={volume} />, unit: s.unit }
+          ...(volume > 0 || !cardioMinutes ? [{ label: "Volume", value: <NumberFlow format={{ notation: volume >= 10000 ? "compact" : "standard", maximumFractionDigits: 1 }} value={volume} />, unit: s.unit }] : []),
+          ...(cardioMinutes ? [{ label: "Cardio", value: <NumberFlow value={cardioMinutes} />, unit: "min" }] : [])
         ]}
       />
 
@@ -203,7 +207,7 @@ export function WorkoutPage({ id }: { id: string }) {
         </HoldButton>
       </div>
 
-      <ExercisePicker onClose={() => setAdding(false)} onPick={(exercise) => change((draft) => draft.entries.push(newEntry(exercise.id, { targetSets: 3 }, s.defaultRest)))} open={adding} />
+      <ExercisePicker onClose={() => setAdding(false)} onPick={(exercise) => change((draft) => draft.entries.push(newEntry(exercise.id, { targetSets: trackOf(exercise) === "cardio" ? 1 : 3 }, s.defaultRest)))} open={adding} />
       <DetailsSheet change={change} onClose={() => setDetails(false)} open={details} workout={workout} />
     </Page>
   );
@@ -286,12 +290,15 @@ function ExerciseCard({ workout, entry, index, label, live, change }: { workout:
   const history = useValue(sessions) as any[];
   const s = useValue(settings) as any;
   const target = useValue(pad) as any;
+  const running = useValue(setTimer) as any;
   const exercise = index_.get(entry.exerciseId) || { name: "Unknown exercise" };
   const entries = workout.entries as any[];
+  const track = trackOf(exercise);
+  const fields = FIELDS[track] as string[];
 
   const previous = useMemo(() => previousEntry(history, entry.exerciseId, { before: workout.startedAt, excludeId: workout.id }), [history, entry.exerciseId, workout.startedAt]);
   const prior = useMemo(() => personalRecords(exerciseHistory(history, entry.exerciseId, { before: workout.startedAt, excludeId: workout.id })), [history, entry.exerciseId, workout.startedAt]);
-  const hint = suggestion(previous?.entry, { repMin: entry.repMin, repMax: entry.repMax }, s.step);
+  const hint = suggestion(previous?.entry, { repMin: entry.repMin, repMax: entry.repMax }, s.step, track, format.speedUnit(s.unit));
 
   const changeEntry = (fn: (t: any, d: any) => void) =>
     change((draft) => {
@@ -301,35 +308,28 @@ function ExerciseCard({ workout, entry, index, label, live, change }: { workout:
 
   const toggle = (setIndex: number) => {
     const set = entry.sets[setIndex];
-    const ph = placeholderFor(entry, setIndex, previous?.entry, hint);
     if (set.done) return changeEntry((t) => (t.sets[setIndex].done = false));
-    const weight = set.weight ?? ph.weight ?? (exercise.equipment === "bodyweight" ? 0 : null);
-    const reps = set.reps ?? ph.reps;
-    if (reps == null || reps <= 0) return notify("Enter reps first", { status: "error" });
-    if (weight == null) return notify("Enter the weight first", { status: "error" });
-    const doneSet = { ...set, weight, reps, done: true };
-    changeEntry((t) => (t.sets[setIndex] = doneSet));
-    if (target?.setId === set.id) closePad();
+    const result = completeSet(workout.id, entry.id, set.id);
+    if (result.pr) setBurst(set.id);
+  };
+
+  // Cardio and timed sets: count down from the time you typed (or last
+  // time's), or run as a stopwatch when there's no target.
+  const startTimer = (setIndex: number) => {
+    const set = entry.sets[setIndex];
+    const ph = placeholderFor(entry, setIndex, previous?.entry, hint);
+    closePad();
     unlockAudio();
-    haptic(12);
-    if (isPersonalRecord(doneSet, prior)) {
-      setBurst(set.id);
-      haptic([12, 60, 12]);
-      notify("New PR", { detail: `${exercise.name} ${format.weight(weight)} × ${reps}` });
-    }
-    if (!live || set.type === "warmup") return;
-    if (restsAfter(entries, index)) startRest(entry.restSec ?? s.defaultRest, { sound: s.sound });
-    else {
-      const nextIndex = nextInSuperset(entries, index);
-      if (nextIndex !== null) notify(`Next: ${exerciseName(entries[nextIndex].exerciseId)}`, { status: "running" });
-    }
+    haptic(8);
+    startSetTimer({ workoutId: workout.id, entryId: entry.id, setId: set.id, name: exercise.name, target: set.seconds ?? ph.seconds, sound: s.sound });
   };
 
   const addSet = () =>
     changeEntry((t) => {
       const above = t.sets[t.sets.length - 1];
       const warm = above?.type === "warmup";
-      t.sets.push({ ...newSet(warm ? "working" : above?.type || "working"), weight: warm ? null : (above?.weight ?? null), reps: warm ? null : (above?.reps ?? null) });
+      const copied = Object.fromEntries(fields.map((f) => [f, warm ? null : (above?.[f] ?? null)]));
+      t.sets.push({ ...newSet(warm ? "working" : above?.type || "working"), ...copied });
     });
 
   const move = (delta: number) =>
@@ -371,7 +371,17 @@ function ExerciseCard({ workout, entry, index, label, live, change }: { workout:
     change((draft) => (draft.entries = draft.entries.filter((item: any) => item.id !== entry.id)));
   };
 
-  const range = entry.repMin && entry.repMax ? `${entry.repMin === entry.repMax ? entry.repMin : `${entry.repMin}–${entry.repMax}`} reps` : "";
+  const range =
+    track === "strength" && entry.repMin && entry.repMax ? `${entry.repMin === entry.repMax ? entry.repMin : `${entry.repMin}–${entry.repMax}`} reps` : track === "cardio" ? "Cardio" : track === "timed" ? "Timed" : "";
+  // Cardio has three inputs, so its "previous" numbers live in the ghosts instead of a column.
+  const grid = track === "cardio" ? "grid-cols-[30px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.25fr)_44px]" : "grid-cols-[34px_minmax(0,1fr)_76px_60px_44px]";
+  const headers =
+    track === "cardio"
+      ? ["Set", "Incl %", format.speedUnit(s.unit), "Time"]
+      : track === "timed"
+        ? ["Set", "Previous", "Time", "Reps"]
+        : ["Set", "Previous", s.unit, "Reps"];
+  const show = (name: string, value: number) => (name === "seconds" ? format.clock(value) : format.weight(value));
   let number = 0;
 
   return (
@@ -428,11 +438,12 @@ function ExerciseCard({ workout, entry, index, label, live, change }: { workout:
           {hint ? hint.text : "First time. This sets your baseline."}
         </p>
 
-        <div aria-hidden="true" className="mt-3 grid grid-cols-[34px_minmax(0,1fr)_76px_60px_44px] gap-1.5 px-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-          <span>Set</span>
-          <span>Previous</span>
-          <span className="text-center">{s.unit}</span>
-          <span className="text-center">Reps</span>
+        <div aria-hidden="true" className={cn("mt-3 grid gap-1.5 px-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase", grid)}>
+          {headers.map((h, i) => (
+            <span className={i >= (track === "cardio" ? 1 : 2) ? "text-center" : undefined} key={h}>
+              {h}
+            </span>
+          ))}
           <span />
         </div>
 
@@ -441,13 +452,17 @@ function ExerciseCard({ workout, entry, index, label, live, change }: { workout:
             {entry.sets.map((set: any, setIndex: number) => {
               if (set.type !== "warmup") number += 1;
               const ph = placeholderFor(entry, setIndex, previous?.entry, hint);
-              const pr = set.done && isPersonalRecord(set, prior);
-              const field = (name: "weight" | "reps") => {
+              const pr = set.done && isPersonalRecord(set, prior, track);
+              const timing = running?.setId === set.id;
+              const field = (name: string) => {
                 const active = target?.setId === set.id && target.field === name;
-                const value = active && !target.fresh ? target.text : set[name] != null ? format.weight(set[name]) : null;
+                const typing = active && !target.fresh;
+                const value = typing ? (name === "seconds" ? format.digitsAsClock(target.text) : target.text) : set[name] != null ? show(name, set[name]) : null;
+                const LABELS: Record<string, string> = { weight: "Weight", reps: "Reps", incline: "Incline", speed: "Speed", seconds: "Time" };
                 return (
                   <button
-                    aria-label={`${name === "weight" ? "Weight" : "Reps"}, set ${setIndex + 1}`}
+                    aria-label={`${LABELS[name]}, set ${setIndex + 1}`}
+                    key={name}
                     className={cn(
                       "relative grid h-10 place-items-center rounded-xl text-[17px] font-semibold tabular transition-colors",
                       set.done ? "bg-transparent" : "bg-muted",
@@ -459,14 +474,14 @@ function ExerciseCard({ workout, entry, index, label, live, change }: { workout:
                     type="button"
                   >
                     {active ? <motion.span className="absolute inset-0 rounded-xl bg-card ring-2 ring-primary" layoutId="pad-focus" transition={spring} /> : null}
-                    <span className="relative">{value ?? (ph[name] != null ? format.weight(ph[name]) : "")}</span>
+                    <span className="relative">{value ?? (ph[name] != null ? show(name, ph[name]) : "")}</span>
                   </button>
                 );
               };
               return (
                 <motion.div
                   animate={{ opacity: 1, height: "auto" }}
-                  className={cn("relative -mx-1.5 grid grid-cols-[34px_minmax(0,1fr)_76px_60px_44px] items-center gap-1.5 rounded-2xl px-3 py-1 transition-colors duration-300", set.done && "bg-success/12")}
+                  className={cn("relative -mx-1.5 grid items-center gap-1.5 rounded-2xl px-3 py-1 transition-colors duration-300", grid, set.done && "bg-success/12", timing && "bg-primary/12")}
                   exit={{ opacity: 0, height: 0 }}
                   initial={{ opacity: 0, height: 0 }}
                   key={set.id}
@@ -483,39 +498,65 @@ function ExerciseCard({ workout, entry, index, label, live, change }: { workout:
                   >
                     {TYPE_LABEL[set.type] || number}
                   </button>
-                  <button
-                    aria-label={ph.prev ? `Copy last time, ${format.weight(ph.prev.weight)} by ${ph.prev.reps}` : "No previous set"}
-                    className="h-10 truncate pl-1 text-left text-[14.5px] text-muted-foreground tabular disabled:text-muted-foreground/40"
-                    disabled={!ph.prev}
-                    onClick={() =>
-                      ph.prev &&
-                      changeEntry((t) => {
-                        t.sets[setIndex].weight = Number(ph.prev.weight) || 0;
-                        t.sets[setIndex].reps = Number(ph.prev.reps) || 0;
-                      })
-                    }
-                    type="button"
-                  >
-                    {ph.prev ? `${format.weight(ph.prev.weight)} × ${ph.prev.reps}` : "—"}
-                  </button>
-                  {field("weight")}
-                  {field("reps")}
-                  <motion.button
-                    animate={{ scale: set.done ? [1, 1.18, 1] : 1 }}
-                    aria-label={set.done ? "Mark set not done" : "Complete set"}
-                    aria-pressed={set.done}
-                    className={cn(
-                      "relative grid h-10 place-items-center rounded-xl transition-colors",
-                      pr ? "bg-gradient-to-br from-amber-300 to-orange-500 text-white shadow-[0_6px_16px_-6px_#f59e0b]" : set.done ? "bg-success text-white" : "bg-muted text-muted-foreground/60"
-                    )}
-                    onClick={() => toggle(setIndex)}
-                    transition={{ duration: 0.35 }}
-                    type="button"
-                    whileTap={{ scale: 0.88 }}
-                  >
-                    {pr ? <Trophy className="size-[18px]" strokeWidth={2.4} /> : <Check className="size-5" strokeWidth={3} />}
-                    {burst === set.id ? <Burst color="#f59e0b" onDone={() => setBurst(null)} originX={22} /> : null}
-                  </motion.button>
+                  {track !== "cardio" ? (
+                    <button
+                      aria-label={ph.prev ? `Copy last time, ${format.shortSet(ph.prev, track)}` : "No previous set"}
+                      className="h-10 truncate pl-1 text-left text-[14.5px] text-muted-foreground tabular disabled:text-muted-foreground/40"
+                      disabled={!ph.prev}
+                      onClick={() =>
+                        ph.prev &&
+                        changeEntry((t) => {
+                          for (const f of fields) t.sets[setIndex][f] = ph.prev[f] != null ? Number(ph.prev[f]) : track === "strength" ? 0 : null;
+                        })
+                      }
+                      type="button"
+                    >
+                      {ph.prev ? format.shortSet(ph.prev, track) : "—"}
+                    </button>
+                  ) : null}
+                  {fields.map((name) => field(name))}
+                  {timing ? (
+                    <motion.button
+                      animate={{ scale: [1, 1.06, 1] }}
+                      aria-label="Stop timer and log this set"
+                      className="relative grid h-10 place-items-center rounded-xl bg-primary text-primary-foreground"
+                      onClick={() => {
+                        const result = finishSetTimer();
+                        if (result?.pr) setBurst(set.id);
+                      }}
+                      transition={{ duration: 1.2, repeat: Infinity }}
+                      type="button"
+                    >
+                      <Square className="size-4 fill-current" strokeWidth={2.4} />
+                    </motion.button>
+                  ) : track !== "strength" && !set.done && set.seconds == null ? (
+                    <motion.button
+                      aria-label={ph.seconds ? `Start a ${format.clock(ph.seconds)} countdown` : "Start a stopwatch"}
+                      className="relative grid h-10 place-items-center rounded-xl bg-primary/15 text-primary"
+                      onClick={() => startTimer(setIndex)}
+                      type="button"
+                      whileTap={{ scale: 0.88 }}
+                    >
+                      <Play className="size-[18px] fill-current" strokeWidth={2.4} />
+                    </motion.button>
+                  ) : (
+                    <motion.button
+                      animate={{ scale: set.done ? [1, 1.18, 1] : 1 }}
+                      aria-label={set.done ? "Mark set not done" : "Complete set"}
+                      aria-pressed={set.done}
+                      className={cn(
+                        "relative grid h-10 place-items-center rounded-xl transition-colors",
+                        pr ? "bg-gradient-to-br from-amber-300 to-orange-500 text-white shadow-[0_6px_16px_-6px_#f59e0b]" : set.done ? "bg-success text-white" : "bg-muted text-muted-foreground/60"
+                      )}
+                      onClick={() => toggle(setIndex)}
+                      transition={{ duration: 0.35 }}
+                      type="button"
+                      whileTap={{ scale: 0.88 }}
+                    >
+                      {pr ? <Trophy className="size-[18px]" strokeWidth={2.4} /> : <Check className="size-5" strokeWidth={3} />}
+                      {burst === set.id ? <Burst color="#f59e0b" onDone={() => setBurst(null)} originX={22} /> : null}
+                    </motion.button>
+                  )}
                 </motion.div>
               );
             })}
@@ -528,16 +569,18 @@ function ExerciseCard({ workout, entry, index, label, live, change }: { workout:
 
       <Sheet onClose={() => setSheet(null)} open={sheet === "menu"} title={exercise.name}>
         <Card className="divide-y divide-border">
-          <Row
-            icon={Flame}
-            iconClass="bg-amber-500/15 text-amber-500"
-            onClick={() => {
-              setSheet(null);
-              addWarmups();
-            }}
-            subtitle="Ramp up to your working weight"
-            title="Add warm-up sets"
-          />
+          {track === "strength" ? (
+            <Row
+              icon={Flame}
+              iconClass="bg-amber-500/15 text-amber-500"
+              onClick={() => {
+                setSheet(null);
+                addWarmups();
+              }}
+              subtitle="Ramp up to your working weight"
+              title="Add warm-up sets"
+            />
+          ) : null}
           {index < entries.length - 1 && !(label && !label.last) ? (
             <Row
               icon={Link2}
@@ -618,6 +661,21 @@ function ExerciseCard({ workout, entry, index, label, live, change }: { workout:
                 </Row>
               ))}
             </Card>
+            {track !== "strength" && !entry.sets[sheet.type].done ? (
+              <Card>
+                <Row
+                  icon={Play}
+                  onClick={() => {
+                    const at = sheet.type;
+                    setSheet(null);
+                    startTimer(at);
+                  }}
+                  subtitle={entry.sets[sheet.type].seconds ? `Counts down from ${format.clock(entry.sets[sheet.type].seconds)}` : "Counts down from last time, or runs as a stopwatch"}
+                  title="Start timer"
+                  tone="action"
+                />
+              </Card>
+            ) : null}
             <Card>
               <Row
                 disabled={entry.sets.length <= 1}
@@ -714,7 +772,16 @@ function PeekSheet({ open, onClose, id, workout }: { open: boolean; onClose: () 
   const s = useValue(settings) as any;
   const points = useMemo(() => (open ? exerciseHistory(history, id, { excludeId: workout.id }) : []), [open, history, id]) as any[];
   const records_ = personalRecords(points);
-  const bodyweight = points.length > 0 && points.every((p) => p.topWeight === 0);
+  const track = trackOf(exerciseIndex.value.get(id));
+  const bodyweight = track === "strength" && points.length > 0 && points.every((p) => p.topWeight === 0);
+  const chart =
+    track === "cardio"
+      ? { caption: "Total time", unit: "min", y: (p: any) => Math.round((p.seconds / 60) * 10) / 10, decimals: 1 }
+      : track === "timed"
+        ? { caption: "Longest set", unit: "sec", y: (p: any) => p.longest, decimals: 0 }
+        : bodyweight
+          ? { caption: "Total reps", unit: "reps", y: (p: any) => p.totalReps, decimals: 0 }
+          : { caption: "Estimated 1RM", unit: s.unit, y: (p: any) => p.bestE1rm, decimals: 0 };
   return (
     <Sheet onClose={onClose} open={open} tall title={exerciseName(id)}>
       {!points.length ? (
@@ -725,15 +792,28 @@ function PeekSheet({ open, onClose, id, workout }: { open: boolean; onClose: () 
         <>
           <Card className="p-4">
             <LineChart
-              caption={bodyweight ? "Total reps" : "Estimated 1RM"}
+              caption={chart.caption}
+              decimals={chart.decimals}
               height={160}
-              points={points.slice(-20).map((p) => ({ x: p.date, y: bodyweight ? p.totalReps : p.bestE1rm, note: `Top set ${format.weight(p.topSet.weight)} × ${p.topSet.reps}` }))}
-              unit={bodyweight ? "reps" : s.unit}
+              points={points.slice(-20).map((p) => ({ x: p.date, y: chart.y(p), note: `Best ${format.shortSet(p.topSet, track)}` }))}
+              unit={chart.unit}
             />
           </Card>
           <StatTiles
             items={
-              bodyweight
+              track === "cardio"
+                ? [
+                    { label: "Longest", value: format.clock(records_.session?.seconds || 0) },
+                    { label: "Farthest", value: format.distance(records_.distance?.value || 0), unit: format.distanceUnit(s.unit) },
+                    { label: "Steepest", value: format.weight(records_.incline?.value || 0), unit: "%" }
+                  ]
+                : track === "timed"
+                  ? [
+                      { label: "Longest set", value: format.clock(records_.longest?.seconds || 0) },
+                      { label: "Most reps", value: records_.reps?.reps || "—" },
+                      { label: "Sessions", value: points.length }
+                    ]
+                  : bodyweight
                 ? [
                     { label: "Most reps", value: records_.reps?.reps || 0 },
                     { label: "Sessions", value: points.length },
@@ -752,7 +832,7 @@ function PeekSheet({ open, onClose, id, workout }: { open: boolean; onClose: () 
                 .reverse()
                 .slice(0, 5)
                 .map((p) => (
-                  <Row key={p.workoutId} subtitle={p.sets.map((x: any) => `${format.weight(x.weight)}×${x.reps}`).join(", ")} title={format.date(p.date)} />
+                  <Row key={p.workoutId} subtitle={p.sets.map((x: any) => format.shortSet(x, track)).join(", ")} title={format.date(p.date)} />
                 ))}
             </Card>
           </Section>

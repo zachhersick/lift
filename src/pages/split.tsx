@@ -10,9 +10,9 @@ import { Button } from "@/components/ui/button";
 import { addDay, applyTemplate } from "@/lib/actions.js";
 import { ask } from "@/lib/dialogs";
 import { TEMPLATES } from "@/lib/exercises.js";
-import { lastDoneAt, nextSplitDay, supersetLabels, uid } from "@/lib/model.js";
+import { lastDoneAt, nextSplitDay, supersetLabels, trackOf, uid } from "@/lib/model.js";
 import { go } from "@/lib/router.js";
-import { exerciseName, finishedWorkouts, records, remove, saveMany, settings, splitDays, update } from "@/lib/store.js";
+import { exerciseIndex, exerciseName, finishedWorkouts, records, remove, saveMany, settings, splitDays, update } from "@/lib/store.js";
 import * as format from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
 
@@ -160,7 +160,7 @@ export function DayEditor({ id }: { id: string }) {
                 <DragRow key={item.key} onDragEnd={persistOrder} value={item}>
                   <Row
                     onClick={() => setTarget(index)}
-                    subtitle={`${item.targetSets || 3} × ${item.repMin && item.repMax ? (item.repMin === item.repMax ? item.repMin : `${item.repMin}–${item.repMax}`) : "?"} · rest ${format.rest(item.restSec ?? s.defaultRest)}`}
+                    subtitle={`${item.targetSets || 3} × ${trackOf(exerciseIndex.value.get(item.exerciseId)) !== "strength" ? (trackOf(exerciseIndex.value.get(item.exerciseId)) === "cardio" ? "cardio" : "timed") : item.repMin && item.repMax ? (item.repMin === item.repMax ? item.repMin : `${item.repMin}–${item.repMax}`) : "?"} · rest ${format.rest(item.restSec ?? s.defaultRest)}`}
                     title={
                       <span className="flex items-center gap-2">
                         {labels[index] ? (
@@ -192,7 +192,7 @@ export function DayEditor({ id }: { id: string }) {
         onClose={() => setAdding(false)}
         onPick={(exercise) =>
           change((d) => {
-            d.exercises = [...(d.exercises || []), { exerciseId: exercise.id, targetSets: 3, repMin: 8, repMax: 12, restSec: s.defaultRest }];
+            d.exercises = [...(d.exercises || []), { exerciseId: exercise.id, targetSets: trackOf(exercise) === "cardio" ? 1 : 3, repMin: 8, repMax: 12, restSec: s.defaultRest }];
           })
         }
         open={adding}
@@ -216,6 +216,7 @@ function TargetSheet({ open, index, items, onClose, onSave }: { open: boolean; i
   }, [open, index]);
   if (!draft || index === null) return null;
   const hasNext = index < items.length - 1;
+  const track = trackOf(exerciseIndex.value.get(draft.exerciseId));
 
   const saveIt = () => {
     const list = items.map((item) => ({ ...item }));
@@ -245,6 +246,7 @@ function TargetSheet({ open, index, items, onClose, onSave }: { open: boolean; i
           <Stepper label="sets" max={12} min={1} onChange={(v) => setDraft({ ...draft, targetSets: v })} value={draft.targetSets || 3} />
         </Row>
       </Card>
+      {track === "strength" ? (
       <Section footer={`When every set reaches the top of the range, Lift suggests adding ${format.weight(s.step)} ${s.unit}.`} title="Rep range">
         <Card className="flex justify-center py-2">
           <WheelPicker
@@ -258,6 +260,9 @@ function TargetSheet({ open, index, items, onClose, onSave }: { open: boolean; i
           />
         </Card>
       </Section>
+      ) : (
+        <p className="px-1 text-[13px] text-muted-foreground">{track === "cardio" ? "Cardio sets log incline, speed and time." : "Timed sets log a time, with optional reps."} Each set can use the built-in timer.</p>
+      )}
       <Section title="Rest between sets">
         <div className="flex flex-wrap gap-2">
           {RESTS.map((sec) => (

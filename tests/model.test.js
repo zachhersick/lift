@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  bodyweightId, dailyVolume, dateKey, defaultWeeklyGoal, e1rm, exerciseHistory, isPersonalRecord, movingAverage, muscleSets, nextInSuperset,
+  bodyweightId, cardioSeconds, dailyVolume, dateKey, defaultWeeklyGoal, e1rm, FIELDS, isComplete, setDistance, trackOf, exerciseHistory, isPersonalRecord, movingAverage, muscleSets, nextInSuperset,
   nextSplitDay, personalRecords, placeholderFor, plateBreakdown, previousEntry, previousSession, restsAfter, roundLoadable,
   splitDiff, startOfWeek, suggestion, supersetLabels, trend, warmupSets, weekStreak, weekSummary, workoutFromDay, workoutVolume
 } from "../src/lib/model.js";
@@ -219,6 +219,84 @@ test('week summary counts sessions in range, not rest days', () => {
     workout('r', 15, 'rest', [], { rest: true }),
     workout('old', 1, 'push', [entry('bench', [set(100, 10)])])
   ];
-  assert.deepEqual(weekSummary(list, 5, 25), { count: 2, sets: 3, volume: 2300 });
-  assert.deepEqual(weekSummary(list, 30), { count: 0, sets: 0, volume: 0 });
+  assert.deepEqual(weekSummary(list, 5, 25), { count: 2, sets: 3, volume: 2300, cardioMinutes: 0 });
+  assert.deepEqual(weekSummary(list, 30), { count: 0, sets: 0, volume: 0, cardioMinutes: 0 });
+});
+
+
+const cardioSet = (incline, speed, seconds, extra = {}) => ({ id: 'c' + Math.random(), incline, speed, seconds, type: 'working', done: true, ...extra });
+const timedSet = (seconds, reps = null, extra = {}) => ({ id: 't' + Math.random(), seconds, reps, type: 'working', done: true, ...extra });
+
+test('tracking types and their fields', () => {
+  assert.equal(trackOf({}), 'strength');
+  assert.equal(trackOf({ track: 'cardio' }), 'cardio');
+  assert.equal(trackOf({ track: 'nonsense' }), 'strength');
+  assert.deepEqual(FIELDS.cardio, ['incline', 'speed', 'seconds']);
+  assert.deepEqual(FIELDS.timed, ['seconds', 'reps']);
+});
+
+test('completion: reps for strength, time for cardio and timed', () => {
+  assert.equal(isComplete({ weight: 0, reps: 10 }), true);
+  assert.equal(isComplete({ weight: null, reps: 10 }), false);
+  assert.equal(isComplete({ seconds: 1200 }, 'cardio'), true, 'incline and speed are optional');
+  assert.equal(isComplete({ incline: 12, speed: 3 }, 'cardio'), false);
+  assert.equal(isComplete({ seconds: 30 }, 'timed'), true);
+  assert.equal(isComplete({ reps: 12 }, 'timed'), false);
+});
+
+test('distance comes from speed and time', () => {
+  assert.equal(setDistance({ speed: 3, seconds: 1200 }), 1);
+  assert.equal(setDistance({ seconds: 600 }), 0);
+});
+
+test('placeholders carry cardio and timed fields from last time', () => {
+  const prevCardio = entry('walk', [cardioSet(12, 3.2, 1200)]);
+  const ph = placeholderFor({ sets: [{ type: 'working' }] }, 0, prevCardio, null);
+  assert.deepEqual([ph.incline, ph.speed, ph.seconds], [12, 3.2, 1200]);
+  const prevTimed = entry('box', [timedSet(30), timedSet(45, 12)]);
+  const second = placeholderFor({ sets: [{ type: 'working' }, { type: 'working' }] }, 1, prevTimed, null);
+  assert.deepEqual([second.seconds, second.reps], [45, 12]);
+  assert.equal(placeholderFor({ sets: [{ type: 'working' }] }, 0, prevTimed, null).reps, null, 'reps stay empty when not logged');
+});
+
+test('cardio and timed history, records and PRs', () => {
+  const list = [
+    workout('a', 1, 'cardio', [entry('walk', [cardioSet(10, 3, 1200)])]),
+    workout('b', 2, 'cardio', [entry('walk', [cardioSet(12, 3.2, 900)])])
+  ];
+  const history = exerciseHistory(list, 'walk');
+  assert.equal(history[0].seconds, 1200);
+  assert.equal(history[0].distance, 1);
+  assert.equal(history[1].maxIncline, 12);
+  const records = personalRecords(history);
+  assert.equal(records.longest.seconds, 1200);
+  assert.equal(records.distance.value, 1);
+  assert.equal(records.speed.value, 3.2);
+  assert.ok(isPersonalRecord(cardioSet(12, 3.2, 1500), records, 'cardio'), 'longer');
+  assert.ok(isPersonalRecord(cardioSet(13, 3, 600), records, 'cardio'), 'steeper');
+  assert.ok(!isPersonalRecord(cardioSet(10, 3, 600), records, 'cardio'));
+  assert.ok(!isPersonalRecord(cardioSet(10, 3, 600), personalRecords([]), 'cardio'), 'nothing to beat the first time');
+
+  const box = personalRecords(exerciseHistory([workout('c', 1, 'plyo', [entry('box', [timedSet(30, 10), timedSet(40)])])], 'box'));
+  assert.equal(box.longest.seconds, 40);
+  assert.equal(box.reps.reps, 10);
+  assert.ok(isPersonalRecord(timedSet(45), box, 'timed'));
+  assert.ok(isPersonalRecord(timedSet(20, 12), box, 'timed'), 'more reps');
+  assert.ok(!isPersonalRecord(timedSet(20), box, 'timed'));
+});
+
+test('hints for cardio and timed', () => {
+  const cardio = suggestion(entry('walk', [cardioSet(12, 3.2, 1200)]), {}, 5, 'cardio', 'mph');
+  assert.equal(cardio.kind, 'cardio');
+  assert.match(cardio.text, /20:00 at 12% · 3.2 mph/);
+  assert.equal(suggestion(entry('box', [timedSet(30), timedSet(45)]), {}, 5, 'timed').text, 'Beat 0:45');
+});
+
+test('cardio minutes in the week, and no cardio in muscle sets', () => {
+  const index = new Map([['walk', { track: 'cardio', muscle: 'cardio' }], ['box', { track: 'timed', muscle: 'full body' }], ['bench', { muscle: 'chest' }]]);
+  const list = [workout('a', 10, 'mix', [entry('walk', [cardioSet(12, 3, 1200)]), entry('box', [timedSet(30), timedSet(30)]), entry('bench', [set(100, 8)])])];
+  assert.equal(weekSummary(list, 0, Infinity, index).cardioMinutes, 20);
+  assert.equal(cardioSeconds(list[0]), 1200, 'without an index, speed/incline marks cardio');
+  assert.deepEqual(muscleSets(list, index, 0), [{ muscle: 'full body', sets: 2 }, { muscle: 'chest', sets: 1 }]);
+  assert.equal(workoutVolume(list[0]), 800, 'volume stays lifting only');
 });

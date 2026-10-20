@@ -1,7 +1,7 @@
 // The built-in exercise library and starter splits. Built-ins live in code,
 // not in the database; only exercises you create (or edit) are stored.
 
-export const MUSCLES = ["chest", "back", "shoulders", "biceps", "triceps", "forearms", "quads", "hamstrings", "glutes", "calves", "core", "full body"];
+export const MUSCLES = ["chest", "back", "shoulders", "biceps", "triceps", "forearms", "quads", "hamstrings", "glutes", "calves", "core", "full body", "cardio"];
 export const EQUIPMENT = ["barbell", "dumbbell", "machine", "cable", "bodyweight", "smith", "kettlebell", "band", "other"];
 
 const LIST = [
@@ -111,7 +111,8 @@ const LIST = [
   ["Seated Calf Raise", "calves", "machine"],
   ["Leg Press Calf Raise", "calves", "machine"],
   // core
-  ["Plank", "core", "bodyweight"],
+  ["Plank", "core", "bodyweight", "timed"],
+  ["Side Plank", "core", "bodyweight", "timed"],
   ["Hanging Leg Raise", "core", "bodyweight"],
   ["Cable Crunch", "core", "cable"],
   ["Ab Wheel Rollout", "core", "other"],
@@ -121,12 +122,32 @@ const LIST = [
   // full body
   ["Power Clean", "full body", "barbell"],
   ["Kettlebell Swing", "full body", "kettlebell"],
-  ["Farmer's Carry", "full body", "dumbbell"]
+  ["Farmer's Carry", "full body", "dumbbell"],
+  ["Wall Sit", "quads", "bodyweight", "timed"],
+  // plyo and conditioning: time, optional reps
+  ["Box Jumps", "full body", "bodyweight", "timed"],
+  ["Jump Rope", "full body", "other", "timed"],
+  ["Burpees", "full body", "bodyweight", "timed"],
+  ["Jumping Jacks", "full body", "bodyweight", "timed"],
+  ["Mountain Climbers", "core", "bodyweight", "timed"],
+  ["Broad Jumps", "full body", "bodyweight", "timed"],
+  ["Skater Hops", "full body", "bodyweight", "timed"],
+  ["Battle Ropes", "full body", "other", "timed"],
+  ["Sled Push", "full body", "other", "timed"],
+  // cardio: incline, speed, time
+  ["Treadmill Walk", "cardio", "machine", "cardio"],
+  ["Incline Walk", "cardio", "machine", "cardio"],
+  ["Treadmill Run", "cardio", "machine", "cardio"],
+  ["StairMaster", "cardio", "machine", "cardio"],
+  ["Stationary Bike", "cardio", "machine", "cardio"],
+  ["Elliptical", "cardio", "machine", "cardio"],
+  ["Rowing Machine", "cardio", "machine", "cardio"],
+  ["Assault Bike", "cardio", "machine", "cardio"]
 ];
 
 export const slug = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
-export const BUILT_IN = LIST.map(([name, muscle, equipment]) => ({ id: `b_${slug(name)}`, kind: "exercise", name, muscle, equipment, builtIn: true }));
+export const BUILT_IN = LIST.map(([name, muscle, equipment, track = "strength"]) => ({ id: `b_${slug(name)}`, kind: "exercise", name, muscle, equipment, track, builtIn: true }));
 
 const ex = (name) => `b_${slug(name)}`;
 const item = (name, targetSets, repMin, repMax, restSec) => ({ exerciseId: ex(name), targetSets, repMin, repMax, restSec });

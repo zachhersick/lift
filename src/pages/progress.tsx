@@ -9,7 +9,7 @@ import { LineChart, Sparkline } from "@/components/chart";
 import { Card, Empty, FadeIn, Page, Row, Section, Segmented, StatTiles, TopBar } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { ask } from "@/lib/dialogs";
-import { dateKey, exerciseHistory, finished, personalRecords, trend, workingSets } from "@/lib/model.js";
+import { dateKey, exerciseHistory, finished, personalRecords, trackOf, trend, workingSets } from "@/lib/model.js";
 import { go } from "@/lib/router.js";
 import { bodyweights, exerciseIndex, remove, sessions, settings } from "@/lib/store.js";
 import * as format from "@/lib/format.js";
@@ -131,8 +131,8 @@ export function Progress() {
             <Card className="divide-y divide-border">
               {shown.map((row, i) => (
                 <motion.div animate={{ opacity: 1 }} initial={{ opacity: 0 }} key={row.id} transition={{ delay: Math.min(i, 10) * 0.03 }}>
-                  <Row chevron onClick={() => go(`exercise/${row.id}`)} subtitle={`${format.weight(row.last.topSet.weight)} × ${row.last.topSet.reps} · ${format.relativeDay(row.last.date)}`} title={row.exercise?.name || "Unknown exercise"}>
-                    <Sparkline values={row.history.slice(-12).map((p: any) => p.bestE1rm || p.totalReps)} width={52} />
+                  <Row chevron onClick={() => go(`exercise/${row.id}`)} subtitle={`${format.shortSet(row.last.topSet, trackOf(row.exercise))} · ${format.relativeDay(row.last.date)}`} title={row.exercise?.name || "Unknown exercise"}>
+                    <Sparkline values={row.history.slice(-12).map((p: any) => p.score ?? (p.bestE1rm || p.totalReps))} width={52} />
                     <TrendBadge value={row.trend} />
                   </Row>
                 </motion.div>
@@ -162,7 +162,8 @@ export function ExerciseDetail({ id }: { id: string }) {
   const exercise = index.get(id);
   const history = useMemo(() => exerciseHistory(list, id) as any[], [list, id]);
   const records = useMemo(() => personalRecords(history), [history]);
-  const bodyweight = history.length > 0 && history.every((p) => p.topWeight === 0);
+  const track = trackOf(exercise);
+  const bodyweight = track === "strength" && history.length > 0 && history.every((p) => p.topWeight === 0);
 
   if (!exercise) {
     return (
@@ -175,10 +176,25 @@ export function ExerciseDetail({ id }: { id: string }) {
 
   const from = range ? Date.now() - range * 86_400_000 : 0;
   const inRange = history.filter((p) => p.date >= from);
-  const chart = (caption: string, unit: string, value: (p: any) => number) => (
-    <LineChart caption={caption} height={170} points={inRange.map((p) => ({ x: p.date, y: value(p), note: `Top set ${format.weight(p.topSet.weight)} × ${p.topSet.reps}` }))} unit={unit} />
+  const chart = (caption: string, unit: string, value: (p: any) => number, decimals = 0) => (
+    <LineChart caption={caption} decimals={decimals} height={170} points={inRange.map((p) => ({ x: p.date, y: value(p), note: `Best ${format.shortSet(p.topSet, track)}` }))} unit={unit} />
   );
-  const tabs = bodyweight
+  const minutes = (seconds: number) => Math.round((seconds / 60) * 10) / 10;
+  const tabs =
+    track === "cardio"
+      ? [
+          { id: "time", title: "Time", content: chart("Total time", "min", (p) => minutes(p.seconds), 1) },
+          { id: "distance", title: "Distance", content: chart("Distance", format.distanceUnit(s.unit), (p) => Math.round(p.distance * 100) / 100, 2) },
+          { id: "speed", title: "Speed", content: chart("Top speed", format.speedUnit(s.unit), (p) => p.topSpeed, 1) },
+          { id: "incline", title: "Incline", content: chart("Steepest incline", "%", (p) => p.maxIncline, 1) }
+        ]
+      : track === "timed"
+        ? [
+            { id: "longest", title: "Longest", content: chart("Longest set", "sec", (p) => p.longest) },
+            { id: "total", title: "Total", content: chart("Total time", "min", (p) => minutes(p.seconds), 1) },
+            { id: "reps", title: "Reps", content: chart("Total reps", "reps", (p) => p.totalReps) }
+          ]
+        : bodyweight
     ? [{ id: "reps", title: "Reps", content: chart("Total reps", "reps", (p) => p.totalReps) }]
     : [
         { id: "e1rm", title: "Est. 1RM", content: chart("Estimated 1RM", s.unit, (p) => p.bestE1rm) },
@@ -211,7 +227,20 @@ export function ExerciseDetail({ id }: { id: string }) {
 
           <StatTiles
             items={
-              bodyweight
+              track === "cardio"
+                ? [
+                    { label: "Longest", value: format.clock(records.session?.seconds || 0), sub: records.session ? format.shortDate(records.session.date) : "" },
+                    { label: "Farthest", value: format.distance(records.distance?.value || 0), unit: format.distanceUnit(s.unit), sub: records.distance ? format.shortDate(records.distance.date) : "" },
+                    { label: "Fastest", value: format.weight(records.speed?.value || 0), unit: format.speedUnit(s.unit), sub: records.speed ? format.shortDate(records.speed.date) : "" },
+                    { label: "Steepest", value: format.weight(records.incline?.value || 0), unit: "%", sub: records.incline ? format.shortDate(records.incline.date) : "" }
+                  ]
+                : track === "timed"
+                  ? [
+                      { label: "Longest set", value: format.clock(records.longest?.seconds || 0), sub: records.longest ? format.shortDate(records.longest.date) : "" },
+                      { label: "Most reps", value: records.reps?.reps || "—", sub: records.reps ? format.shortDate(records.reps.date) : "" },
+                      { label: "Sessions", value: history.length }
+                    ]
+                  : bodyweight
                 ? [
                     { label: "Most reps", value: records.reps?.reps || 0, sub: records.reps ? format.shortDate(records.reps.date) : "" },
                     { label: "Best session", value: `${Math.max(...history.map((p) => p.totalReps))}`, unit: "reps" },
@@ -226,7 +255,7 @@ export function ExerciseDetail({ id }: { id: string }) {
             }
           />
 
-          {!bodyweight && repRecords.length > 1 ? (
+          {track === "strength" && !bodyweight && repRecords.length > 1 ? (
             <Section title="Best reps at each weight">
               <Card className="divide-y divide-border">
                 {repRecords.map(([weight, record]: any) => (
@@ -239,7 +268,7 @@ export function ExerciseDetail({ id }: { id: string }) {
           <Section title="History">
             <Card className="divide-y divide-border">
               {[...history].reverse().map((p) => (
-                <Row chevron key={p.workoutId} onClick={() => go(`history/${p.workoutId}`)} subtitle={p.sets.map((x: any) => `${format.weight(x.weight)}×${x.reps}`).join(", ")} title={format.date(p.date)} />
+                <Row chevron key={p.workoutId} onClick={() => go(`history/${p.workoutId}`)} subtitle={p.sets.map((x: any) => format.shortSet(x, track)).join(", ")} title={format.date(p.date)} />
               ))}
             </Card>
           </Section>
