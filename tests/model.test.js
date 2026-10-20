@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  bodyweightId, dailyVolume, dateKey, e1rm, exerciseHistory, isPersonalRecord, movingAverage, muscleSets, nextInSuperset,
+  bodyweightId, dailyVolume, dateKey, defaultWeeklyGoal, e1rm, exerciseHistory, isPersonalRecord, movingAverage, muscleSets, nextInSuperset,
   nextSplitDay, personalRecords, placeholderFor, plateBreakdown, previousEntry, previousSession, restsAfter, roundLoadable,
-  splitDiff, startOfWeek, suggestion, supersetLabels, trend, warmupSets, weekStreak, workoutFromDay, workoutVolume
-} from "../public/app/model.js";
+  splitDiff, startOfWeek, suggestion, supersetLabels, trend, warmupSets, weekStreak, weekSummary, workoutFromDay, workoutVolume
+} from "../src/lib/model.js";
 
 const day = (id, position, extra = {}) => ({ id, kind: "splitDay", name: id, position, exercises: [], ...extra });
 const set = (weight, reps, extra = {}) => ({ id: `${weight}-${reps}-${Math.random()}`, weight, reps, type: "working", done: true, ...extra });
@@ -202,4 +202,23 @@ test('previous session is the last one of the same split day', () => {
   const list = [workout('a', 1, 'push'), workout('b', 2, 'pull'), workout('c', 3, 'push'), workout('d', 4, 'push')];
   assert.equal(previousSession(list, list[3]).id, 'c');
   assert.equal(previousSession(list, list[0]), null);
+});
+
+
+test('weekly goal defaults to the training days the rotation fits into a week', () => {
+  assert.equal(defaultWeeklyGoal([day('push', 0), day('pull', 1), day('legs', 2), day('rest', 3, { rest: true })]), 5);
+  assert.equal(defaultWeeklyGoal([day('upper', 0), day('lower', 1), day('rest', 2, { rest: true })]), 5);
+  assert.equal(defaultWeeklyGoal([day('a', 0), day('r1', 1, { rest: true }), day('b', 2), day('r2', 3, { rest: true })]), 4);
+  assert.equal(defaultWeeklyGoal([]), 3);
+});
+
+test('week summary counts sessions in range, not rest days', () => {
+  const list = [
+    workout('a', 10, 'push', [entry('bench', [set(100, 10), set(100, 8)])]),
+    workout('b', 20, 'pull', [entry('row', [set(50, 10)])]),
+    workout('r', 15, 'rest', [], { rest: true }),
+    workout('old', 1, 'push', [entry('bench', [set(100, 10)])])
+  ];
+  assert.deepEqual(weekSummary(list, 5, 25), { count: 2, sets: 3, volume: 2300 });
+  assert.deepEqual(weekSummary(list, 30), { count: 0, sets: 0, volume: 0 });
 });

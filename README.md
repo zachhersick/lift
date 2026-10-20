@@ -4,20 +4,20 @@ A workout tracker for your gym split. Log the sets, weight and reps for every ex
 
 ## What it does
 
-The look follows iOS: system colors, inset grouped lists, SF Rounded numbers, large titles that shrink as you scroll, sheets you can drag down to dismiss, and haptics on iOS 18+. It follows light/dark mode, and you can pick the accent color.
+The look is dark-first and layered: glass surfaces, your accent color as soft gradients, a live shader behind the Up Next card and the Workout Complete screen, springy motion, animated numbers and activity rings. It's built with React, Tailwind, [motion](https://motion.dev), [Kokonut UI](https://kokonutui.com) components and [Paper Shaders](https://shaders.paper.design). Light mode and six accent colors are in Settings.
 
-- **Today** shows the next day in your rotation (Push → Pull → Legs → Rest → repeat) with each exercise's target and last time's top set, then **Start**. Below that: this week's workouts, sets and volume; **sets per muscle** this week against a 10–20 set band; a 12-week **consistency** heatmap with your streak; your **bodyweight**; and recent PRs. Doing a different day than suggested just moves the rotation along.
+- **Today** shows the next day in your rotation (Push → Pull → Legs → Rest → repeat) on a live gradient, with last time's top set for each exercise and **Start**. Below that: **activity rings** for the week (workouts against your weekly goal, sets and volume against last week), **sets per muscle** against a 10–20 set band, a 3D **consistency** terrain of the last four months with your streak, your **bodyweight**, and recent PRs. Doing a different day than suggested just moves the rotation along.
 - **Workout**: one card per exercise with `SET · PREVIOUS · LB · REPS · ✓`.
   - **Number pad.** Weight and reps use a docked keypad instead of the iPhone keyboard. **±** buttons step by your weight jump, **Next** goes weight → reps → next set → next exercise, and the barbell key opens the **plate calculator** (plates per side for your bar and the plates your gym has).
   - **Smart fill.** Empty boxes show last time's numbers (or the suggested weight when it's time to go up), and ✓ on an empty row logs exactly that. Tap **Previous** to copy last time into a row; **Add Set** copies the set above.
   - **Progression hint** (double progression): once every set reaches the top of the rep range, it suggests adding your weight jump.
   - **⋯ menu:** **Add Warm-up Sets** (empty bar, then 40/60/80%, rounded to loadable weights), **Superset with Next** (A1/A2 labels; the rest timer only starts after the last exercise in the group), rest time, a **note that sticks to the exercise** (seat height, grip) and shows every time, **History** (a quick look at the last sessions without leaving the workout), swap, reorder, remove.
-  - Checking a set starts the rest timer, which keeps counting if iOS reloads the app. A set that beats your best turns gold. Tap the workout title to change its name, date, time or duration (for logging a workout you forgot). The screen stays on during a workout.
-  - On **Finish**, if you added, swapped, removed or reordered exercises, changed set counts or supersets, Lift offers to update that split day to match. Skipping an exercise for the day doesn't count.
+  - Checking a set starts the **rest timer**, a Dynamic Island-style pill at the top (tap it for −15 / +15 / Skip) that keeps counting if iOS reloads the app. A set that beats your best turns gold with a particle burst. Tap the workout title to change its name, date, time or duration (for logging a workout you forgot). The screen stays on during a workout.
+  - **Hold to finish** (or tap Finish). If you added, swapped, removed or reordered exercises, changed set counts or supersets, Lift offers to update that split day to match. Skipping an exercise for the day doesn't count.
 - **History** has a calendar and every workout. A workout's summary compares volume, sets and time with your last session of the same day, and lists its PRs.
-- **Progress** lists each exercise with a sparkline and trend. The exercise page charts estimated 1RM (Epley), heaviest set, volume or reps over 1M/3M/1Y/All, with PRs, best reps at each weight, every session and the exercise's note. **Bodyweight** has its own chart with a 7-day average.
-- **Split**: start from a template or build your own. You can reorder days (Edit), add rest days, set each exercise's sets, rep range, rest and supersets, and pick from ~100 built-in exercises or your own.
-- **Settings**: sync, theme and accent color, lb/kg and weight jump, bar weight and available plates, default rest and sound, and JSON **Export/Import** backups.
+- **Progress** has a training-volume card (upper body, lower body, core; 7/30/90 days) and lists each exercise with a sparkline and trend. The exercise page swipes between charts of estimated 1RM (Epley), heaviest set, volume and reps over 1M/3M/1Y/All, with PRs, best reps at each weight, every session and the exercise's note. **Bodyweight** has its own chart with a 7-day average.
+- **Split**: start from a template or build your own. Drag days and exercises to reorder, add rest days, set each exercise's sets, rep range, rest and supersets, and pick from ~100 built-in exercises or your own.
+- **Settings**: sync, theme and accent color, weekly goal, lb/kg and weight jump, bar weight and available plates, default rest and sound, and JSON **Export/Import** backups.
 
 ## How data is stored
 
@@ -29,8 +29,9 @@ Without signing in, the app still works fully, but only on that device.
 
 ```sh
 npm install
-npm start          # builds web-dist/ and serves http://localhost:4330
+npm run dev        # http://localhost:4330, with the API built in
 npm test
+npm run build      # production build in dist/; npm run preview serves it
 ```
 
 Locally it uses an in-memory database, **Sign in** skips GitHub, and the service worker is off so every reload gets the latest code (add `?sw` to the URL to test offline mode).
@@ -65,16 +66,14 @@ The one iOS limit: a home-screen web app can't play a sound while it's in the ba
 ## Layout
 
 ```
-api/index.js          Vercel function; every /api/* request lands here
-server/               auth (GitHub OAuth, signed cookie), sync API, Neon/memory store
-public/               the app: index.html, service worker, manifest, icons
-public/app/           Preact + htm modules (no build step)
-  model.js            rotation, previous sets, e1RM, PRs, hints, warm-ups, plates, supersets, stats (pure, tested)
-  keypad.js, plates.js  number pad and plate calculator
-  ui.js, styles.css   iOS-style components and design tokens
-  db.js, store.js     IndexedDB, in-memory signals, save/sync queue
-  sync.js             push/pull loop
-  pages/              Today, Workout, History, Progress, Bodyweight, Split, Settings
-scripts/              build-web (copies Preact into web-dist, stamps the service worker), dev server, icons
-tests/                node --test
+api/index.js                Vercel function; every /api/* request lands here
+server/                     auth (GitHub OAuth, signed cookie), sync API, Neon/memory store
+index.html, vite.config.ts  Vite entry; the config also mounts the API for dev/preview and builds the service worker
+src/lib/                    model.js (pure, tested logic), store/db/sync (IndexedDB + signals + sync), keypad, timer, theme
+src/components/kokonutui/   Kokonut UI components, restyled to the app's tokens
+src/components/             kit (page frame, cards, rows, sheets), keypad, plates, islands, charts, shader hero, picker
+src/pages/                  Today, Workout, History, Progress, Bodyweight, Split, Settings
+src/styles.css              Tailwind v4 theme: dark/light tokens and accent colors
+public/                     icons, manifest, theme-init.js (applies the theme before first paint)
+tests/                      node --test
 ```

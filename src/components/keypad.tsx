@@ -1,0 +1,146 @@
+// The docked number pad for weight and reps (logic in lib/keypad.js), and
+// the key grid on its own for the bodyweight sheet.
+import { ChevronDown, Delete } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { type ReactNode, useEffect, useState } from "react";
+import { closePad, currentValue, locate, next, pad, press } from "@/lib/keypad.js";
+import { exerciseName, settings } from "@/lib/store.js";
+import { haptic } from "@/lib/haptics.js";
+import * as format from "@/lib/format.js";
+import { useValue } from "@/lib/use-signal";
+import { cn } from "@/lib/utils";
+import { PlatesSheet } from "./plates";
+import { spring } from "./kit";
+
+export function Key({ children, onPress, variant = "digit", label, disabled }: { children?: ReactNode; onPress?: () => void; variant?: "digit" | "fn" | "go"; label?: string; disabled?: boolean }) {
+  return (
+    <motion.button
+      aria-label={label}
+      className={cn(
+        "grid h-[52px] place-items-center rounded-2xl select-none disabled:opacity-0",
+        variant === "digit" && "bg-card text-[26px] font-medium shadow-[0_1px_0_rgba(0,0,0,0.25)] ring-1 ring-border dark:bg-white/[0.07]",
+        variant === "fn" && "bg-muted text-[15px] font-semibold text-foreground",
+        variant === "go" && "bg-primary text-[16px] font-semibold text-primary-foreground shadow-[0_10px_30px_-12px_var(--tint)]"
+      )}
+      disabled={disabled}
+      onClick={() => {
+        haptic(4);
+        onPress?.();
+      }}
+      transition={spring}
+      type="button"
+      whileTap={{ scale: 0.92 }}
+    >
+      {children}
+    </motion.button>
+  );
+}
+
+export function KeyGrid({ onKey, decimal = true, side }: { onKey: (key: string) => void; decimal?: boolean; side: ReactNode[] }) {
+  const digit = (d: string) => (
+    <Key label={d} onPress={() => onKey(d)}>
+      {d}
+    </Key>
+  );
+  return (
+    <div className="grid grid-cols-[1fr_1fr_1fr_1.2fr] gap-2">
+      {digit("1")}
+      {digit("2")}
+      {digit("3")}
+      {side[0]}
+      {digit("4")}
+      {digit("5")}
+      {digit("6")}
+      {side[1]}
+      {digit("7")}
+      {digit("8")}
+      {digit("9")}
+      {side[2]}
+      <Key disabled={!decimal} label="Decimal point" onPress={() => onKey(".")}>
+        .
+      </Key>
+      {digit("0")}
+      <Key label="Delete" onPress={() => onKey("back")} variant="fn">
+        <Delete className="size-6" strokeWidth={1.8} />
+      </Key>
+      {side[3]}
+    </div>
+  );
+}
+
+export function Keypad() {
+  const target = useValue(pad);
+  const s = useValue(settings);
+  const [plates, setPlates] = useState(false);
+  useEffect(() => {
+    if (!target) setPlates(false);
+  }, [target]);
+
+  const found = target ? locate(target) : null;
+  const open = Boolean(target && found?.set);
+
+  return (
+    <>
+      <AnimatePresence>
+        {open && target && found ? (
+          <motion.div
+            animate={{ y: 0 }}
+            aria-label="Number pad"
+            className="glass pb-safe fixed inset-x-0 bottom-0 z-50 rounded-t-[28px] border-b-0 px-3 pt-3 shadow-[0_-12px_40px_-20px_rgba(0,0,0,0.5)]"
+            exit={{ y: "110%" }}
+            initial={{ y: "110%" }}
+            role="group"
+            transition={spring}
+          >
+            <div className="mx-auto max-w-xl">
+              <div className="flex items-center gap-2 px-1 pb-3">
+                <p className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
+                  <span className="font-semibold text-foreground">{target.field === "weight" ? `Weight (${s.unit})` : "Reps"}</span>
+                  {" · "}
+                  {found.set.type === "warmup" ? "Warm-up" : `Set ${found.entry.sets.slice(0, found.setIndex + 1).filter((x: any) => x.type !== "warmup").length}`}
+                  {" · "}
+                  {exerciseName(found.entry.exerciseId)}
+                </p>
+                <button aria-label="Hide number pad" className="grid size-8 place-items-center rounded-full bg-muted text-muted-foreground" onClick={closePad} type="button">
+                  <ChevronDown className="size-4" strokeWidth={2.8} />
+                </button>
+              </div>
+              <KeyGrid
+                decimal={target.field === "weight"}
+                onKey={press}
+                side={[
+                  <Key key="m" label={`Minus ${target.field === "weight" ? s.step : 1}`} onPress={() => press("minus")} variant="fn">
+                    −{target.field === "weight" ? format.weight(s.step) : 1}
+                  </Key>,
+                  <Key key="p" label={`Plus ${target.field === "weight" ? s.step : 1}`} onPress={() => press("plus")} variant="fn">
+                    +{target.field === "weight" ? format.weight(s.step) : 1}
+                  </Key>,
+                  target.field === "weight" ? (
+                    <Key key="pl" label="Plate calculator" onPress={() => setPlates(true)} variant="fn">
+                      <PlateGlyph />
+                    </Key>
+                  ) : (
+                    <Key disabled key="pl" variant="fn" />
+                  ),
+                  <Key key="n" onPress={next} variant="go">
+                    Next
+                  </Key>
+                ]}
+              />
+              <div className="h-2" />
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+      <PlatesSheet onClose={() => setPlates(false)} open={plates} weight={target ? currentValue(target) : 0} />
+    </>
+  );
+}
+
+function PlateGlyph() {
+  return (
+    <svg aria-hidden="true" className="size-6" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" viewBox="0 0 24 24">
+      <path d="M2 12h20M6.5 7.5v9M9.5 5v14M14.5 5v14M17.5 7.5v9" />
+    </svg>
+  );
+}
