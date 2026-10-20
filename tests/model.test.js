@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  e1rm, exerciseHistory, isPersonalRecord, nextSplitDay, personalRecords, placeholderFor,
-  previousEntry, startOfWeek, suggestion, trend, workoutFromDay, workoutVolume
+  bodyweightId, dailyVolume, dateKey, e1rm, exerciseHistory, isPersonalRecord, movingAverage, muscleSets, nextInSuperset,
+  nextSplitDay, personalRecords, placeholderFor, plateBreakdown, previousEntry, previousSession, restsAfter, roundLoadable,
+  splitDiff, startOfWeek, suggestion, supersetLabels, trend, warmupSets, weekStreak, workoutFromDay, workoutVolume
 } from "../public/app/model.js";
 
 const day = (id, position, extra = {}) => ({ id, kind: "splitDay", name: id, position, exercises: [], ...extra });
@@ -122,4 +123,83 @@ test("weeks start on Monday", () => {
   assert.equal(monday.getDate(), 19);
   const sunday = new Date(2026, 9, 25, 9).getTime();
   assert.equal(new Date(startOfWeek(sunday)).getDate(), 19);
+});
+
+
+test('plate breakdown per side, with leftover when it can\'t be loaded exactly', () => {
+  assert.deepEqual(plateBreakdown(225).perSide, [45, 45]);
+  assert.equal(plateBreakdown(225).leftover, 0);
+  assert.deepEqual(plateBreakdown(227.5).perSide, [45, 45]);
+  assert.equal(plateBreakdown(227.5).leftover, 2.5);
+  assert.deepEqual(plateBreakdown(185).perSide, [45, 25]);
+  assert.deepEqual(plateBreakdown(140, { bar: 20, plates: [25, 20, 15, 10, 5, 2.5, 1.25] }).perSide, [25, 25, 10]);
+  assert.deepEqual(plateBreakdown(135, { plates: [25, 10] }).perSide, [25, 10, 10]);
+  assert.equal(plateBreakdown(30).leftover, -15, 'below the bar');
+});
+
+test('loadable rounding and warm-up ramps', () => {
+  assert.equal(roundLoadable(91, { equipment: 'barbell' }), 90);
+  assert.equal(roundLoadable(20, { equipment: 'barbell' }), 45, 'never below the bar');
+  assert.equal(roundLoadable(24, { equipment: 'dumbbell', step: 5 }), 25);
+  assert.deepEqual(warmupSets(225, { equipment: 'barbell' }), [{ weight: 45, reps: 10 }, { weight: 90, reps: 8 }, { weight: 135, reps: 5 }, { weight: 180, reps: 3 }]);
+  assert.deepEqual(warmupSets(60, { equipment: 'dumbbell', step: 5 }), [{ weight: 25, reps: 8 }, { weight: 35, reps: 5 }, { weight: 50, reps: 3 }]);
+  assert.deepEqual(warmupSets(95, { equipment: 'barbell' }), [{ weight: 45, reps: 10 }, { weight: 55, reps: 5 }, { weight: 75, reps: 3 }], 'duplicates of the bar are dropped');
+  assert.deepEqual(warmupSets(10, { equipment: 'dumbbell', step: 5 }), [{ weight: 5, reps: 8 }], 'nothing at or above working weight');
+  assert.deepEqual(warmupSets(0, {}), []);
+});
+
+test('superset labels, rest and next exercise', () => {
+  const entries = [{ supersetId: null }, { supersetId: 'x' }, { supersetId: 'x' }, { supersetId: 'y' }, { supersetId: 'z' }, { supersetId: 'z' }, { supersetId: 'z' }];
+  const labels = supersetLabels(entries);
+  assert.equal(labels[0], null);
+  assert.deepEqual([labels[1].group, labels[1].position, labels[2].position], ['A', 1, 2]);
+  assert.equal(labels[3], null, 'a group of one is not a superset');
+  assert.deepEqual([labels[4].group, labels[6].position, labels[6].size], ['B', 3, 3]);
+  assert.equal(restsAfter(entries, 0), true);
+  assert.equal(restsAfter(entries, 1), false);
+  assert.equal(restsAfter(entries, 2), true);
+  assert.equal(nextInSuperset(entries, 1), 2);
+  assert.equal(nextInSuperset(entries, 2), 1, 'back to the first after the last');
+  assert.equal(nextInSuperset(entries, 0), null);
+});
+
+test('muscle sets, daily volume and week streak', () => {
+  const index = new Map([['bench', { muscle: 'chest' }], ['fly', { muscle: 'chest' }], ['row', { muscle: 'back' }]]);
+  const day = 86_400_000;
+  const now = new Date(2026, 9, 21, 12).getTime(); // a Wednesday
+  const list = [
+    workout('a', now - day, 'push', [entry('bench', [set(100, 8), set(100, 8), set(45, 10, { type: 'warmup' })]), entry('fly', [set(30, 12)])]),
+    workout('b', now - 2 * day, 'pull', [entry('row', [set(90, 10), set(90, 10, { done: false })])]),
+    workout('c', now - 9 * day, 'pull', [entry('row', [set(90, 10)])]),
+    workout('r', now - 3 * day, 'rest', [], { rest: true })
+  ];
+  assert.deepEqual(muscleSets(list, index, startOfWeek(now)), [{ muscle: 'chest', sets: 3 }, { muscle: 'back', sets: 1 }]);
+  const days = dailyVolume(list);
+  assert.equal(days.get(dateKey(now - day)).volume, 1960);
+  assert.equal(days.has(dateKey(now - 3 * day)), false, 'rest days are not training days');
+  assert.equal(weekStreak(list, now), 2);
+  assert.equal(weekStreak(list, now + 7 * day), 2, 'an empty current week does not break it yet');
+  assert.equal(weekStreak(list, now + 14 * day), 0);
+});
+
+test('bodyweight: one id per day and a 7-day moving average', () => {
+  assert.equal(bodyweightId('2026-10-19'), bodyweightId('2026-10-19'));
+  const avg = movingAverage([{ date: '2026-10-01', weight: 180 }, { date: '2026-10-03', weight: 182 }, { date: '2026-10-10', weight: 184 }]);
+  assert.deepEqual(avg.map((p) => p.value), [180, 181, 184]);
+});
+
+test('split diff describes what changed and keeps targets', () => {
+  const day = { exercises: [{ exerciseId: 'bench', targetSets: 3, repMin: 5, repMax: 8, restSec: 180 }, { exerciseId: 'dip', targetSets: 3 }] };
+  const done = { entries: [entry('bench', [set(45, 10, { type: 'warmup' }), set(185, 8), set(185, 8), set(185, 8), set(185, 7)]), entry('fly', [set(30, 12)])] };
+  const diff = splitDiff(day, done);
+  assert.deepEqual(diff.changes, ['Add fly', 'Remove dip', 'bench: 4 sets']);
+  assert.deepEqual(diff.exercises[0], { exerciseId: 'bench', targetSets: 4, repMin: 5, repMax: 8, restSec: 180, supersetId: null });
+  const same = splitDiff({ exercises: [{ exerciseId: 'bench', targetSets: 1 }] }, { entries: [entry('bench', [set(100, 5)])] });
+  assert.deepEqual(same.changes, []);
+});
+
+test('previous session is the last one of the same split day', () => {
+  const list = [workout('a', 1, 'push'), workout('b', 2, 'pull'), workout('c', 3, 'push'), workout('d', 4, 'push')];
+  assert.equal(previousSession(list, list[3]).id, 'c');
+  assert.equal(previousSession(list, list[0]), null);
 });

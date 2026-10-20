@@ -3,10 +3,10 @@
 // through save/update/remove.
 import { computed, signal } from "@preact/signals";
 import { BUILT_IN } from "./exercises.js";
-import { finished, live, newer, orderedDays } from "./model.js";
+import { BARS, bodyweightId, dateKey, finished, live, newer, orderedDays, PLATES } from "./model.js";
 import * as db from "./db.js";
 
-export const DEFAULT_SETTINGS = { id: "settings", kind: "settings", unit: "lb", step: 5, barWeight: 45, defaultRest: 120, sound: true };
+export const DEFAULT_SETTINGS = { id: "settings", kind: "settings", unit: "lb", step: 5, defaultRest: 120, sound: true, theme: "system", tint: "blue" };
 
 export const records = signal(new Map());
 export const loaded = signal(false);
@@ -22,8 +22,14 @@ const ofKind = (kind) => computed(() => [...records.value.values()].filter((reco
 const storedExercises = ofKind("exercise");
 export const splitDaysAll = ofKind("splitDay");
 export const workoutsAll = ofKind("workout");
+const bodyweightsAll = ofKind("bodyweight");
 
-export const settings = computed(() => ({ ...DEFAULT_SETTINGS, ...(records.value.get("settings") || {}) }));
+// Bar and plates default to the unit's standard set until you change them.
+export const settings = computed(() => {
+  const stored = { ...DEFAULT_SETTINGS, ...(records.value.get("settings") || {}) };
+  const unit = stored.unit === "kg" ? "kg" : "lb";
+  return { ...stored, unit, barWeight: stored.barWeight ?? BARS[unit][0], plates: stored.plates?.length ? stored.plates : PLATES[unit] };
+});
 export const splitDays = computed(() => orderedDays(splitDaysAll.value));
 export const workouts = computed(() => live(workoutsAll.value));
 export const finishedWorkouts = computed(() => finished(workoutsAll.value));
@@ -38,6 +44,21 @@ export const exerciseIndex = computed(() => {
   return index;
 });
 export const exercises = computed(() => [...exerciseIndex.value.values()].filter((exercise) => !exercise.deleted).sort((a, b) => a.name.localeCompare(b.name)));
+
+// Logged bodyweight, newest first.
+export const bodyweights = computed(() => live(bodyweightsAll.value).sort((a, b) => b.date.localeCompare(a.date)));
+
+export function logBodyweight(weight, date = dateKey()) {
+  return save({ id: bodyweightId(date), kind: "bodyweight", date, weight, deleted: false });
+}
+
+// Notes that stay with an exercise across workouts (seat height, grip…).
+// Built-in exercises get a stored copy that overrides the library entry.
+export function saveExerciseNote(id, note) {
+  const base = exerciseIndex.value.get(id);
+  if (!base) return null;
+  return save({ ...base, kind: "exercise", note: String(note || "").trim() });
+}
 
 export function exerciseName(id) {
   return exerciseIndex.value.get(id)?.name || "Unknown exercise";

@@ -4,16 +4,24 @@ A workout tracker for your gym split. Log the sets, weight and reps for every ex
 
 ## What it does
 
-- **Today** shows the next day in your rotation (Push → Pull → Legs → Rest → repeat), with **Start**, a way to pick a different day, this week's workouts/sets/volume and recent PRs. Rest days get a **Done resting** button. Doing a different day than suggested just moves the cycle along.
-- **Workout**: one card per exercise with `SET · PREVIOUS · LB · REPS · ✓`. Empty boxes show last time's numbers greyed out, and tapping ✓ on an empty row logs exactly that. Each exercise gets a progression hint (double progression: once every set reaches the top of the rep range, it suggests adding your weight jump). Checking a set starts that exercise's rest timer (sound when it ends), and a set that beats your previous best gets a trophy. Tap a set number to mark it as a warm-up, drop set or failure set, or to delete it. The **⋯** menu reorders, swaps, sets rest time, adds a note or removes the exercise. The screen stays on during a workout, and if the app is closed partway, the workout picks up where you left off.
-- **History** has a month calendar and every workout. Open one to see its summary and PRs, then edit or delete it.
-- **Progress** lists each exercise with a trend (up/holding/down) and a sparkline. The exercise page charts estimated 1RM (Epley), heaviest set, volume or reps over 1M/3M/1Y/All, and shows your PRs, best reps at each weight and every session.
-- **Split**: start from the Push/Pull/Legs, Upper/Lower or Full-body template, or build your own. You can rename and reorder days, add rest days, and pick exercises from ~100 built-ins or create custom ones, each with target sets, rep range and rest.
-- **Settings**: sync status, lb/kg label, weight jump (2.5/5/10), default rest, timer sound, and JSON **Export/Import** backups.
+The look follows iOS: system colors, inset grouped lists, SF Rounded numbers, large titles that shrink as you scroll, sheets you can drag down to dismiss, and haptics on iOS 18+. It follows light/dark mode, and you can pick the accent color.
+
+- **Today** shows the next day in your rotation (Push → Pull → Legs → Rest → repeat) with each exercise's target and last time's top set, then **Start**. Below that: this week's workouts, sets and volume; **sets per muscle** this week against a 10–20 set band; a 12-week **consistency** heatmap with your streak; your **bodyweight**; and recent PRs. Doing a different day than suggested just moves the rotation along.
+- **Workout**: one card per exercise with `SET · PREVIOUS · LB · REPS · ✓`.
+  - **Number pad.** Weight and reps use a docked keypad instead of the iPhone keyboard. **±** buttons step by your weight jump, **Next** goes weight → reps → next set → next exercise, and the barbell key opens the **plate calculator** (plates per side for your bar and the plates your gym has).
+  - **Smart fill.** Empty boxes show last time's numbers (or the suggested weight when it's time to go up), and ✓ on an empty row logs exactly that. Tap **Previous** to copy last time into a row; **Add Set** copies the set above.
+  - **Progression hint** (double progression): once every set reaches the top of the rep range, it suggests adding your weight jump.
+  - **⋯ menu:** **Add Warm-up Sets** (empty bar, then 40/60/80%, rounded to loadable weights), **Superset with Next** (A1/A2 labels; the rest timer only starts after the last exercise in the group), rest time, a **note that sticks to the exercise** (seat height, grip) and shows every time, **History** (a quick look at the last sessions without leaving the workout), swap, reorder, remove.
+  - Checking a set starts the rest timer, which keeps counting if iOS reloads the app. A set that beats your best turns gold. Tap the workout title to change its name, date, time or duration (for logging a workout you forgot). The screen stays on during a workout.
+  - On **Finish**, if you added, swapped, removed or reordered exercises, changed set counts or supersets, Lift offers to update that split day to match. Skipping an exercise for the day doesn't count.
+- **History** has a calendar and every workout. A workout's summary compares volume, sets and time with your last session of the same day, and lists its PRs.
+- **Progress** lists each exercise with a sparkline and trend. The exercise page charts estimated 1RM (Epley), heaviest set, volume or reps over 1M/3M/1Y/All, with PRs, best reps at each weight, every session and the exercise's note. **Bodyweight** has its own chart with a 7-day average.
+- **Split**: start from a template or build your own. You can reorder days (Edit), add rest days, set each exercise's sets, rep range, rest and supersets, and pick from ~100 built-in exercises or your own.
+- **Settings**: sync, theme and accent color, lb/kg and weight jump, bar weight and available plates, default rest and sound, and JSON **Export/Import** backups.
 
 ## How data is stored
 
-The phone is the source of truth while you train. Every tap is saved right away to IndexedDB on the device, so the app works with no signal at the gym. When you're signed in, changes sync to Postgres two seconds after you make them, plus on open, when you reconnect, and every minute. Each record (exercise, split day, workout, settings) merges on its own, and the newest edit wins. A device that finds the server database empty sends everything it has again.
+The phone is the source of truth while you train. Every tap is saved right away to IndexedDB on the device, so the app works with no signal at the gym. When you're signed in, changes sync to Postgres two seconds after you make them, plus on open, when you reconnect, and every minute. Each record (exercise, split day, workout, bodyweight, settings) merges on its own, and the newest edit wins. A device that finds the server database empty sends everything it has again.
 
 Without signing in, the app still works fully, but only on that device.
 
@@ -25,7 +33,7 @@ npm start          # builds web-dist/ and serves http://localhost:4330
 npm test
 ```
 
-Locally it uses an in-memory database, and **Sign in** skips GitHub.
+Locally it uses an in-memory database, **Sign in** skips GitHub, and the service worker is off so every reload gets the latest code (add `?sw` to the URL to test offline mode).
 
 ## Put it on lift.zachhersick.com (one-time)
 
@@ -61,10 +69,12 @@ api/index.js          Vercel function; every /api/* request lands here
 server/               auth (GitHub OAuth, signed cookie), sync API, Neon/memory store
 public/               the app: index.html, service worker, manifest, icons
 public/app/           Preact + htm modules (no build step)
-  model.js            rotation, previous sets, e1RM, PRs, progression hints (pure, tested)
+  model.js            rotation, previous sets, e1RM, PRs, hints, warm-ups, plates, supersets, stats (pure, tested)
+  keypad.js, plates.js  number pad and plate calculator
+  ui.js, styles.css   iOS-style components and design tokens
   db.js, store.js     IndexedDB, in-memory signals, save/sync queue
   sync.js             push/pull loop
-  pages/              Today, Workout, History, Progress, Split, Settings
+  pages/              Today, Workout, History, Progress, Bodyweight, Split, Settings
 scripts/              build-web (copies Preact into web-dist, stamps the service worker), dev server, icons
 tests/                node --test
 ```

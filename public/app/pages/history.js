@@ -1,18 +1,13 @@
-// History: a month calendar with workout days marked, every past workout,
-// and the detail/summary view for one workout.
+// History: a month calendar with training days marked, every past workout,
+// and the summary of one workout compared with the last time you did that day.
 import { useMemo, useState } from "preact/hooks";
 import { html } from "../html.js";
 import { Icon } from "../icons.js";
-import { ask, Empty, Header, Stat } from "../ui.js";
+import { ask, Cell, Group, NavBar, Summary, Unavailable } from "../ui.js";
 import { exerciseName, records, remove, sessions, settings } from "../store.js";
-import { byNewest, exerciseHistory, isPersonalRecord, personalRecords, workoutSetCount, workoutVolume } from "../model.js";
+import { byNewest, dateKey, e1rm, exerciseHistory, isPersonalRecord, personalRecords, previousSession, workoutSetCount, workoutVolume } from "../model.js";
 import { go, route } from "../router.js";
 import * as format from "../format.js";
-
-const dayKey = (time) => {
-  const d = new Date(time);
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-};
 
 export function History() {
   const [month, setMonth] = useState(() => {
@@ -21,8 +16,7 @@ export function History() {
   });
   const unit = settings.value.unit;
   const list = useMemo(() => [...sessions.value].sort(byNewest), [sessions.value]);
-  const trained = useMemo(() => new Set(list.map((w) => dayKey(w.startedAt))), [list]);
-
+  const trained = useMemo(() => new Set(list.map((w) => dateKey(w.startedAt))), [list]);
   const groups = useMemo(() => {
     const map = new Map();
     for (const workout of list) {
@@ -35,16 +29,15 @@ export function History() {
 
   return html`
     <div class="page">
-      <${Header} title="History" subtitle=${list.length ? `${format.plural(list.length, "workout")} logged` : ""} />
-      <${Calendar} month=${month} setMonth=${setMonth} trained=${trained} />
-      ${!list.length ? html`<${Empty} icon="history" title="No workouts yet">Finished workouts show up here.</${Empty}>` : null}
+      <${NavBar} title="History" subtitle=${list.length ? format.plural(list.length, "workout") : ""} />
+      <${Group}><${Calendar} month=${month} setMonth=${setMonth} trained=${trained} /></${Group}>
+      ${!list.length ? html`<${Unavailable} icon="history" title="No Workouts Yet">Finished workouts show up here.</${Unavailable}>` : null}
       ${groups.map(([label, items]) => html`
-        <section class="section">
-          <h2 class="section-title">${label}</h2>
-          <div class="stack">
-            ${items.map((workout) => html`<${WorkoutRow} workout=${workout} unit=${unit} key=${workout.id} />`)}
-          </div>
-        </section>`)}
+        <${Group} header=${label}>
+          ${items.map((workout) => html`<${Cell} key=${workout.id} title=${workout.name}
+            subtitle=${`${format.date(workout.startedAt)} · ${format.duration(workout.finishedAt - workout.startedAt)} · ${format.plural(workoutSetCount(workout), "set")}`}
+            value=${format.volume(workoutVolume(workout), unit)} chevron onClick=${() => go(`history/${workout.id}`)} />`)}
+        </${Group}>`)}
     </div>`;
 }
 
@@ -54,48 +47,40 @@ function Calendar({ month, setMonth, trained }) {
   const m = first.getMonth();
   const days = new Date(year, m + 1, 0).getDate();
   const lead = (first.getDay() + 6) % 7;
-  const today = dayKey(Date.now());
+  const today = dateKey();
   let count = 0;
   const cells = [];
-  for (let i = 0; i < lead; i += 1) cells.push(html`<span class="cal-cell blank"></span>`);
+  for (let i = 0; i < lead; i += 1) cells.push(html`<span></span>`);
   for (let day = 1; day <= days; day += 1) {
-    const key = `${year}-${m}-${day}`;
+    const key = dateKey(new Date(year, m, day).getTime());
     const on = trained.has(key);
     if (on) count += 1;
-    cells.push(html`<span class=${`cal-cell ${on ? "on" : ""} ${key === today ? "today" : ""}`}>${day}</span>`);
+    cells.push(html`<span class=${`cal-day ${on ? "on" : ""} ${key === today ? "today" : ""}`} aria-label=${`${day}${on ? ", trained" : ""}`}><span>${day}</span></span>`);
   }
   const shift = (delta) => setMonth(new Date(year, m + delta, 1).getTime());
   const isCurrent = year === new Date().getFullYear() && m === new Date().getMonth();
   return html`
-    <section class="card calendar">
+    <div class="cal">
       <div class="cal-head">
-        <button class="icon-btn" onClick=${() => shift(-1)} aria-label="Previous month"><${Icon} name="left" /></button>
-        <div><strong>${format.date(month, { month: "long", year: "numeric" })}</strong><span>${format.plural(count, "workout")}</span></div>
-        <button class="icon-btn" onClick=${() => shift(1)} disabled=${isCurrent} aria-label="Next month"><${Icon} name="right" /></button>
+        <strong>${format.date(month, { month: "long", year: "numeric" })} <span class="secondary subhead" style="font-weight:400">· ${format.plural(count, "workout")}</span></strong>
+        <span class="cal-nav">
+          <button onClick=${() => shift(-1)} aria-label="Previous month"><${Icon} name="chevronLeft" size=${22} stroke=${2.6} /></button>
+          <button onClick=${() => shift(1)} disabled=${isCurrent} aria-label="Next month"><${Icon} name="chevronRight" size=${22} stroke=${2.6} /></button>
+        </span>
       </div>
       <div class="cal-grid">
         ${["M", "T", "W", "T", "F", "S", "S"].map((d) => html`<span class="cal-dow">${d}</span>`)}
         ${cells}
       </div>
-    </section>`;
+    </div>`;
 }
 
-function WorkoutRow({ workout, unit }) {
-  const top = (workout.entries || []).slice(0, 3).map((entry) => exerciseName(entry.exerciseId));
-  const minutes = workout.finishedAt - workout.startedAt;
-  return html`
-    <button class="card workout-row" onClick=${() => go(`history/${workout.id}`)}>
-      <div class="workout-row-head">
-        <strong>${workout.name}</strong>
-        <span class="muted small">${format.relativeDay(workout.startedAt)}</span>
-      </div>
-      <div class="meta-line">
-        <span><${Icon} name="clock" size=${14} /> ${format.duration(minutes)}</span>
-        <span>${format.plural(workoutSetCount(workout), "set")}</span>
-        <span>${format.volume(workoutVolume(workout), unit)}</span>
-      </div>
-      ${top.length ? html`<p class="muted small clamp">${top.join(" · ")}${workout.entries.length > 3 ? ` +${workout.entries.length - 3}` : ""}</p>` : null}
-    </button>`;
+function Delta({ now, before, unit = "", percent = false, neutral = false }) {
+  if (before == null) return null;
+  const diff = now - before;
+  if (Math.abs(diff) < 0.5) return html`<span class="cell-value">Same</span>`;
+  const text = percent && before ? `${diff > 0 ? "+" : ""}${Math.round((diff / before) * 100)}%` : `${diff > 0 ? "+" : "−"}${format.weight(Math.abs(Math.round(diff)))}${unit}`;
+  return html`<span class=${`cell-value num ${neutral ? "" : diff > 0 ? "delta-up" : "delta-down"}`}>${text}</span>`;
 }
 
 export function WorkoutDetail({ id }) {
@@ -104,19 +89,25 @@ export function WorkoutDetail({ id }) {
   const justFinished = route.value.query.get("done") === "1";
 
   const prs = useMemo(() => {
-    if (!workout) return new Set();
-    const found = new Set();
+    if (!workout) return [];
+    const found = [];
     for (const entry of workout.entries || []) {
       const prior = personalRecords(exerciseHistory(sessions.value, entry.exerciseId, { before: workout.startedAt, excludeId: workout.id }));
-      for (const set of entry.sets) if (isPersonalRecord(set, prior)) found.add(set.id);
+      for (const set of entry.sets) if (isPersonalRecord(set, prior)) found.push({ set, exerciseId: entry.exerciseId });
     }
     return found;
   }, [workout, sessions.value]);
 
-  if (!workout || workout.deleted) return html`<div class="page"><${Header} title="Workout" backTo="history" large=${false} /><${Empty} icon="history" title="Workout not found" /></div>`;
+  if (!workout || workout.deleted) return html`<div class="page"><${NavBar} title="Workout" large=${false} backTo="history" backLabel="History" /><${Unavailable} icon="history" title="Workout Not Found" /></div>`;
+
+  const prIds = new Set(prs.map((pr) => pr.set.id));
+  const previous = previousSession(sessions.value, workout);
+  const minutes = workout.finishedAt - workout.startedAt;
+  const volume = workoutVolume(workout);
+  const sets = workoutSetCount(workout);
 
   const del = async () => {
-    if (await ask({ title: "Delete workout?", message: "This can't be undone.", confirm: "Delete", danger: true })) {
+    if (await ask({ title: "Delete Workout?", message: "This can't be undone.", confirm: "Delete", danger: true })) {
       await remove(id);
       go("history", { replace: true });
     }
@@ -124,53 +115,55 @@ export function WorkoutDetail({ id }) {
 
   return html`
     <div class="page">
-      <${Header} title=${workout.name} subtitle=${`${format.date(workout.startedAt, { weekday: "long", month: "long", day: "numeric" })} · ${format.time(workout.startedAt)}`} backTo="history"
-        action=${html`<button class="icon-btn" onClick=${() => go(`workout/${id}`)} aria-label="Edit workout"><${Icon} name="edit" /></button>`} />
+      <${NavBar} title=${workout.name} subtitle=${`${format.date(workout.startedAt, { weekday: "long", month: "long", day: "numeric" })} at ${format.time(workout.startedAt)}`}
+        backTo=${justFinished ? "today" : "history"} backLabel=${justFinished ? "Today" : "History"}
+        trailing=${html`<button class="nav-button" onClick=${() => go(`workout/${id}`)}>Edit</button>`} />
 
       ${justFinished ? html`
-        <section class="card done-card">
-          <div class="done-icon"><${Icon} name=${prs.size ? "trophy" : "check"} size=${28} stroke=${2.4} /></div>
-          <h2>${prs.size ? `Workout done, with ${format.plural(prs.size, "PR")}` : "Workout done"}</h2>
-          <p class="muted">${prs.size ? "You beat your previous best. That's progressive overload." : "Logged. Next time you'll see these numbers to beat."}</p>
-        </section>` : null}
+        <div class="done-banner">
+          <span class=${`done-badge ${prs.length ? "pr" : ""}`}><${Icon} name=${prs.length ? "trophy" : "check"} size=${30} stroke=${2.6} /></span>
+          <h2>${prs.length ? `${format.plural(prs.length, "New PR", "New PRs")}` : "Workout Complete"}</h2>
+          <p>${previous ? `Volume ${volume >= workoutVolume(previous) ? "up" : "down"} ${Math.abs(Math.round(((volume - workoutVolume(previous)) / (workoutVolume(previous) || 1)) * 100))}% from last ${workout.name}.` : "Next time, these are the numbers to beat."}</p>
+        </div>` : null}
 
-      <div class="stats four">
-        <${Stat} label="Time" value=${format.duration(workout.finishedAt - workout.startedAt)} />
-        <${Stat} label="Sets" value=${workoutSetCount(workout)} />
-        <${Stat} label="Volume" value=${format.volume(workoutVolume(workout), unit)} />
-        <${Stat} label="PRs" value=${prs.size} />
-      </div>
+      <${Summary} items=${[
+        { label: "Time", value: format.duration(minutes) },
+        { label: "Sets", value: sets },
+        { label: "Volume", value: format.volume(volume, "").trim(), unit }
+      ]} />
 
-      <div class="stack">
-        ${(workout.entries || []).map((entry) => {
-          let n = 0;
-          return html`
-            <section class="card summary-card" key=${entry.id}>
-              <button class="summary-head" onClick=${() => go(`exercise/${entry.exerciseId}`)}>
-                <strong>${exerciseName(entry.exerciseId)}</strong>
-                <${Icon} name="right" size=${18} />
-              </button>
-              ${entry.notes ? html`<p class="muted small">${entry.notes}</p>` : null}
-              <ol class="summary-sets">
-                ${entry.sets.map((set) => {
-                  if (set.type !== "warmup") n += 1;
-                  return html`<li class=${set.type || "working"}>
-                    <span class="set-label static">${set.type === "warmup" ? "W" : set.type === "drop" ? "D" : set.type === "failure" ? "F" : n}</span>
-                    <span class="grow">${format.weight(set.weight)} ${unit} × ${set.reps}</span>
-                    ${prs.has(set.id) ? html`<span class="pr-pill"><${Icon} name="trophy" size=${13} /> PR</span>` : null}
-                  </li>`;
-                })}
-              </ol>
-            </section>`;
-        })}
-      </div>
+      ${previous ? html`
+        <${Group} header=${`vs. ${format.date(previous.startedAt)}`} footer=${`Compared with your last ${previous.name}.`}>
+          <${Cell} title="Volume" subtitle=${format.volume(workoutVolume(previous), unit)}><${Delta} now=${volume} before=${workoutVolume(previous)} percent /></${Cell}>
+          <${Cell} title="Sets" subtitle=${String(workoutSetCount(previous))}><${Delta} now=${sets} before=${workoutSetCount(previous)} /></${Cell}>
+          <${Cell} title="Duration" subtitle=${format.duration(previous.finishedAt - previous.startedAt)}><${Delta} now=${Math.round(minutes / 60_000)} before=${Math.round((previous.finishedAt - previous.startedAt) / 60_000)} unit=" min" neutral /></${Cell}>
+        </${Group}>` : null}
 
-      ${workout.notes ? html`<section class="card"><span class="eyebrow">Notes</span><p>${workout.notes}</p></section>` : null}
+      ${prs.length ? html`
+        <${Group} header="Personal Records">
+          ${prs.map((pr) => html`<${Cell} icon="trophy" iconBg="var(--yellow-ink)" title=${exerciseName(pr.exerciseId)} subtitle=${`e1RM ${format.weight(Math.round(e1rm(pr.set.weight, pr.set.reps)))} ${unit}`}>
+            <span class="cell-value num">${format.weight(pr.set.weight)} × ${pr.set.reps}</span></${Cell}>`)}
+        </${Group}>` : null}
 
-      <div class="row gap pad-top">
-        <button class="btn secondary grow" onClick=${() => go(`workout/${id}`)}><${Icon} name="edit" size=${18} /> Edit</button>
-        <button class="btn danger-text grow" onClick=${del}><${Icon} name="trash" size=${18} /> Delete</button>
-      </div>
-      ${justFinished ? html`<button class="btn primary block big pad-top" onClick=${() => go("today", { replace: true })}>Done</button>` : null}
+      ${(workout.entries || []).map((entry) => {
+        let n = 0;
+        return html`
+          <${Group} key=${entry.id} header=${exerciseName(entry.exerciseId)} accessory=${html`<a class="accessory link" href=${`#/exercise/${entry.exerciseId}`}>History</a>`}>
+            ${entry.sets.map((set) => {
+              if (set.type !== "warmup") n += 1;
+              return html`<div class="cell">
+                <span class="set-line grow">
+                  <span class=${`set-num ${set.type || "working"}`}>${set.type === "warmup" ? "W" : set.type === "drop" ? "D" : set.type === "failure" ? "F" : n}</span>
+                  <span class="num">${format.weight(set.weight)} ${unit} × ${set.reps}</span>
+                </span>
+                ${prIds.has(set.id) ? html`<span class="pr-tag"><${Icon} name="trophy" size=${14} stroke=${2.4} />PR</span>` : set.type !== "warmup" && set.weight > 0 ? html`<span class="cell-value footnote">e1RM ${format.weight(Math.round(e1rm(set.weight, set.reps)))}</span>` : null}
+              </div>`;
+            })}
+          </${Group}>`;
+      })}
+
+      ${workout.notes ? html`<${Group} header="Notes"><div class="cell-block subhead">${workout.notes}</div></${Group}>` : null}
+      <${Group}><${Cell} title="Delete Workout" destructive class="centered" onClick=${del} /></${Group}>
+      ${justFinished ? html`<button class="btn filled block" onClick=${() => go("today", { replace: true })}>Done</button>` : null}
     </div>`;
 }

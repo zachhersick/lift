@@ -195,6 +195,7 @@ export function newEntry(exerciseId, target = {}, defaultRest = 120) {
     repMin: target.repMin ?? null,
     repMax: target.repMax ?? null,
     restSec: target.restSec ?? defaultRest,
+    supersetId: target.supersetId ?? null,
     notes: "",
     sets: Array.from({ length: count }, () => newSet())
   };
@@ -219,4 +220,210 @@ export function newer(local, incoming) {
   if (!incoming) return local;
   if (!local) return incoming;
   return (incoming.updatedAt || 0) > (local.updatedAt || 0) ? incoming : local;
+}
+
+// ---------- plates and warm-ups ----------
+
+export const PLATES = { lb: [45, 35, 25, 10, 5, 2.5], kg: [25, 20, 15, 10, 5, 2.5, 1.25] };
+export const BARS = { lb: [45, 35, 25, 15], kg: [20, 15, 10] };
+
+const round3 = (n) => Math.round(n * 1000) / 1000;
+
+// Plates per side for a barbell weight, heaviest first. `leftover` is what
+// can't be loaded with the plates you have (positive = short of target).
+export function plateBreakdown(target, { bar = 45, plates = PLATES.lb } = {}) {
+  const weight = Number(target) || 0;
+  if (weight < bar) return { bar, perSide: [], loaded: bar, leftover: round3(weight - bar) };
+  let remaining = (weight - bar) / 2;
+  const perSide = [];
+  for (const plate of [...plates].sort((a, b) => b - a)) {
+    while (remaining >= plate - 1e-9) {
+      perSide.push(plate);
+      remaining = round3(remaining - plate);
+    }
+  }
+  const loaded = round3(bar + 2 * perSide.reduce((sum, plate) => sum + plate, 0));
+  return { bar, perSide, loaded, leftover: round3(weight - loaded) };
+}
+
+// The nearest weight you can actually load: bar + pairs of the smallest plate
+// for barbells, otherwise a multiple of your weight jump.
+export function roundLoadable(weight, { equipment, bar = 45, plates = PLATES.lb, step = 5 } = {}) {
+  if (equipment === "barbell") {
+    const pair = 2 * Math.min(...plates);
+    return Math.max(bar, round3(bar + Math.round((weight - bar) / pair) * pair));
+  }
+  return Math.max(step, round3(Math.round(weight / step) * step));
+}
+
+const RAMP = [[0.4, 8], [0.6, 5], [0.8, 3]];
+
+// Warm-up sets that ramp to the working weight: the empty bar for barbell
+// lifts, then 40/60/80%, each loadable and heavier than the one before.
+export function warmupSets(working, options = {}) {
+  const target = Number(working) || 0;
+  if (target <= 0) return [];
+  const barbell = options.equipment === "barbell";
+  const bar = options.bar ?? 45;
+  const sets = [];
+  if (barbell && target > bar) sets.push({ weight: bar, reps: 10 });
+  for (const [pct, reps] of RAMP) {
+    const weight = roundLoadable(target * pct, options);
+    const last = sets.length ? sets[sets.length - 1].weight : 0;
+    if (weight <= last || weight >= target) continue;
+    sets.push({ weight, reps });
+  }
+  return sets;
+}
+
+// ---------- supersets ----------
+
+// Consecutive entries sharing a supersetId form a group. For each entry this
+// gives its group letter and position (A1, A2…), or null when it stands alone.
+export function supersetLabels(entries) {
+  const labels = entries.map(() => null);
+  let letter = 0;
+  for (let i = 0; i < entries.length; ) {
+    const id = entries[i].supersetId;
+    let j = i + 1;
+    while (id && j < entries.length && entries[j].supersetId === id) j += 1;
+    if (id && j - i > 1) {
+      const group = String.fromCharCode(65 + (letter % 26));
+      for (let k = i; k < j; k += 1) labels[k] = { group, position: k - i + 1, size: j - i, first: k === i, last: k === j - 1 };
+      letter += 1;
+    }
+    i = j;
+  }
+  return labels;
+}
+
+// Rest only after the last exercise of a superset (or any standalone one).
+export function restsAfter(entries, index) {
+  const label = supersetLabels(entries)[index];
+  return !label || label.last;
+}
+
+// The exercise to do next inside a superset: the following one, or back to
+// the first after the last.
+export function nextInSuperset(entries, index) {
+  const label = supersetLabels(entries)[index];
+  if (!label) return null;
+  return label.last ? index - (label.size - 1) : index + 1;
+}
+
+// ---------- weekly volume, consistency, bodyweight ----------
+
+export function dateKey(time = Date.now()) {
+  const d = new Date(time);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+export function fromDateKey(key) {
+  const [y, m, d] = String(key).split("-").map(Number);
+  return new Date(y, m - 1, d).getTime();
+}
+
+// Working sets per muscle group for workouts since `from`.
+export function muscleSets(workouts, exerciseIndex, from = 0) {
+  const counts = new Map();
+  for (const workout of finished(workouts)) {
+    if (workout.rest || (workout.startedAt || 0) < from) continue;
+    for (const entry of workout.entries || []) {
+      const muscle = exerciseIndex.get(entry.exerciseId)?.muscle || "other";
+      const sets = workingSets(entry).length;
+      if (sets) counts.set(muscle, (counts.get(muscle) || 0) + sets);
+    }
+  }
+  return [...counts.entries()].map(([muscle, sets]) => ({ muscle, sets })).sort((a, b) => b.sets - a.sets || a.muscle.localeCompare(b.muscle));
+}
+
+// Volume and set count per calendar day.
+export function dailyVolume(workouts) {
+  const days = new Map();
+  for (const workout of finished(workouts)) {
+    if (workout.rest) continue;
+    const key = dateKey(workout.startedAt);
+    const day = days.get(key) || { volume: 0, sets: 0, workouts: 0 };
+    day.volume += workoutVolume(workout);
+    day.sets += workoutSetCount(workout);
+    day.workouts += 1;
+    days.set(key, day);
+  }
+  return days;
+}
+
+// Weeks in a row with at least one workout. The current week only breaks
+// the streak once it's over.
+export function weekStreak(workouts, now = Date.now()) {
+  const weeks = new Set(finished(workouts).filter((w) => !w.rest).map((w) => startOfWeek(w.startedAt)));
+  const halfWeek = 3.5 * 86_400_000;
+  let week = startOfWeek(now);
+  if (!weeks.has(week)) week = startOfWeek(week - halfWeek);
+  let streak = 0;
+  while (weeks.has(week)) {
+    streak += 1;
+    week = startOfWeek(week - halfWeek);
+  }
+  return streak;
+}
+
+// One record per day, so logging twice on the same day replaces the first.
+export const bodyweightId = (key) => `bw_${key}`;
+
+// Average of the entries in the `days` days ending on each entry's date.
+export function movingAverage(points, days = 7) {
+  const sorted = [...points].sort((a, b) => a.date.localeCompare(b.date));
+  const span = (days - 1) * 86_400_000;
+  return sorted.map((point) => {
+    const end = fromDateKey(point.date);
+    const window = sorted.filter((other) => {
+      const t = fromDateKey(other.date);
+      return t <= end && t >= end - span;
+    });
+    return { date: point.date, value: window.reduce((sum, item) => sum + item.weight, 0) / window.length };
+  });
+}
+
+// ---------- split vs. what you actually did ----------
+
+// The split day's exercise list rewritten to match a workout as you set it
+// up (pass it before unchecked sets are dropped): same order, exercises and
+// working-set rows. Targets already set (rep range, rest) are kept.
+// `changes` describes what's different.
+export function splitDiff(day, workout, nameOf = (id) => id) {
+  const before = day?.exercises || [];
+  const entries = (workout?.entries || []).filter((entry) => entry.sets?.some((set) => set.type !== "warmup"));
+  const after = entries.map((entry) => {
+    const existing = before.find((item) => item.exerciseId === entry.exerciseId) || {};
+    return {
+      ...existing,
+      exerciseId: entry.exerciseId,
+      targetSets: entry.sets.filter((set) => set.type !== "warmup").length,
+      repMin: existing.repMin ?? entry.repMin ?? 8,
+      repMax: existing.repMax ?? entry.repMax ?? 12,
+      restSec: existing.restSec ?? entry.restSec ?? 120,
+      supersetId: entry.supersetId ?? null
+    };
+  });
+  const changes = [];
+  const beforeIds = before.map((item) => item.exerciseId);
+  const afterIds = after.map((item) => item.exerciseId);
+  for (const id of afterIds) if (!beforeIds.includes(id)) changes.push(`Add ${nameOf(id)}`);
+  for (const id of beforeIds) if (!afterIds.includes(id)) changes.push(`Remove ${nameOf(id)}`);
+  if (afterIds.filter((id) => beforeIds.includes(id)).join() !== beforeIds.filter((id) => afterIds.includes(id)).join()) changes.push("New exercise order");
+  for (const item of after) {
+    const old = before.find((b) => b.exerciseId === item.exerciseId);
+    if (old && (Number(old.targetSets) || 3) !== item.targetSets) changes.push(`${nameOf(item.exerciseId)}: ${item.targetSets} ${item.targetSets === 1 ? "set" : "sets"}`);
+  }
+  const groups = (list) => list.map((item) => (item.supersetId ? list.filter((o) => o.supersetId === item.supersetId).map((o) => o.exerciseId).join("+") : "")).join("|");
+  if (groups(before) !== groups(after)) changes.push("Supersets changed");
+  return { changes, exercises: after };
+}
+
+// The last finished session of the same split day before this one.
+export function previousSession(workouts, workout) {
+  if (!workout?.splitDayId) return null;
+  return finished(workouts)
+    .filter((w) => !w.rest && w.id !== workout.id && w.splitDayId === workout.splitDayId && w.startedAt < workout.startedAt)
+    .sort(byNewest)[0] || null;
 }

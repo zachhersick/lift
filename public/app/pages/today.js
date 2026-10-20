@@ -1,19 +1,25 @@
-// Today: what's next in the rotation, a way to start it, and this week so far.
+// Today: what's next in the rotation, this week's training, consistency,
+// bodyweight and recent PRs.
 import { useMemo, useState } from "preact/hooks";
 import { html } from "../html.js";
 import { Icon } from "../icons.js";
-import { Empty, Header, Menu, Sheet, Stat } from "../ui.js";
-import { activeWorkout, exerciseName, finishedWorkouts, sessions, settings, splitDays } from "../store.js";
-import { exerciseHistory, isPersonalRecord, nextSplitDay, orderedDays, personalRecords, startOfWeek, workoutSetCount, workoutVolume, e1rm, lastDoneAt } from "../model.js";
+import { ActionList, Cell, Group, NavBar, Sheet, Summary } from "../ui.js";
+import { activeWorkout, bodyweights, exerciseIndex, exerciseName, finishedWorkouts, sessions, settings, splitDays } from "../store.js";
+import {
+  dailyVolume, dateKey, e1rm, exerciseHistory, isPersonalRecord, lastDoneAt, muscleSets, nextSplitDay, orderedDays,
+  personalRecords, previousEntry, startOfWeek, weekStreak, workoutSetCount, workoutVolume
+} from "../model.js";
 import { applyTemplate, logRest, startWorkout } from "../actions.js";
 import { TEMPLATES } from "../exercises.js";
 import { go } from "../router.js";
 import { sync } from "../sync.js";
 import { now } from "../timer.js";
+import { BodyweightSheet } from "./bodyweight.js";
 import * as format from "../format.js";
 
 export function Today() {
-  const [picking, setPicking] = useState(false);
+  const [choosing, setChoosing] = useState(false);
+  const [weighing, setWeighing] = useState(false);
   const days = splitDays.value;
   const next = nextSplitDay(days, finishedWorkouts.value);
   const active = activeWorkout.value;
@@ -25,129 +31,171 @@ export function Today() {
     return { count: list.length, sets: list.reduce((sum, w) => sum + workoutSetCount(w), 0), volume: list.reduce((sum, w) => sum + workoutVolume(w), 0) };
   }, [sessions.value]);
 
-  const prs = useRecentPRs();
-  const today = format.date(Date.now(), { weekday: "long", month: "long", day: "numeric" });
+  const latestWeight = bodyweights.value[0];
 
   return html`
     <div class="page">
-      <${Header} title="Today" subtitle=${today} />
+      <${NavBar} title="Today" subtitle=${format.date(Date.now(), { weekday: "long", month: "long", day: "numeric" })} />
+
       ${sync.value.status === "signedOut" ? html`
-        <a class="banner" href="/api/auth/login">
-          <${Icon} name="cloud" />
-          <div><strong>Back up your workouts</strong><span>Sign in with GitHub to sync this phone and your computer.</span></div>
-          <${Icon} name="right" size=${18} />
-        </a>` : null}
+        <${Group}><${Cell} icon="cloud" title="Back Up Your Workouts" subtitle="Sign in to sync your phone and computer" chevron href="/api/auth/login" /></${Group}>` : null}
 
       ${active ? html`
-        <button class="card live-card" onClick=${() => go(`workout/${active.id}`)}>
-          <span class="pulse"></span>
-          <div class="grow">
-            <span class="eyebrow">In progress</span>
-            <strong>${active.name}</strong>
-          </div>
-          <span class="live-time">${format.clock((now.value - active.startedAt) / 1000)}</span>
-          <${Icon} name="right" />
-        </button>` : null}
+        <${Group}>
+          <${Cell} title=${active.name} subtitle="Workout in progress" onClick=${() => go(`workout/${active.id}`)} chevron>
+            <span class="cell-value timer">${format.clock((now.value - active.startedAt) / 1000)}</span>
+          </${Cell}>
+        </${Group}>` : null}
 
-      ${!days.length ? html`<${SetupSplit} />` : next ? html`<${NextUp} next=${next} days=${days} onPick=${() => setPicking(true)} hasActive=${Boolean(active)} />` : null}
+      ${!days.length ? html`<${SetupSplit} />` : next ? html`<${UpNext} next=${next} days=${days} onChoose=${() => setChoosing(true)} blocked=${Boolean(active)} />` : null}
 
-      <section class="section">
-        <h2 class="section-title">This week</h2>
-        <div class="stats">
-          <${Stat} label="Workouts" value=${week.count} />
-          <${Stat} label="Sets" value=${week.sets} />
-          <${Stat} label="Volume" value=${format.volume(week.volume, unit)} />
-        </div>
-      </section>
+      <${Group} header="This Week" prominent>
+        <${Summary} items=${[
+          { label: "Workouts", value: week.count },
+          { label: "Sets", value: week.sets },
+          { label: "Volume", value: format.volume(week.volume, "").trim(), unit }
+        ]} />
+      </${Group}>
 
-      ${prs.length ? html`
-        <section class="section">
-          <h2 class="section-title">Recent PRs</h2>
-          <div class="card list">
-            ${prs.map((pr) => html`
-              <button class="list-row" onClick=${() => go(`exercise/${pr.exerciseId}`)}>
-                <span class="pr-badge"><${Icon} name="trophy" size=${16} /></span>
-                <div class="grow"><strong>${exerciseName(pr.exerciseId)}</strong><span>${format.weight(pr.weight)} ${unit} × ${pr.reps} · e1RM ${format.weight(Math.round(pr.e1rm))}</span></div>
-                <span class="muted small">${format.relativeDay(pr.date)}</span>
-              </button>`)}
-          </div>
-        </section>` : null}
+      <${MuscleVolume} />
+      <${Consistency} />
 
-      ${!sessions.value.length && days.length ? html`<p class="muted center pad">Your first workout sets the baseline. After that, every set shows what you did last time.</p>` : null}
+      <${Group} header="Body" prominent>
+        <${Cell} icon="scale" iconBg="var(--indigo)" title="Bodyweight" subtitle=${latestWeight ? format.relativeDay(new Date(latestWeight.date + "T12:00").getTime()) : "Not logged yet"}
+          onClick=${() => setWeighing(true)} chevron>
+          <span class="cell-value num">${latestWeight ? `${format.weight(latestWeight.weight)} ${unit}` : "Log"}</span>
+        </${Cell}>
+      </${Group}>
 
-      <${Sheet} open=${picking} onClose=${() => setPicking(false)} title="Start a different day">
-        <${Menu} items=${[
-          ...orderedDays(days).map((day) => ({
+      <${RecentPRs} />
+
+      <${Sheet} open=${choosing} onClose=${() => setChoosing(false)} title="Choose a Day" grouped>
+        <${ActionList} items=${orderedDays(days).map((day) => {
+          const last = lastDoneAt(day.id, finishedWorkouts.value);
+          return {
             label: day.name,
             icon: day.rest ? "moon" : "today",
-            hint: day.rest ? "Rest" : `${format.plural(day.exercises?.length || 0, "exercise")}${lastDoneAt(day.id, finishedWorkouts.value) ? ` · ${format.relativeDay(lastDoneAt(day.id, finishedWorkouts.value))}` : ""}`,
+            iconBg: day.rest ? "var(--indigo)" : "var(--tint)",
+            value: day.rest ? "Rest" : last ? format.relativeDay(last) : "",
             onClick: async () => {
-              setPicking(false);
+              setChoosing(false);
               if (day.rest) await logRest(day);
               else startWorkout(day);
             }
-          })),
-          { label: "Empty workout", icon: "plus", hint: "Add exercises as you go", onClick: () => { setPicking(false); startWorkout(null); } }
-        ]} />
+          };
+        })} />
+        <${ActionList} items=${[{ label: "Empty Workout", icon: "plus", iconBg: "var(--label-2)", hint: "Add exercises as you go", onClick: () => { setChoosing(false); startWorkout(null); } }]} />
       </${Sheet}>
+      <${BodyweightSheet} open=${weighing} onClose=${() => setWeighing(false)} />
     </div>`;
 }
 
-function NextUp({ next, days, onPick, hasActive }) {
+function UpNext({ next, days, onChoose, blocked }) {
   const { day, index, count, lastDoneAt: last } = next;
-  const ordered = orderedDays(days);
+  const unit = settings.value.unit;
+  const header = html`<span class="accessory">Day ${index + 1} of ${count}</span>`;
   if (day.rest) {
+    const ordered = orderedDays(days);
     const after = ordered.slice(index + 1).concat(ordered.slice(0, index)).find((item) => !item.rest);
     return html`
-      <section class="card hero rest">
-        <span class="eyebrow">Up next · day ${index + 1} of ${count}</span>
-        <h2 class="hero-title"><${Icon} name="moon" size=${26} /> ${day.name}</h2>
-        <p class="muted">Recovery is where the growth happens. Mark it done when you've rested, or train anyway.</p>
-        <div class="hero-actions">
-          <button class="btn primary block" onClick=${() => logRest(day)}>Done resting</button>
-          ${after ? html`<button class="btn ghost block" onClick=${() => startWorkout(after)}>Train ${after.name} instead</button>` : null}
+      <${Group} header="Up Next" prominent accessory=${header}>
+        <div class="up-next-head"><span class="footnote">${last ? `Last rest day ${format.relativeDay(last).toLowerCase()}` : "Recovery"}</span><h2>Rest Day</h2></div>
+        <div class="up-next-actions">
+          <button class="btn filled block" onClick=${() => logRest(day)}>Done Resting</button>
+          ${after ? html`<button class="btn plain block" onClick=${() => startWorkout(after)} disabled=${blocked}>Train ${after.name} Instead</button>` : null}
         </div>
-      </section>`;
+      </${Group}>`;
   }
-  const names = (day.exercises || []).map((item) => exerciseName(item.exerciseId));
+  const items = day.exercises || [];
   return html`
-    <section class="card hero">
-      <span class="eyebrow">Up next · day ${index + 1} of ${count}</span>
-      <h2 class="hero-title">${day.name}</h2>
-      <p class="muted">${last ? `Last done ${format.relativeDay(last).toLowerCase()}` : "Not done yet"} · ${format.plural(names.length, "exercise")}</p>
-      ${names.length ? html`<ul class="hero-list">${names.slice(0, 5).map((name) => html`<li>${name}</li>`)}${names.length > 5 ? html`<li class="muted">+ ${names.length - 5} more</li>` : null}</ul>` : html`<p class="muted small">No exercises yet. <a href=${`#/split/${day.id}`}>Add some</a> or add them during the workout.</p>`}
-      <div class="hero-actions">
-        <button class="btn primary block big" onClick=${() => startWorkout(day)} disabled=${hasActive}><${Icon} name="play" size=${18} /> Start ${day.name}</button>
-        <button class="btn ghost block" onClick=${onPick}>Pick a different day</button>
+    <${Group} header="Up Next" prominent accessory=${header}>
+      <div class="up-next-head"><span class="footnote">${last ? `Last done ${format.relativeDay(last).toLowerCase()}` : "Not done yet"} · ${format.plural(items.length, "exercise")}</span><h2>${day.name}</h2></div>
+      ${items.slice(0, 6).map((item) => {
+        const prev = previousEntry(sessions.value, item.exerciseId);
+        const top = prev?.entry.sets.filter((s) => s.done && s.type !== "warmup").sort((a, b) => b.weight - a.weight || b.reps - a.reps)[0];
+        return html`<div class="plan-line">
+          <span class="name">${exerciseName(item.exerciseId)}</span>
+          <span class="target">${item.targetSets || 3}×${item.repMin && item.repMax ? (item.repMin === item.repMax ? item.repMin : `${item.repMin}–${item.repMax}`) : ""}</span>
+          <span class="last">${top ? `${format.weight(top.weight)}×${top.reps}` : html`<span class="secondary">–</span>`}</span>
+        </div>`;
+      })}
+      ${items.length > 6 ? html`<div class="plan-line more"><span class="name">${items.length - 6} more</span></div>` : null}
+      ${!items.length ? html`<div class="plan-line more"><span class="name">No exercises yet. <a href=${`#/split/${day.id}`}>Add some</a></span></div>` : null}
+      <div class="up-next-actions">
+        <button class="btn filled block" onClick=${() => startWorkout(day)} disabled=${blocked}><${Icon} name="play" size=${16} /> Start ${day.name}</button>
+        <button class="btn plain block" onClick=${onChoose}>Choose Another Day</button>
       </div>
-    </section>`;
+    </${Group}>`;
 }
 
 function SetupSplit() {
   return html`
-    <section class="card setup">
-      <span class="eyebrow">Get started</span>
-      <h2 class="hero-title">Set up your split</h2>
-      <p class="muted">Pick a starting point. You can rename days and change every exercise afterwards.</p>
-      <div class="templates">
-        ${TEMPLATES.map((template) => html`
-          <button class="template" onClick=${async () => { await applyTemplate(template); go("split"); }}>
-            <strong>${template.name}</strong>
-            <span>${template.blurb}</span>
-            <${Icon} name="right" size=${18} />
-          </button>`)}
-        <button class="template" onClick=${() => go("split")}>
-          <strong>Build my own</strong>
-          <span>Start from a blank split</span>
-          <${Icon} name="right" size=${18} />
-        </button>
-      </div>
-    </section>`;
+    <${Group} header="Set Up Your Split" prominent footer="Pick a starting point. You can rename days and change every exercise later.">
+      ${TEMPLATES.map((template) => html`<${Cell} title=${template.name} subtitle=${template.blurb} chevron onClick=${async () => { await applyTemplate(template); go("split"); }} />`)}
+      <${Cell} title="Build My Own" subtitle="Start from a blank split" chevron onClick=${() => go("split")} />
+    </${Group}>`;
 }
 
-// The best new PR per exercise from the last two weeks.
-function useRecentPRs() {
-  return useMemo(() => {
+const LOW = 10;
+const HIGH = 20;
+
+function MuscleVolume() {
+  const rows = useMemo(() => muscleSets(sessions.value, exerciseIndex.value, startOfWeek()), [sessions.value, exerciseIndex.value]);
+  const max = Math.max(HIGH + 4, ...rows.map((r) => r.sets));
+  return html`
+    <${Group} header="Sets per Muscle" prominent accessory=${html`<span class="accessory">This week</span>`}
+      footer=${rows.length ? `Working sets since Monday. The green band is ${LOW}–${HIGH} sets, a common weekly range for muscle growth.` : ""}>
+      ${rows.length ? html`<div class="muscles">${rows.map((row) => html`
+        <div class="mrow">
+          <span>${format.capitalize(row.muscle)}</span>
+          <span class="mtrack"><span class="mband" style=${`left:${(LOW / max) * 100}%;width:${((HIGH - LOW) / max) * 100}%`}></span><span class="mfill" style=${`width:${(row.sets / max) * 100}%`}></span></span>
+          <strong>${row.sets}</strong>
+        </div>`)}</div>` : html`<${Cell} title="No sets yet this week" />`}
+    </${Group}>`;
+}
+
+function Consistency() {
+  const data = useMemo(() => {
+    const volume = dailyVolume(sessions.value);
+    const today = dateKey();
+    const start = new Date(startOfWeek());
+    start.setDate(start.getDate() - 11 * 7);
+    const max = Math.max(1, ...[...volume.values()].map((d) => d.volume));
+    const cells = [];
+    const months = [];
+    let lastMonth = -1;
+    for (let w = 0; w < 12; w += 1) {
+      const weekStart = new Date(start);
+      weekStart.setDate(start.getDate() + w * 7);
+      const month = weekStart.getMonth();
+      months.push(month !== lastMonth ? weekStart.toLocaleDateString(undefined, { month: "short" }) : "");
+      lastMonth = month;
+      for (let d = 0; d < 7; d += 1) {
+        const day = new Date(weekStart);
+        day.setDate(weekStart.getDate() + d);
+        const key = dateKey(day.getTime());
+        const v = volume.get(key);
+        const level = !v ? 0 : v.volume <= 0 ? 1 : Math.min(4, Math.ceil((v.volume / max) * 4));
+        cells.push({ key, level, future: key > today, today: key === today, label: v ? `${format.date(day.getTime())}: ${format.plural(v.sets, "set")}` : format.date(day.getTime()) });
+      }
+    }
+    return { cells, months, streak: weekStreak(sessions.value), total: [...volume.keys()].filter((k) => k >= dateKey(start.getTime())).length };
+  }, [sessions.value]);
+  return html`
+    <${Group} header="Consistency" prominent accessory=${html`<span class="accessory">${data.streak ? `${format.plural(data.streak, "week")} in a row` : "Last 12 weeks"}</span>`}
+      footer=${`${format.plural(data.total, "training day")} in the last 12 weeks. Darker means more volume.`}>
+      <div class="heat" role="img" aria-label=${`${data.total} training days in the last 12 weeks`}>
+        <span></span>
+        <div class="heat-months">${data.months.map((m) => html`<span>${m}</span>`)}</div>
+        <div class="heat-days">${["M", "", "W", "", "F", "", "S"].map((d) => html`<span>${d}</span>`)}</div>
+        <div class="heat-grid">${data.cells.map((c) => html`<span class=${`heat-cell l${c.level} ${c.future ? "future" : ""} ${c.today ? "today" : ""}`} title=${c.label}></span>`)}</div>
+      </div>
+    </${Group}>`;
+}
+
+function RecentPRs() {
+  const unit = settings.value.unit;
+  const prs = useMemo(() => {
     const from = Date.now() - 14 * 86_400_000;
     const found = new Map();
     for (const workout of sessions.value.filter((w) => w.startedAt >= from)) {
@@ -163,4 +211,10 @@ function useRecentPRs() {
     }
     return [...found.values()].sort((a, b) => b.date - a.date).slice(0, 5);
   }, [sessions.value]);
+  if (!prs.length) return null;
+  return html`
+    <${Group} header="Recent PRs" prominent>
+      ${prs.map((pr) => html`<${Cell} icon="trophy" iconBg="var(--yellow-ink)" title=${exerciseName(pr.exerciseId)} subtitle=${`${format.weight(pr.weight)} ${unit} × ${pr.reps} · e1RM ${format.weight(Math.round(pr.e1rm))}`}
+        value=${format.relativeDay(pr.date)} chevron onClick=${() => go(`exercise/${pr.exerciseId}`)} />`)}
+    </${Group}>`;
 }

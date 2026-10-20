@@ -1,17 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <radialGradient id="glow" cx="0.72" cy="0.22" r="0.8">
-      <stop offset="0" stop-color="#c6f432" stop-opacity="0.22"/>
-      <stop offset="1" stop-color="#c6f432" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="bar" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#d9ff5c"/>
-      <stop offset="1" stop-color="#a8d81c"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3D9BFF"/>
+      <stop offset="1" stop-color="#0062E0"/>
     </linearGradient>
   </defs>
-  <rect width="1024" height="1024" fill="#0b0c0f"/>
-  <rect width="1024" height="1024" fill="url(#glow)"/>
-  <rect x="252" y="532" width="140" height="240" rx="40" fill="url(#bar)" opacity="0.55"/>
-  <rect x="442" y="402" width="140" height="370" rx="40" fill="url(#bar)" opacity="0.78"/>
-  <rect x="632" y="252" width="140" height="520" rx="40" fill="url(#bar)"/>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <g fill="#FFFFFF">
+    <rect x="232" y="560" width="152" height="224" rx="44" opacity="0.62"/>
+    <rect x="436" y="420" width="152" height="364" rx="44" opacity="0.82"/>
+    <rect x="640" y="240" width="152" height="544" rx="44"/>
+  </g>
 </svg>

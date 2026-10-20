@@ -47,6 +47,7 @@ function watch(sound) {
     if (Date.now() >= timer.endsAt) {
       clearInterval(tick);
       restTimer.value = { finishedAt: Date.now() };
+      remember(null);
       if (sound) beep();
       navigator.vibrate?.([200, 100, 200]);
       setTimeout(() => {
@@ -56,9 +57,20 @@ function watch(sound) {
   }, 250);
 }
 
+// iOS often reloads a home-screen app after it's been in the background,
+// so a running countdown is kept in localStorage and picked up again.
+const KEY = "lift-rest";
+function remember(timer) {
+  try {
+    if (timer?.endsAt) localStorage.setItem(KEY, JSON.stringify(timer));
+    else localStorage.removeItem(KEY);
+  } catch {}
+}
+
 export function startRest(seconds, { sound = true } = {}) {
   if (!seconds || seconds <= 0) return;
   restTimer.value = { endsAt: Date.now() + seconds * 1000, total: seconds, sound };
+  remember(restTimer.value);
   watch(sound);
 }
 
@@ -67,12 +79,22 @@ export function adjustRest(delta) {
   if (!timer?.endsAt) return;
   const endsAt = Math.max(Date.now() + 1000, timer.endsAt + delta * 1000);
   restTimer.value = { ...timer, endsAt, total: Math.max(timer.total + delta, 1) };
+  remember(restTimer.value);
 }
 
 export function stopRest() {
   clearInterval(tick);
   restTimer.value = null;
+  remember(null);
 }
+
+try {
+  const saved = JSON.parse(localStorage.getItem(KEY) || "null");
+  if (saved?.endsAt > Date.now()) {
+    restTimer.value = saved;
+    watch(saved.sound);
+  } else remember(null);
+} catch {}
 
 let lock = null;
 let wanted = false;
