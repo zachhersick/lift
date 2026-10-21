@@ -5,6 +5,7 @@ import NumberFlow from "@number-flow/react";
 import { Timer, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { StatusIsland } from "@/components/kokonutui/status-island";
 import { dismissNotice, notices } from "@/lib/notify";
 import { adjustRest, now, restTimer, stopRest } from "@/lib/timer.js";
@@ -165,13 +166,15 @@ export function SetTimerIsland() {
 
 export function Islands() {
   const tasks = useValue(notices);
-  return (
+  // Static fixed shell, animated children, portaled to <body>: see Keypad.
+  return createPortal(
     <div className="pt-safe pointer-events-none fixed inset-x-0 top-0 z-[60] flex flex-col items-center gap-2 px-4 pt-2">
       <SetTimerIsland />
       <RestIsland />
       <div className="pointer-events-auto">
         <StatusIsland dismissAfter={2600} onDismiss={dismissNotice} tasks={tasks} />
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
