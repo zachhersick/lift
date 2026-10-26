@@ -78,6 +78,21 @@ export function saveExerciseNote(id, note) {
   return save({ ...base, kind: "exercise", note: String(note || "").trim() });
 }
 
+// Edits an exercise's name, muscle, equipment or tracking type. Built-ins
+// get a stored copy that overrides the library entry, like notes do.
+export function saveExercise(id, change) {
+  const base = exerciseIndex.value.get(id);
+  if (!base) return null;
+  return save({ ...base, ...change, id, kind: "exercise", deleted: false });
+}
+
+// Puts a built-in exercise back to the library version, keeping its note.
+export function resetExercise(id) {
+  const original = BUILT_IN.find((exercise) => exercise.id === id);
+  if (!original) return null;
+  return save({ ...original, note: exerciseIndex.value.get(id)?.note || "", deleted: false });
+}
+
 export function exerciseName(id) {
   return exerciseIndex.value.get(id)?.name || "Unknown exercise";
 }

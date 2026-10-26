@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import MetricCard from "@/components/kokonutui/metric-card";
 import SmoothTab from "@/components/kokonutui/smooth-tab";
 import { LineChart, Sparkline } from "@/components/chart";
+import { EditExerciseSheet } from "@/components/exercise-picker";
 import { Card, Empty, FadeIn, Page, Row, Section, Segmented, StatTiles, TopBar } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { ask } from "@/lib/dialogs";
@@ -185,6 +186,7 @@ export function ExerciseDetail({ id }: { id: string }) {
   const s = useValue(settings) as any;
   const [range, setRange] = useState(90);
   const [noting, setNoting] = useState(false);
+  const [editing, setEditing] = useState(false);
   const exercise = index.get(id);
   const history = useMemo(() => exerciseHistory(list, id) as any[], [list, id]);
   const records = useMemo(() => personalRecords(history), [history]);
@@ -239,7 +241,17 @@ export function ExerciseDetail({ id }: { id: string }) {
 
   return (
     <Page>
-      <TopBar backLabel="Progress" backTo="progress" subtitle={`${format.capitalize(exercise.muscle || "other")} · ${format.capitalize(exercise.equipment || "other")}`} title={exercise.name} />
+      <TopBar
+        backLabel="Progress"
+        backTo="progress"
+        subtitle={`${format.capitalize(exercise.muscle || "other")} · ${format.capitalize(exercise.equipment || "other")}`}
+        title={exercise.name}
+        trailing={
+          <button className="h-9 rounded-full px-3 text-[15px] font-medium text-primary active:opacity-60" onClick={() => setEditing(true)} type="button">
+            Edit
+          </button>
+        }
+      />
       {!history.length ? (
         <Empty icon={Dumbbell} title="No sets yet">
           Do this exercise in a workout and its chart starts here.
@@ -312,6 +324,7 @@ export function ExerciseDetail({ id }: { id: string }) {
         </Button>
       ) : null}
       <NoteSheet exercise={exercise} id={id} onClose={() => setNoting(false)} open={noting} />
+      <EditExerciseSheet id={id} onClose={() => setEditing(false)} open={editing} />
     </Page>
   );
 }

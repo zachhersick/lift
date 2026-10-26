@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   bodyweightId, cardioSeconds, dailyVolume, dateKey, defaultWeeklyGoal, e1rm, FIELDS, isComplete, setDistance, trackOf, exerciseHistory, isPersonalRecord, movingAverage, muscleSets, nextInSuperset,
   nextSplitDay, personalRecords, placeholderFor, plateBreakdown, previousEntry, previousSession, restsAfter, roundLoadable,
-  coachingContext, indirectMuscles, splitWeeklySets, dailyIntake, dateKeyIn, fromDateKey, insights, mealMicro, MICROS, microAverages, dayTotals, estimateMaintenance, nutritionTargets, rateStatus, shiftDateKey, weightRate,
+  coachingContext, exerciseInUse, indirectMuscles, splitWeeklySets, dailyIntake, dateKeyIn, fromDateKey, insights, mealMicro, MICROS, microAverages, dayTotals, estimateMaintenance, nutritionTargets, rateStatus, shiftDateKey, weightRate,
   splitDiff, startOfWeek, suggestion, supersetLabels, trend, warmupSets, weekStreak, weekSummary, workoutFromDay, workoutVolume
 } from "../src/lib/model.js";
 
@@ -633,4 +633,11 @@ test("every card says where it belongs and what it's based on", () => {
   const protein = result.cards.find((c) => c.id === "protein");
   assert.equal(protein.area, "nutrition");
   assert.match(protein.source, /Morton et al., 2018/);
+});
+
+test("an exercise counts as in use once a set of it is completed", () => {
+  const planned = workout("a", 1, "d", [entry("x", [{ id: "s", weight: 100, reps: 5, type: "working", done: false }])]);
+  assert.equal(exerciseInUse([planned], "x"), false, "unchecked sets don't count");
+  assert.equal(exerciseInUse([planned, workout("b", 2, "d", [entry("x", [set(100, 5)])])], "x"), true);
+  assert.equal(exerciseInUse([{ ...workout("b", 2, "d", [entry("x", [set(100, 5)])]), deleted: true }], "x"), false, "deleted workouts don't count");
 });
