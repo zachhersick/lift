@@ -1,5 +1,6 @@
 // Hash routes: #/today, #/workout/<id>, #/history, #/history/<id>,
-// #/progress, #/exercise/<id>, #/split, #/split/<id>, #/settings.
+// #/progress, #/exercise/<id>, #/bodyweight, #/nutrition, #/split,
+// #/split/<id>, #/settings.
 import { signal } from "@preact/signals-core";
 
 function parse(hash = location.hash) {

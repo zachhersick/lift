@@ -8,7 +8,7 @@ import {
 } from "./auth.js";
 import { PULL_LIMIT } from "./store.js";
 
-export const KINDS = new Set(["exercise", "splitDay", "workout", "bodyweight", "settings"]);
+export const KINDS = new Set(["exercise", "splitDay", "workout", "bodyweight", "settings", "meal", "coachReview"]);
 const SYNC_LIMIT = 4_000_000;
 const MAX_CHANGES = 2000;
 const MAX_RECORD = 200_000;

@@ -1,4 +1,4 @@
-// Settings: sync, appearance, weekly goal, units, barbell and plates, rest
+// Settings: sync, appearance, weekly goal, nutrition, units, barbell and plates, rest
 // timer, backups and installing on the phone.
 import { Check, Cloud, Download, LogIn, RefreshCw, Share, SquarePlus, Upload } from "lucide-react";
 import { motion } from "motion/react";
@@ -7,11 +7,12 @@ import { Card, Chip, Page, Row, Section, Segmented, spring, Stepper, Toggle, Top
 import { ask } from "@/lib/dialogs";
 import { BARS, defaultWeeklyGoal, PLATES } from "@/lib/model.js";
 import { notify } from "@/lib/notify";
-import { exportData, importRecords, pending, saveSettings, sessions, settings, splitDays } from "@/lib/store.js";
+import { exportData, importRecords, pending, saveSettings, sessions, settings, splitDays, targets } from "@/lib/store.js";
 import { signOut, sync, syncNow } from "@/lib/sync.js";
 import { TINTS } from "@/lib/theme.js";
 import * as format from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
+import { GOAL_LABEL } from "@/pages/nutrition";
 
 const STATUS: Record<string, string> = {
   starting: "Checking…",
@@ -31,6 +32,7 @@ export function Settings() {
   const days = useValue(splitDays) as any[];
   const file = useRef<HTMLInputElement>(null);
   const autoGoal = defaultWeeklyGoal(days);
+  const t = useValue(targets) as any;
 
   const download = () => {
     const blob = new Blob([JSON.stringify(exportData(), null, 2)], { type: "application/json" });
@@ -133,6 +135,24 @@ export function Settings() {
             <Stepper label="workouts per week" max={14} min={1} onChange={(weeklyGoal) => saveSettings({ weeklyGoal })} value={s.weeklyGoal || autoGoal} />
           </Row>
           {s.weeklyGoal ? <Row onClick={() => saveSettings({ weeklyGoal: null })} title="Use my rotation" tone="action" /> : null}
+        </Card>
+      </Section>
+
+      <Section
+        footer={`${s.calorieTarget ? "Calories are set by you." : `Calories follow your goal: ${s.goal === "cut" ? "20% under" : s.goal === "leanBulk" ? "250 over" : "at"} the maintenance Lift measures from your log and weigh-ins.`} ${s.proteinTarget ? "" : `Protein is ${s.unit === "kg" ? "2.2 g per kg" : "1 g per lb"} of bodyweight.`}`}
+        title="Nutrition"
+      >
+        <Card className="divide-y divide-border">
+          <Row title="Goal">
+            <Segmented label="Nutrition goal" onChange={(goal) => saveSettings({ goal })} options={Object.entries(GOAL_LABEL).map(([value, label]) => ({ value, label }))} size="sm" value={t.goal} />
+          </Row>
+          <Row subtitle={s.calorieTarget ? "Set by you" : "Automatic"} title="Calories">
+            <Stepper format={(v) => v.toLocaleString()} label="calories" max={6000} min={1200} onChange={(calorieTarget) => saveSettings({ calorieTarget })} step={50} value={t.calories || 2500} />
+          </Row>
+          <Row subtitle={s.proteinTarget ? "Set by you" : "Automatic"} title="Protein (g)">
+            <Stepper label="grams of protein" max={400} min={40} onChange={(proteinTarget) => saveSettings({ proteinTarget })} step={5} value={t.protein || 150} />
+          </Row>
+          {s.calorieTarget || s.proteinTarget ? <Row onClick={() => saveSettings({ calorieTarget: null, proteinTarget: null })} title="Use automatic targets" tone="action" /> : null}
         </Card>
       </Section>
 

@@ -3,7 +3,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { notify } from "./lib/notify";
-import { load, settings } from "./lib/store.js";
+import { load, saveSettings, settings } from "./lib/store.js";
 import { startSync } from "./lib/sync.js";
 import { applyAppearance } from "./lib/theme.js";
 import "./styles.css";
@@ -17,6 +17,9 @@ createRoot(document.getElementById("root")!).render(
 load().then(() => {
   effect(() => applyAppearance({ theme: settings.value.theme, tint: settings.value.tint }));
   startSync();
+  // The server dates meals from ChatGPT in your time zone.
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (zone && settings.value.timeZone !== zone) saveSettings({ timeZone: zone });
   const signin = new URLSearchParams(location.search).get("signin");
   if (signin) {
     const text = ({ expired: "Sign-in timed out", failed: "GitHub sign-in failed", denied: "That GitHub account isn't allowed" } as Record<string, string>)[signin] || "Sign-in didn't work";

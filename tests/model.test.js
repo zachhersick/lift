@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   bodyweightId, cardioSeconds, dailyVolume, dateKey, defaultWeeklyGoal, e1rm, FIELDS, isComplete, setDistance, trackOf, exerciseHistory, isPersonalRecord, movingAverage, muscleSets, nextInSuperset,
   nextSplitDay, personalRecords, placeholderFor, plateBreakdown, previousEntry, previousSession, restsAfter, roundLoadable,
+  dailyIntake, dateKeyIn, dayTotals, estimateMaintenance, nutritionTargets, rateStatus, shiftDateKey, weightRate,
   splitDiff, startOfWeek, suggestion, supersetLabels, trend, warmupSets, weekStreak, weekSummary, workoutFromDay, workoutVolume
 } from "../src/lib/model.js";
 
@@ -299,4 +300,85 @@ test('cardio minutes in the week, and no cardio in muscle sets', () => {
   assert.equal(cardioSeconds(list[0]), 1200, 'without an index, speed/incline marks cardio');
   assert.deepEqual(muscleSets(list, index, 0), [{ muscle: 'full body', sets: 2 }, { muscle: 'chest', sets: 1 }]);
   assert.equal(workoutVolume(list[0]), 800, 'volume stays lifting only');
+});
+
+// ---------- nutrition ----------
+
+const meal = (date, calories, extra = {}) => ({ id: `m-${date}-${Math.random()}`, kind: "meal", date, calories, protein: 0, carbs: 0, fat: 0, ...extra });
+const days = (count, start = "2026-09-01") => Array.from({ length: count }, (_, i) => shiftDateKey(start, i));
+
+test("daily intake adds meals per date and leaves unlogged days out", () => {
+  const intake = dailyIntake([meal("2026-09-01", 600, { protein: 40 }), meal("2026-09-01", 900, { protein: 60 }), meal("2026-09-03", 2000), { ...meal("2026-09-03", 500), deleted: true }]);
+  assert.deepEqual([...intake.keys()], ["2026-09-01", "2026-09-03"]);
+  assert.equal(intake.get("2026-09-01").calories, 1500);
+  assert.equal(intake.get("2026-09-01").protein, 100);
+  assert.equal(intake.get("2026-09-01").meals, 2);
+  assert.equal(intake.get("2026-09-03").calories, 2000, "deleted meals don't count");
+  assert.equal(dayTotals([meal("x", "450", { fat: "12.5" })]).fat, 12.5);
+});
+
+test("date keys shift across months and resolve in a time zone", () => {
+  assert.equal(shiftDateKey("2026-02-27", 3), "2026-03-02");
+  assert.equal(shiftDateKey("2026-01-01", -1), "2025-12-31");
+  // 03:00 UTC on Oct 21 is still Oct 20 in Chicago.
+  assert.equal(dateKeyIn(Date.UTC(2026, 9, 21, 3), "America/Chicago"), "2026-10-20");
+  assert.equal(dateKeyIn(Date.UTC(2026, 9, 21, 3), "UTC"), "2026-10-21");
+});
+
+test("maintenance comes from intake and the weight trend once there's enough data", () => {
+  // 2,800 kcal a day while gaining 0.5 lb a week → about 2,550 maintenance.
+  const span = days(28);
+  const meals = span.map((date) => meal(date, 2800));
+  const weights = span.map((date, i) => ({ id: bodyweightId(date), kind: "bodyweight", date, weight: 180 + (0.5 / 7) * i }));
+  const today = shiftDateKey(span[span.length - 1], 1);
+  const estimate = estimateMaintenance(meals, weights, { today });
+  assert.equal(estimate.method, "adaptive");
+  assert.equal(estimate.confidence, "high");
+  assert.equal(estimate.calories, 2550);
+  assert.ok(Math.abs(estimate.weightPerWeek - 0.5) < 0.01);
+});
+
+test("maintenance falls back to a rough guess, and gaps don't drag the average down", () => {
+  const weights = [{ id: "a", date: "2026-09-01", weight: 200 }];
+  const rough = estimateMaintenance([meal("2026-09-01", 2500)], weights, { today: "2026-09-05" });
+  assert.equal(rough.method, "bodyweight");
+  assert.equal(rough.calories, 3000);
+  assert.equal(rough.avgIntake, 2500);
+  assert.equal(estimateMaintenance([], [], { today: "2026-09-05" }).calories, null);
+  // Logging only every other day still averages the logged days.
+  const span = days(28);
+  const sparse = span.filter((_, i) => i % 2 === 0).map((date) => meal(date, 2400));
+  const flat = span.map((date) => ({ id: date, date, weight: 180 }));
+  const estimate = estimateMaintenance(sparse, flat, { today: shiftDateKey(span[27], 1) });
+  assert.equal(estimate.calories, 2400);
+  assert.equal(estimate.loggedDays, 14);
+  assert.equal(estimate.confidence, "medium");
+});
+
+test("targets follow the goal unless set by hand", () => {
+  assert.equal(nutritionTargets({ goal: "maintain" }, 2500, 180).calories, 2500);
+  assert.equal(nutritionTargets({ goal: "cut" }, 2500, 180).calories, 2000);
+  assert.equal(nutritionTargets({ goal: "leanBulk" }, 2500, 180).calories, 2750);
+  const manual = nutritionTargets({ goal: "cut", calorieTarget: 2200, proteinTarget: 170 }, 2500, 180);
+  assert.equal(manual.calories, 2200);
+  assert.equal(manual.protein, 170);
+  assert.equal(manual.autoCalories, false);
+  const auto = nutritionTargets({ goal: "maintain", unit: "lb" }, 2500, 180);
+  assert.equal(auto.protein, 180);
+  assert.equal(auto.fat, Math.round((2500 * 0.25) / 9));
+  assert.equal(auto.carbs, Math.round((2500 - 180 * 4 - auto.fat * 9) / 4));
+  assert.equal(nutritionTargets({ unit: "kg" }, 2500, 80).protein, 176);
+  assert.equal(nutritionTargets({}, null, null).calories, null);
+});
+
+test("weight rate is checked against the goal's band", () => {
+  const span = days(21);
+  const gaining = span.map((date, i) => ({ id: date, date, weight: 200 + (0.8 / 7) * i }));
+  const rate = weightRate(gaining, { today: span[20] });
+  assert.ok(Math.abs(rate.perWeek - 0.8) < 0.05);
+  assert.ok(Math.abs(rate.percent - 0.4) < 0.03);
+  assert.equal(rateStatus(rate, "leanBulk"), "in");
+  assert.equal(rateStatus(rate, "maintain"), "above");
+  assert.equal(rateStatus(rate, "cut"), "above");
+  assert.equal(weightRate(gaining.slice(0, 3), { today: span[2] }), null, "needs a week of data");
 });
