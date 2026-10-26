@@ -3,7 +3,7 @@
 // through save/update/remove.
 import { computed, signal } from "@preact/signals-core";
 import { BUILT_IN } from "./exercises.js";
-import { BARS, bodyweightId, dateKey, estimateMaintenance, finished, live, newer, nutritionTargets, orderedDays, PLATES, trendWeights, uid } from "./model.js";
+import { BARS, bodyweightId, dateKey, energyPlan, finished, live, newer, orderedDays, PLATES, uid } from "./model.js";
 import * as db from "./db.js";
 
 export const DEFAULT_SETTINGS = { id: "settings", kind: "settings", unit: "lb", step: 5, defaultRest: 120, sound: true, theme: "system", tint: "blue", weeklyGoal: null, goal: "maintain", calorieTarget: null, proteinTarget: null, timeZone: null };
@@ -53,11 +53,9 @@ export const bodyweights = computed(() => live(bodyweightsAll.value).sort((a, b)
 // Meals, newest first, and today's nutrition targets from your goal and the
 // maintenance worked out from your log and weigh-ins.
 export const meals = computed(() => live(mealsAll.value).sort((a, b) => b.date.localeCompare(a.date) || (b.eatenAt || 0) - (a.eatenAt || 0)));
-export const maintenance = computed(() => estimateMaintenance(mealsAll.value, bodyweightsAll.value, { unit: settings.value.unit }));
-export const targets = computed(() => {
-  const trend = trendWeights(bodyweightsAll.value);
-  return nutritionTargets(settings.value, maintenance.value.calories, trend.length ? trend[trend.length - 1].value : null);
-});
+export const energy = computed(() => energyPlan(mealsAll.value, bodyweightsAll.value, settings.value));
+export const maintenance = computed(() => energy.value.maintenance);
+export const targets = computed(() => energy.value.targets);
 
 export function saveMeal(meal) {
   return save({ source: "manual", items: [], ...meal, id: meal.id || uid("meal"), kind: "meal", date: meal.date || dateKey(meal.eatenAt || Date.now()), deleted: false });

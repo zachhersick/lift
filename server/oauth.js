@@ -1,0 +1,201 @@
+// OAuth 2.1 for the ChatGPT connector. Lift is its own small authorization
+// server: ChatGPT registers itself, you approve once while signed in with
+// GitHub, and ChatGPT gets short-lived bearer tokens for /api/mcp. Client
+// ids, codes and tokens are all signed with SESSION_SECRET; the only thing
+// stored is which one-time codes and refresh tokens were already used.
+import { createHash, randomBytes } from "node:crypto";
+import { safeEqual, sign } from "./auth.js";
+import { httpError } from "./http.js";
+
+export const SCOPE = "lift";
+const CODE_TTL = 5 * 60_000;
+const ACCESS_TTL = 60 * 60_000;
+const REFRESH_TTL = 60 * 86_400_000;
+const DEFAULT_REDIRECT_HOSTS = ["chatgpt.com", "chat.openai.com"];
+
+const b64url = (value) => Buffer.from(value).toString("base64url");
+const sha256 = (value) => createHash("sha256").update(value).digest("base64url");
+
+// A signed token of one type. The type is part of what's signed, so a code
+// can't be used as a token or the other way round.
+export function seal(type, data, secret, { ttl = 0, now = Date.now() } = {}) {
+  const payload = b64url(JSON.stringify({ ...data, ...(ttl ? { exp: now + ttl } : {}) }));
+  return `${payload}.${sign(`${type}.${payload}`, secret)}`;
+}
+
+export function unseal(type, token, secret, now = Date.now()) {
+  const [payload, signature, extra] = String(token || "").split(".");
+  if (!payload || !signature || extra !== undefined || !safeEqual(signature, sign(`${type}.${payload}`, secret))) return null;
+  try {
+    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    return data.exp && data.exp <= now ? null : data;
+  } catch {
+    return null;
+  }
+}
+
+export function oauthConfig(env, config) {
+  const hosts = String(env.OAUTH_REDIRECT_HOSTS || "").split(",").map((h) => h.trim().toLowerCase()).filter(Boolean);
+  return {
+    redirectHosts: hosts.length ? hosts : DEFAULT_REDIRECT_HOSTS,
+    tokenVersion: String(env.MCP_TOKEN_VERSION || "1"),
+    resource: `${config.appUrl}/api/mcp`
+  };
+}
+
+function allowedRedirect(uri, hosts) {
+  try {
+    const url = new URL(uri);
+    const local = ["localhost", "127.0.0.1"].includes(url.hostname);
+    return (url.protocol === "https:" || (local && url.protocol === "http:")) && hosts.includes(url.hostname.toLowerCase()) && !url.hash;
+  } catch {
+    return false;
+  }
+}
+
+export function protectedResourceMetadata(config, oauth) {
+  return { resource: oauth.resource, authorization_servers: [config.appUrl], scopes_supported: [SCOPE], bearer_methods_supported: ["header"], resource_name: "Lift" };
+}
+
+export function authorizationServerMetadata(config) {
+  return {
+    issuer: config.appUrl,
+    authorization_endpoint: `${config.appUrl}/api/oauth/authorize`,
+    token_endpoint: `${config.appUrl}/api/oauth/token`,
+    registration_endpoint: `${config.appUrl}/api/oauth/register`,
+    response_types_supported: ["code"],
+    grant_types_supported: ["authorization_code", "refresh_token"],
+    code_challenge_methods_supported: ["S256"],
+    token_endpoint_auth_methods_supported: ["none"],
+    scopes_supported: [SCOPE]
+  };
+}
+
+// Dynamic client registration: the client id carries its redirect URIs,
+// which must be on ChatGPT's hosts.
+export function registerClient(body, config, oauth) {
+  const uris = Array.isArray(body.redirect_uris) ? body.redirect_uris.map(String).slice(0, 10) : [];
+  if (!uris.length || !uris.every((uri) => allowedRedirect(uri, oauth.redirectHosts))) {
+    throw Object.assign(httpError(400, "Redirect URIs must be on an allowed host."), { oauth: "invalid_redirect_uri" });
+  }
+  const name = String(body.client_name || "ChatGPT").slice(0, 80);
+  return {
+    client_id: seal("client", { r: uris, n: name }, config.sessionSecret),
+    client_name: name,
+    redirect_uris: uris,
+    grant_types: ["authorization_code", "refresh_token"],
+    response_types: ["code"],
+    token_endpoint_auth_method: "none",
+    client_id_issued_at: Math.floor(Date.now() / 1000)
+  };
+}
+
+// The checked parameters of an authorization request, or an error that must
+// be shown on the page rather than sent to an unverified redirect URI.
+export function readAuthorizeRequest(params, config, oauth) {
+  const client = unseal("client", params.client_id, config.sessionSecret);
+  if (!client) return { fatal: "Unknown client. Remove the connector in ChatGPT and add it again." };
+  const redirectUri = String(params.redirect_uri || (client.r.length === 1 ? client.r[0] : ""));
+  if (!client.r.includes(redirectUri) || !allowedRedirect(redirectUri, oauth.redirectHosts)) return { fatal: "That redirect address isn't registered for this client." };
+  const request = {
+    clientId: String(params.client_id),
+    clientName: client.n,
+    redirectUri,
+    state: params.state == null ? "" : String(params.state),
+    challenge: String(params.code_challenge || ""),
+    method: String(params.code_challenge_method || ""),
+    scope: SCOPE,
+    resource: params.resource ? String(params.resource) : oauth.resource
+  };
+  if (params.response_type !== "code") return { request, error: "unsupported_response_type" };
+  if (request.method !== "S256" || !/^[A-Za-z0-9_-]{43,128}$/.test(request.challenge)) return { request, error: "invalid_request", description: "PKCE with S256 is required." };
+  if (request.resource !== oauth.resource) return { request, error: "invalid_target" };
+  return { request };
+}
+
+export function redirectWith(request, params) {
+  const url = new URL(request.redirectUri);
+  for (const [key, value] of Object.entries(params)) if (value) url.searchParams.set(key, value);
+  if (request.state) url.searchParams.set("state", request.state);
+  return url.toString();
+}
+
+export function issueCode(request, user, config) {
+  return seal("code", { c: sha256(request.clientId), r: request.redirectUri, ch: request.challenge, sub: String(user.sub), j: b64url(randomBytes(12)) }, config.sessionSecret, { ttl: CODE_TTL });
+}
+
+function tokenPair(sub, clientHash, config, oauth, now) {
+  const refreshId = b64url(randomBytes(12));
+  return {
+    access_token: seal("access", { sub, c: clientHash, v: oauth.tokenVersion }, config.sessionSecret, { ttl: ACCESS_TTL, now }),
+    token_type: "Bearer",
+    expires_in: ACCESS_TTL / 1000,
+    refresh_token: seal("refresh", { sub, c: clientHash, v: oauth.tokenVersion, j: refreshId }, config.sessionSecret, { ttl: REFRESH_TTL, now }),
+    scope: SCOPE
+  };
+}
+
+const grantError = (error, description) => Object.assign(httpError(400, description || error), { oauth: error });
+
+// The token endpoint: trade a code (with its PKCE verifier) or a refresh
+// token for a new access token and refresh token. Both are single use.
+export async function exchangeToken(body, { config, oauth, store, now = Date.now() }) {
+  const clientHash = body.client_id ? sha256(String(body.client_id)) : null;
+  if (body.grant_type === "authorization_code") {
+    const code = unseal("code", body.code, config.sessionSecret, now);
+    if (!code) throw grantError("invalid_grant", "The code is invalid or expired.");
+    if ((clientHash && code.c !== clientHash) || code.r !== String(body.redirect_uri || code.r)) throw grantError("invalid_grant", "The code was issued to another client.");
+    if (!body.code_verifier || !safeEqual(sha256(String(body.code_verifier)), code.ch)) throw grantError("invalid_grant", "PKCE verification failed.");
+    if (code.sub !== config.allowedGithubId) throw grantError("invalid_grant", "That account isn't allowed.");
+    if (!(await store.claim(`code:${code.j}`, code.exp, now))) throw grantError("invalid_grant", "The code was already used.");
+    return tokenPair(code.sub, code.c, config, oauth, now);
+  }
+  if (body.grant_type === "refresh_token") {
+    const token = unseal("refresh", body.refresh_token, config.sessionSecret, now);
+    if (!token || token.v !== oauth.tokenVersion || token.sub !== config.allowedGithubId || (clientHash && token.c !== clientHash)) throw grantError("invalid_grant", "Sign in again.");
+    if (!(await store.claim(`refresh:${token.j}`, token.exp, now))) throw grantError("invalid_grant", "That refresh token was already used.");
+    return tokenPair(token.sub, token.c, config, oauth, now);
+  }
+  throw grantError("unsupported_grant_type");
+}
+
+// The user behind a bearer token on /api/mcp, or null.
+export function readBearer(header, { config, oauth, now = Date.now() }) {
+  const match = /^Bearer\s+(\S+)$/i.exec(String(header || ""));
+  if (!match) return null;
+  const token = unseal("access", match[1], config.sessionSecret, now);
+  if (!token || token.v !== oauth.tokenVersion || token.sub !== config.allowedGithubId) return null;
+  return token;
+}
+
+const escape = (text) => String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+// The approval page. No scripts: two buttons in a same-origin form.
+export function consentPage({ request, login, error }) {
+  const hidden = request
+    ? ["client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method", "resource"]
+        .map((name) => {
+          const value = { client_id: request.clientId, redirect_uri: request.redirectUri, state: request.state, code_challenge: request.challenge, code_challenge_method: request.method, resource: request.resource }[name];
+          return `<input type="hidden" name="${name}" value="${escape(value)}">`;
+        })
+        .join("")
+    : "";
+  const body = error
+    ? `<h1>Can't connect</h1><p>${escape(error)}</p>`
+    : `<h1>Connect ${escape(request.clientName)} to Lift?</h1>
+<p>Signed in as <b>${escape(login)}</b>. ${escape(request.clientName)} will be able to:</p>
+<ul><li>Log, change and delete meals</li><li>Read your nutrition targets and daily totals</li><li>Read a summary of your training, bodyweight and progress</li></ul>
+<p class="muted">It can't see or change your workouts. Disconnect any time in ChatGPT's settings.</p>
+<form method="post" action="/api/oauth/authorize">${hidden}<input type="hidden" name="response_type" value="code">
+<button name="decision" value="allow">Allow</button><button name="decision" value="deny" class="secondary">Cancel</button></form>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lift · Connect</title>
+<style>
+:root{color-scheme:light dark;--bg:#f5f6f8;--card:#fff;--fg:#0b0c0e;--muted:#6b7079;--tint:#3b82f6;--line:rgba(15,17,22,.08)}
+@media (prefers-color-scheme:dark){:root{--bg:#07080a;--card:#111215;--fg:#f4f5f7;--muted:#8b909a;--line:rgba(255,255,255,.08)}}
+*{box-sizing:border-box}body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:16px;background:var(--bg);color:var(--fg);font:16px/1.45 -apple-system,system-ui,"Segoe UI",sans-serif}
+main{width:100%;max-width:420px;background:var(--card);border:1px solid var(--line);border-radius:28px;padding:28px 24px}
+h1{font-size:24px;line-height:1.2;letter-spacing:-.02em;margin:0 0 12px}ul{padding-left:20px;margin:8px 0 12px}li{margin:4px 0}.muted{color:var(--muted);font-size:14px}
+form{display:flex;flex-direction:column;gap:10px;margin-top:20px}button{height:50px;border:0;border-radius:16px;font:600 16px/1 inherit;background:var(--tint);color:#fff}
+button.secondary{background:transparent;color:var(--tint)}
+</style></head><body><main>${body}</main></body></html>`;
+}

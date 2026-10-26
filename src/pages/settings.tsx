@@ -1,13 +1,13 @@
-// Settings: sync, appearance, weekly goal, nutrition, units, barbell and plates, rest
-// timer, backups and installing on the phone.
-import { Check, Cloud, Download, LogIn, RefreshCw, Share, SquarePlus, Upload } from "lucide-react";
+// Settings: sync, appearance, weekly goal, nutrition, the ChatGPT connector,
+// units, barbell and plates, rest timer, backups and installing on the phone.
+import { Check, Cloud, Copy, Download, LogIn, RefreshCw, Share, Sparkles, SquarePlus, Upload } from "lucide-react";
 import { motion } from "motion/react";
 import { useRef } from "react";
 import { Card, Chip, Page, Row, Section, Segmented, spring, Stepper, Toggle, TopBar } from "@/components/kit";
 import { ask } from "@/lib/dialogs";
 import { BARS, defaultWeeklyGoal, PLATES } from "@/lib/model.js";
 import { notify } from "@/lib/notify";
-import { exportData, importRecords, pending, saveSettings, sessions, settings, splitDays, targets } from "@/lib/store.js";
+import { exportData, importRecords, meals, pending, saveSettings, sessions, settings, splitDays, targets } from "@/lib/store.js";
 import { signOut, sync, syncNow } from "@/lib/sync.js";
 import { TINTS } from "@/lib/theme.js";
 import * as format from "@/lib/format.js";
@@ -33,6 +33,9 @@ export function Settings() {
   const file = useRef<HTMLInputElement>(null);
   const autoGoal = defaultWeeklyGoal(days);
   const t = useValue(targets) as any;
+  const mealList = useValue(meals) as any[];
+  const lastChat = mealList.filter((m) => m.source === "chatgpt").sort((a, b) => (b.loggedAt || b.updatedAt) - (a.loggedAt || a.updatedAt))[0];
+  const connectorUrl = `${location.origin}/api/mcp`;
 
   const download = () => {
     const blob = new Blob([JSON.stringify(exportData(), null, 2)], { type: "application/json" });
@@ -153,6 +156,30 @@ export function Settings() {
             <Stepper label="grams of protein" max={400} min={40} onChange={(proteinTarget) => saveSettings({ proteinTarget })} step={5} value={t.protein || 150} />
           </Row>
           {s.calorieTarget || s.proteinTarget ? <Row onClick={() => saveSettings({ calorieTarget: null, proteinTarget: null })} title="Use automatic targets" tone="action" /> : null}
+        </Card>
+      </Section>
+
+      <Section
+        footer="In ChatGPT open Settings → Apps & Connectors → Advanced, turn on Developer mode, then Create a connector: paste this URL, choose OAuth and approve with your GitHub account. Then ask your Health chat to log meals to Lift."
+        title="ChatGPT"
+      >
+        <Card className="divide-y divide-border">
+          <Row
+            icon={Sparkles}
+            label="Copy connector URL"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(connectorUrl);
+                notify("Connector URL copied");
+              } catch {
+                notify("Couldn't copy. Select the URL instead", { status: "error" });
+              }
+            }}
+            subtitle={<span className="select-all">{connectorUrl}</span>}
+            title="Connector URL"
+            value={<Copy className="size-4" strokeWidth={2.2} />}
+          />
+          <Row subtitle={lastChat ? `${lastChat.name} · ${format.ago(lastChat.loggedAt || lastChat.updatedAt)}` : "Nothing yet"} title="Last meal from ChatGPT" />
         </Card>
       </Section>
 

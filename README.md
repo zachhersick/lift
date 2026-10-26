@@ -14,14 +14,17 @@ The look is dark-first and layered: glass surfaces, your accent color as soft gr
   - **⋯ menu:** **Add Warm-up Sets** (empty bar, then 40/60/80%, rounded to loadable weights), **Superset with Next** (A1/A2 labels; the rest timer only starts after the last exercise in the group), rest time, a **note that sticks to the exercise** (seat height, grip) and shows every time, **History** (a quick look at the last sessions without leaving the workout), swap, reorder, remove.
   - Checking a set starts the **rest timer**, a Dynamic Island-style pill at the top (tap it for −15 / +15 / Skip) that keeps counting if iOS reloads the app. A set that beats your best turns gold with a particle burst. Tap the workout title to change its name, date, time or duration (for logging a workout you forgot). The screen stays on during a workout.
   - **Hold to finish** (or tap Finish). If you added, swapped, removed or reordered exercises, changed set counts or supersets, Lift offers to update that split day to match. Skipping an exercise for the day doesn't count.
+- **Fuel** tracks what you eat. Meals arrive from your ChatGPT chat (see below) or you add them by hand. Today shows a calorie ring and protein/carbs/fat bars against your targets.
+  - Targets come from a goal you pick (cut, maintain, lean bulk) and your **measured maintenance**: Lift fits a line through your weigh-ins and compares it with what you ate, so after about 10 logged days it knows what you actually burn instead of guessing from a formula. Days you didn't log are gaps, not zeros.
+  - The Fuel page has each day's meals (tap one to fix ChatGPT's estimate), two weeks of calories against the target line, protein hit rate, and whether your weekly weight change is inside the range for your goal.
 - **History** has a calendar and every workout. A workout's summary compares volume, sets and time with your last session of the same day, and lists its PRs.
 - **Progress** has a training-volume card (upper body, lower body, core; 7/30/90 days) and lists each exercise with a sparkline and trend. The exercise page swipes between charts of estimated 1RM (Epley), heaviest set, volume and reps over 1M/3M/1Y/All, with PRs, best reps at each weight, every session and the exercise's note. **Bodyweight** has its own chart with a 7-day average.
 - **Split**: start from a template or build your own. Drag days and exercises to reorder, add rest days, set each exercise's sets, rep range, rest and supersets, and pick from ~100 built-in exercises or your own.
-- **Settings**: sync, theme and accent color, weekly goal, lb/kg and weight jump, bar weight and available plates, default rest and sound, and JSON **Export/Import** backups.
+- **Settings**: sync, theme and accent color, weekly goal, nutrition goal and targets, the ChatGPT connector, lb/kg and weight jump, bar weight and available plates, default rest and sound, and JSON **Export/Import** backups.
 
 ## How data is stored
 
-The phone is the source of truth while you train. Every tap is saved right away to IndexedDB on the device, so the app works with no signal at the gym. When you're signed in, changes sync to Postgres two seconds after you make them, plus on open, when you reconnect, and every minute. Each record (exercise, split day, workout, bodyweight, settings) merges on its own, and the newest edit wins. A device that finds the server database empty sends everything it has again.
+The phone is the source of truth while you train. Every tap is saved right away to IndexedDB on the device, so the app works with no signal at the gym. When you're signed in, changes sync to Postgres two seconds after you make them, plus on open, when you reconnect, and every minute. Each record (exercise, split day, workout, bodyweight, meal, settings) merges on its own, and the newest edit wins. A device that finds the server database empty sends everything it has again.
 
 Without signing in, the app still works fully, but only on that device.
 
@@ -55,7 +58,46 @@ Same setup as Jarvis: a Vercel project with Neon Postgres and GitHub sign-in for
 | `ALLOWED_GITHUB_ID` | your numeric GitHub id (`gh api user --jq .id`) |
 | `SESSION_SECRET` | 32+ random characters (`node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`) |
 
-Sessions last 30 days. Every write needs the session cookie, a JSON body and an `Origin` header that matches `APP_URL`.
+Optional:
+
+| Variable | Value |
+| --- | --- |
+| `MCP_TOKEN_VERSION` | Change it (e.g. `1` → `2`) to disconnect ChatGPT immediately. |
+| `OAUTH_REDIRECT_HOSTS` | Comma-separated hosts the connector may redirect to. Defaults to `chatgpt.com,chat.openai.com`. |
+
+Sessions last 30 days. Every write from the app needs the session cookie, a JSON body and an `Origin` header that matches `APP_URL`.
+
+## Log meals from ChatGPT
+
+Lift is a ChatGPT **connector** (an MCP server at `/api/mcp`). Once it's connected, ChatGPT can log the meals you confirm straight into Lift, so you keep tracking food by chatting.
+
+1. In ChatGPT open **Settings → Apps & Connectors → Advanced settings** and turn on **Developer mode**. It needs a plan that offers it, and the menu names may shift.
+2. **Create** a connector:
+   - Name: Lift.
+   - URL: `https://lift.zachhersick.com/api/mcp` (also shown in Lift's Settings, with a Copy button).
+   - Authentication: **OAuth**.
+3. ChatGPT opens Lift's approval page. Sign in with GitHub if asked, then tap **Allow**. Only the account in `ALLOWED_GITHUB_ID` can approve.
+4. In your **Health** project, add an instruction along these lines:
+
+   > When I confirm what I ate, log it to Lift with `log_meal` (best-estimate calories, protein, carbs, fat and the items; pass a unique `ref`). Never log planned meals. Before suggesting what to eat, check `get_day`. For training or diet advice, read `get_coaching_context` first.
+
+The tools ChatGPT gets:
+
+| Tool | What it does |
+| --- | --- |
+| `log_meal` | Logs a confirmed meal; a repeated `ref` updates instead of duplicating. |
+| `update_meal` | Corrects a meal already logged. |
+| `delete_meal` | Removes a meal logged by mistake. |
+| `get_day` | A day's meals and totals, against your targets, with what's left. |
+| `get_coaching_context` | Weekly calories and protein, training volume, bodyweight trend against your goal, measured maintenance, and your main lifts' e1RM progress and stalls. |
+
+Meals are dated in your time zone (the app tells the server which one) and reach the phone on its next sync, which also runs whenever you open Fuel.
+
+How the connection is secured:
+
+- ChatGPT gets a one-hour access token and a 60-day refresh token.
+- Both are signed with `SESSION_SECRET`, and every code and refresh token works only once.
+- The connector can read and change meals and read summaries, but it can't touch your workouts.
 
 ## Install on the iPhone
 
@@ -66,13 +108,14 @@ The one iOS limit: a home-screen web app can't play a sound while it's in the ba
 ## Layout
 
 ```
-api/index.js                Vercel function; every /api/* request lands here
-server/                     auth (GitHub OAuth, signed cookie), sync API, Neon/memory store
+api/index.js                Vercel function; every /api/* and /.well-known/* request lands here
+server/                     auth (GitHub OAuth, signed cookie), sync API, Neon/memory store,
+                            oauth.js + mcp.js (the ChatGPT connector)
 index.html, vite.config.ts  Vite entry; the config also mounts the API for dev/preview and builds the service worker
 src/lib/                    model.js (pure, tested logic), store/db/sync (IndexedDB + signals + sync), keypad, timer, theme
 src/components/kokonutui/   Kokonut UI components, restyled to the app's tokens
 src/components/             kit (page frame, cards, rows, sheets), keypad, plates, islands, charts, shader hero, picker
-src/pages/                  Today, Workout, History, Progress, Bodyweight, Split, Settings
+src/pages/                  Today, Workout, History, Progress, Bodyweight, Fuel (nutrition), Split, Settings
 src/styles.css              Tailwind v4 theme: dark/light tokens and accent colors
 public/                     icons, manifest, theme-init.js (applies the theme before first paint)
 tests/                      node --test

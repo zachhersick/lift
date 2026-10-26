@@ -1,5 +1,5 @@
-// Vercel serverless entry for lift.zachhersick.com. Every /api/* request is
-// rewritten here (see vercel.json).
+// Vercel serverless entry for lift.zachhersick.com. Every /api/* and
+// /.well-known/* request is rewritten here (see vercel.json).
 import { createApp } from "../server/app.js";
 import { MemoryStore, NeonStore } from "../server/store.js";
 

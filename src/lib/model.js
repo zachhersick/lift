@@ -661,3 +661,104 @@ export function nutritionTargets(settings = {}, maintenance = null, bodyweight =
   const carbs = calories ? Math.max(0, Math.round((calories - (protein || 0) * 4 - (fat || 0) * 9) / 4)) : null;
   return { goal, calories, protein, carbs, fat, autoCalories: !Number(settings.calorieTarget), autoProtein: !Number(settings.proteinTarget) };
 }
+
+// Maintenance, targets and weight rate together, the way both the app and
+// the server (for ChatGPT) use them.
+export function energyPlan(meals, bodyweights, settings = {}, today = dateKey()) {
+  const unit = settings.unit === "kg" ? "kg" : "lb";
+  const maintenance = estimateMaintenance(meals, bodyweights, { unit, today });
+  const trend = trendWeights(bodyweights);
+  const targets = nutritionTargets({ ...settings, unit }, maintenance.calories, trend.length ? trend[trend.length - 1].value : null);
+  const rate = weightRate(bodyweights, { today });
+  return { maintenance, targets, rate, rateStatus: rateStatus(rate, targets.goal) };
+}
+
+// ---------- strength momentum ----------
+
+const round1 = (n) => Math.round(n * 10) / 10;
+
+// Your most-trained lifts over the last `weeks` weeks: best e1RM now, how
+// much it moved (total and per week), and how many sessions since it last
+// beat its best. Strength exercises with weight only.
+export function liftProgress(workouts, exerciseIndex = null, { now = Date.now(), weeks = 8, limit = 6 } = {}) {
+  const from = now - weeks * 7 * DAY_MS;
+  const counts = new Map();
+  for (const workout of finished(workouts)) {
+    if (workout.rest || workout.startedAt < from || workout.startedAt > now) continue;
+    for (const entry of workout.entries || []) {
+      if (trackOf(exerciseIndex?.get(entry.exerciseId)) !== "strength") continue;
+      if (workingSets(entry).some((set) => (Number(set.weight) || 0) > 0)) counts.set(entry.exerciseId, (counts.get(entry.exerciseId) || 0) + 1);
+    }
+  }
+  const rows = [];
+  for (const [exerciseId, sessions] of [...counts.entries()].sort((a, b) => b[1] - a[1])) {
+    const history = exerciseHistory(workouts, exerciseId, { before: now + 1 }).filter((point) => point.bestE1rm > 0);
+    const recent = history.filter((point) => point.date >= from);
+    if (!recent.length) continue;
+    let best = 0;
+    let since = 0;
+    for (const point of history) {
+      if (point.bestE1rm > best + 0.01) {
+        best = point.bestE1rm;
+        since = 0;
+      } else since += 1;
+    }
+    const first = recent[0];
+    const last = recent[recent.length - 1];
+    const change = ((last.bestE1rm - first.bestE1rm) / first.bestE1rm) * 100;
+    const spanWeeks = Math.max(1, (last.date - first.date) / (7 * DAY_MS));
+    rows.push({ exerciseId, name: exerciseIndex?.get(exerciseId)?.name || exerciseId, sessions, e1rm: round1(last.bestE1rm), changePct: round1(change), perWeekPct: round1(change / spanWeeks), trend: trend(history), stalledFor: since, lastDate: last.date });
+    if (rows.length >= limit) break;
+  }
+  return rows;
+}
+
+// ---------- coaching context ----------
+
+// A compact picture of the last few weeks of eating and training: what the
+// Coach rules read, what ChatGPT gets from the connector and what the weekly
+// AI review is written from. `dayOf` turns a time into a date key (the
+// server passes one in your time zone).
+export function coachingContext({ workouts = [], meals = [], bodyweights = [], settings = {}, exerciseIndex = null, splitDays = [], now = Date.now(), dayOf = dateKey, weeks = 4 } = {}) {
+  const today = dayOf(now);
+  const plan = energyPlan(meals, bodyweights, settings, today);
+  const intake = dailyIntake(meals);
+  const sessionList = finished(workouts).filter((workout) => !workout.rest);
+  const weekRows = [];
+  for (let i = weeks - 1; i >= 0; i -= 1) {
+    const to = shiftDateKey(today, -7 * i);
+    const from = shiftDateKey(to, -6);
+    const days = [...intake.values()].filter((day) => day.date >= from && day.date <= to);
+    const done = sessionList.filter((workout) => {
+      const key = dayOf(workout.startedAt);
+      return key >= from && key <= to;
+    });
+    const weighIns = live(bodyweights).filter((entry) => entry.date >= from && entry.date <= to);
+    const avg = (list, pick) => (list.length ? Math.round(list.reduce((sum, item) => sum + pick(item), 0) / list.length) : null);
+    weekRows.push({
+      from,
+      to,
+      loggedDays: days.length,
+      avgCalories: avg(days, (day) => day.calories),
+      avgProtein: avg(days, (day) => day.protein),
+      proteinDays: plan.targets.protein ? days.filter((day) => day.protein >= plan.targets.protein * 0.9).length : null,
+      sessions: done.length,
+      sets: done.reduce((sum, workout) => sum + workoutSetCount(workout), 0),
+      volume: Math.round(done.reduce((sum, workout) => sum + workoutVolume(workout), 0)),
+      weight: weighIns.length ? round1(weighIns.reduce((sum, entry) => sum + Number(entry.weight), 0) / weighIns.length) : null
+    });
+  }
+  const next = nextSplitDay(splitDays, workouts);
+  return {
+    today,
+    unit: settings.unit === "kg" ? "kg" : "lb",
+    goal: plan.targets.goal,
+    targets: { calories: plan.targets.calories, protein: plan.targets.protein, carbs: plan.targets.carbs, fat: plan.targets.fat },
+    maintenance: { calories: plan.maintenance.calories, method: plan.maintenance.method, confidence: plan.maintenance.confidence, loggedDays: plan.maintenance.loggedDays },
+    weightRate: plan.rate ? { perWeek: Math.round(plan.rate.perWeek * 100) / 100, percentPerWeek: Math.round(plan.rate.percent * 100) / 100, status: plan.rateStatus } : null,
+    todayIntake: (({ meals: count, calories, protein, carbs, fat }) => ({ meals: count, calories, protein, carbs, fat }))(intake.get(today) || dayTotals([])),
+    weeks: weekRows,
+    lifts: liftProgress(workouts, exerciseIndex, { now }).map(({ lastDate, exerciseId, ...row }) => ({ ...row, lastDone: dayOf(lastDate) })),
+    nextWorkout: next?.day ? (next.day.rest ? "Rest day" : next.day.name) : null
+  };
+}

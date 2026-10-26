@@ -2,7 +2,8 @@
 // is one row. A record only replaces the stored copy when its updatedAt is
 // newer, and each accepted write gets the next `seq` from a server sequence,
 // which devices use as their pull cursor. MemoryStore mirrors NeonStore for
-// tests and local runs.
+// tests and local runs. `lift_once` remembers one-time OAuth codes and
+// refresh tokens that were already used.
 
 export const SCHEMA = `
 create sequence if not exists lift_seq;
@@ -14,7 +15,12 @@ create table if not exists lift_records (
   deleted boolean not null default false,
   seq bigint not null default nextval('lift_seq')
 );
-create index if not exists lift_records_seq on lift_records (seq)
+create index if not exists lift_records_seq on lift_records (seq);
+create index if not exists lift_records_kind on lift_records (kind);
+create table if not exists lift_once (
+  key text primary key,
+  expires_at bigint not null
+)
 `;
 
 export const PULL_LIMIT = 2000;
@@ -45,6 +51,25 @@ export class MemoryStore {
 
   async head() {
     return this.seq;
+  }
+
+  async get(id) {
+    const row = this.rows.get(id);
+    return row ? structuredClone(row.doc) : null;
+  }
+
+  // Live (not deleted) records of one kind.
+  async listKind(kind) {
+    return [...this.rows.values()].filter((row) => row.doc.kind === kind && !row.doc.deleted).map((row) => structuredClone(row.doc));
+  }
+
+  // True the first time a key is claimed, false on every later try.
+  async claim(key, expiresAt, now = Date.now()) {
+    this.once ||= new Map();
+    for (const [k, until] of this.once) if (until < now) this.once.delete(k);
+    if (this.once.has(key)) return false;
+    this.once.set(key, expiresAt);
+    return true;
   }
 }
 
@@ -106,5 +131,21 @@ export class NeonStore {
   async head() {
     const rows = await this.query("select coalesce(max(seq), 0) as head from lift_records");
     return Number(rows[0].head);
+  }
+
+  async get(id) {
+    const rows = await this.query("select doc from lift_records where id = $1", [id]);
+    return rows[0]?.doc || null;
+  }
+
+  async listKind(kind) {
+    const rows = await this.query("select doc from lift_records where kind = $1 and not deleted", [kind]);
+    return rows.map((row) => row.doc);
+  }
+
+  async claim(key, expiresAt, now = Date.now()) {
+    await this.query("delete from lift_once where expires_at < $1", [now]);
+    const rows = await this.query("insert into lift_once (key, expires_at) values ($1, $2) on conflict (key) do nothing returning key", [key, expiresAt]);
+    return rows.length === 1;
   }
 }

@@ -20,7 +20,7 @@ function liftApi(): Plugin {
     delete env.VERCEL;
     const store = env.DATABASE_URL ? new NeonStore(env.DATABASE_URL) : new MemoryStore();
     const app = createApp({ store, env });
-    middlewares.use((req, res, next) => (req.url?.startsWith("/api/") ? app.handle(req, res) : next()));
+    middlewares.use((req, res, next) => (req.url?.startsWith("/api/") || req.url?.startsWith("/.well-known/oauth-") ? app.handle(req, res) : next()));
   };
   return {
     name: "lift-api",
