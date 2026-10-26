@@ -398,8 +398,10 @@ export function fromDateKey(key) {
   return new Date(y, m - 1, d).getTime();
 }
 
-// Working sets per muscle group for workouts since `from`.
-export function muscleSets(workouts, exerciseIndex, from = 0) {
+// Working sets per muscle group for workouts since `from`. With `indirect`,
+// each set also adds half a set to the muscles the exercise assists (see
+// indirectMuscles), the way the hypertrophy research counts volume.
+export function muscleSets(workouts, exerciseIndex, from = 0, { indirect = false } = {}) {
   const counts = new Map();
   for (const workout of finished(workouts)) {
     if (workout.rest || (workout.startedAt || 0) < from) continue;
@@ -408,7 +410,9 @@ export function muscleSets(workouts, exerciseIndex, from = 0) {
       const muscle = exercise?.muscle || "other";
       if (muscle === "cardio" || trackOf(exercise) === "cardio") continue;
       const sets = workingSets(entry).length;
-      if (sets) counts.set(muscle, (counts.get(muscle) || 0) + sets);
+      if (!sets) continue;
+      counts.set(muscle, (counts.get(muscle) || 0) + sets);
+      if (indirect) for (const other of indirectMuscles(exercise)) counts.set(other, (counts.get(other) || 0) + sets / 2);
     }
   }
   return [...counts.entries()].map(([muscle, sets]) => ({ muscle, sets })).sort((a, b) => b.sets - a.sets || a.muscle.localeCompare(b.muscle));
@@ -767,6 +771,7 @@ export function liftProgress(workouts, exerciseIndex = null, { now = Date.now(),
 // AI review is written from. `dayOf` turns a time into a date key (the
 // server passes one in your time zone).
 export function coachingContext({ workouts = [], meals = [], bodyweights = [], settings = {}, exerciseIndex = null, splitDays = [], now = Date.now(), dayOf = dateKey, weeks = 4 } = {}) {
+  const twoWeeks = finished(workouts).filter((workout) => !workout.rest && workout.startedAt >= now - 14 * DAY_MS && workout.startedAt <= now);
   const today = dayOf(now);
   const plan = energyPlan(meals, bodyweights, settings, today);
   const intake = dailyIntake(meals);
@@ -810,10 +815,79 @@ export function coachingContext({ workouts = [], meals = [], bodyweights = [], s
     micros: microAverages(lastWeek)
       .filter((micro) => micro.days >= 3)
       .map((micro) => ({ nutrient: micro.label, perDay: Math.round(micro.avg * 10) / 10, unit: micro.unit, dailyValue: micro.dv, percentDV: micro.pct === null ? null : Math.round(micro.pct), kind: micro.kind })),
+    // Hard sets a week per muscle over the last two weeks, indirect work counted
+    // as half, against the 10–20 range; and what the split prescribes.
+    setsPerMuscle: {
+      range: VOLUME_RANGE,
+      weeklyAverageLastTwoWeeks: Object.fromEntries(muscleSets(twoWeeks, exerciseIndex || new Map(), 0, { indirect: true }).map((row) => [row.muscle, Math.round(row.sets) / 2])),
+      split: Object.fromEntries([...splitWeeklySets(splitDays, exerciseIndex)].map(([muscle, sets]) => [muscle, Math.round(sets * 2) / 2]))
+    },
     lifts: liftProgress(workouts, exerciseIndex, { now }).map(({ lastDate, exerciseId, ...row }) => ({ ...row, lastDone: dayOf(lastDate) })),
     nextWorkout: next?.day ? (next.day.rest ? "Rest day" : next.day.name) : null
   };
 }
+
+// ---------- training volume ----------
+
+// Muscles an exercise trains besides its main one: presses work triceps and
+// shoulders, rows and pulldowns biceps, squats and hinges glutes. Each set
+// counts as half a set for these, the fractional counting that best fits the
+// hypertrophy data (Pelland et al., 2024).
+export function indirectMuscles(exercise) {
+  const name = String(exercise?.name || "").toLowerCase();
+  switch (exercise?.muscle) {
+    case "chest":
+      return /press|push-up|pushup|dip/.test(name) ? ["triceps", "shoulders"] : [];
+    case "shoulders":
+      return /press/.test(name) ? ["triceps"] : [];
+    case "back":
+      if (/deadlift|rack pull|back extension/.test(name)) return ["hamstrings", "glutes"];
+      return /row|pull-up|pullup|chin|pulldown/.test(name) && !/straight-arm/.test(name) ? ["biceps"] : [];
+    case "triceps":
+      return /close-grip|dip/.test(name) ? ["chest"] : [];
+    case "quads":
+      return /squat|lunge|leg press|step-up/.test(name) ? ["glutes"] : [];
+    case "hamstrings":
+      return /deadlift|good morning/.test(name) ? ["glutes"] : [];
+    default:
+      return [];
+  }
+}
+
+// The muscles every program should cover, and the weekly hard-set range with
+// the best evidence for growth: about 10 sets or more (Schoenfeld et al.,
+// 2017), with most of the benefit reached by about 20 (Baz-Valle et al., 2022).
+export const MAIN_MUSCLES = ["chest", "back", "shoulders", "biceps", "triceps", "quads", "hamstrings", "glutes"];
+export const VOLUME_RANGE = [10, 20];
+
+// Sets a week each muscle gets from your rotating split: every day's target
+// sets (plus half for assisted muscles), scaled from the rotation's length to
+// a 7-day week.
+export function splitWeeklySets(splitDays, exerciseIndex) {
+  const days = orderedDays(splitDays);
+  const out = new Map();
+  if (!days.length) return out;
+  const scale = 7 / days.length;
+  for (const day of days) {
+    if (day.rest) continue;
+    for (const item of day.exercises || []) {
+      const exercise = exerciseIndex?.get(item.exerciseId);
+      if (!exercise || exercise.muscle === "cardio" || trackOf(exercise) === "cardio") continue;
+      const sets = Math.max(1, Number(item.targetSets) || 3) * scale;
+      out.set(exercise.muscle, (out.get(exercise.muscle) || 0) + sets);
+      for (const other of indirectMuscles(exercise)) out.set(other, (out.get(other) || 0) + sets / 2);
+    }
+  }
+  return out;
+}
+
+const isPull = (exercise) =>
+  (exercise?.muscle === "back" && !/deadlift|rack pull|back extension|shrug/i.test(exercise.name)) || exercise?.muscle === "biceps" || /rear|face pull|reverse pec/i.test(exercise?.name || "");
+const isPush = (exercise) => ["chest", "triceps"].includes(exercise?.muscle) || (exercise?.muscle === "shoulders" && !isPull(exercise));
+const isCompound = (exercise) => trackOf(exercise) === "strength" && (indirectMuscles(exercise).length > 0 || /squat|deadlift|press|row/i.test(exercise?.name || ""));
+
+// Exercises to suggest when a muscle needs more sets.
+const GO_TO = { chest: "Incline Dumbbell Press", back: "Lat Pulldown", shoulders: "Dumbbell Lateral Raise", biceps: "Dumbbell Curl", triceps: "Rope Pushdown", quads: "Leg Press", hamstrings: "Lying Leg Curl", glutes: "Hip Thrust", calves: "Standing Calf Raise" };
 
 // ---------- coach ----------
 
@@ -863,7 +937,7 @@ function onTarget(day, targets) {
 // The Coach: insight cards from your eating and training together. Each
 // rule stays silent until it has enough data, and says what it's based on.
 // Returns a "this week" headline and cards, most urgent first.
-export function insights({ workouts = [], meals = [], bodyweights = [], settings = {}, exerciseIndex = null, now = Date.now(), dayOf = dateKey } = {}) {
+export function insights({ workouts = [], meals = [], bodyweights = [], settings = {}, exerciseIndex = null, splitDays = [], now = Date.now(), dayOf = dateKey } = {}) {
   const today = dayOf(now);
   const unit = settings.unit === "kg" ? "kg" : "lb";
   const plan = energyPlan(meals, bodyweights, settings, today);
@@ -1047,6 +1121,177 @@ export function insights({ workouts = [], meals = [], bodyweights = [], settings
     });
   }
 
+  // ---- training ----
+  // Two weeks of history once you've trained that long; until then, what
+  // your split prescribes.
+  const recentFrom = now - 14 * DAY_MS;
+  const recent = sessions.filter((workout) => workout.startedAt >= recentFrom);
+  const historyReady = recent.length >= 4 && sessions.some((workout) => workout.startedAt <= now - 13 * DAY_MS);
+  const planned = splitWeeklySets(splitDays, exerciseIndex);
+  const done = new Map(muscleSets(recent, exerciseIndex || new Map(), recentFrom, { indirect: true }).map((row) => [row.muscle, row.sets / 2]));
+  const weekly = historyReady ? done : planned;
+  const basis = historyReady ? "history" : planned.size ? "split" : null;
+  const capital = (text) => text.replace(/^./, (c) => c.toUpperCase());
+  const setsText = (n) => `${Math.round(n * 2) / 2}`.replace(/\.0$/, "");
+
+  // 9. Muscles under (or far over) the evidence-based weekly range.
+  if (basis) {
+    const extra = [...weekly.keys()].filter((muscle) => muscle === "calves");
+    const low = [...new Set([...MAIN_MUSCLES, ...extra])]
+      .map((muscle) => ({ muscle, sets: weekly.get(muscle) || 0 }))
+      .filter((row) => row.sets < VOLUME_RANGE[0])
+      .sort((a, b) => a.sets - b.sets);
+    if (low.length) {
+      // Prefer an exercise you already do for that muscle, on the split day that trains it most.
+      const used = new Map();
+      for (const workout of sessions) for (const entry of workout.entries || []) {
+        const exercise = exerciseIndex?.get(entry.exerciseId);
+        if (exercise && workingSets(entry).length) used.set(`${exercise.muscle}|${exercise.name}`, (used.get(`${exercise.muscle}|${exercise.name}`) || 0) + 1);
+      }
+      const pick = (muscle) => [...used.entries()].filter(([key]) => key.startsWith(`${muscle}|`)).sort((a, b) => b[1] - a[1])[0]?.[0].split("|")[1] || GO_TO[muscle] || null;
+      const dayFor = (muscle) => {
+        let best = null;
+        for (const day of orderedDays(splitDays).filter((d) => !d.rest)) {
+          const score = (day.exercises || []).reduce((sum, item) => {
+            const exercise = exerciseIndex?.get(item.exerciseId);
+            return sum + (exercise?.muscle === muscle ? 2 : indirectMuscles(exercise).includes(muscle) ? 1 : 0);
+          }, 0);
+          if (score && (!best || score > best.score)) best = { name: day.name, score };
+        }
+        return best?.name || null;
+      };
+      const shown = low.slice(0, 3);
+      cards.push({
+        id: "volume-low",
+        area: "training",
+        tone: "warn",
+        title: low.length === 1 ? `${capital(low[0].muscle)} is under 10 sets a week` : low.length <= 3 ? `${capital(listNames(low.map((row) => ({ label: row.muscle }))))} are under 10 sets a week` : `${low.length} muscles are under 10 sets a week`,
+        body: `${basis === "history" ? "Over the last two weeks" : "Your split works out to"}: ${low.map((row) => `${row.muscle} ${setsText(row.sets)}`).join(", ")} sets a week (presses, rows and squats count half a set for the muscles they assist). Muscle growth is clearly better from about 10 hard sets per muscle a week, and most of the benefit comes by about 20.`,
+        evidence: basis === "history" ? `${recent.length} sessions in the last 14 days` : "your split's target sets",
+        action: `${shown
+          .map((row) => {
+            const exercise = pick(row.muscle);
+            const day = dayFor(row.muscle);
+            return `${capital(row.muscle)}: add ${Math.ceil(VOLUME_RANGE[0] - row.sets)} sets a week${exercise ? `, e.g. ${exercise}` : ""}${day ? ` on ${day}` : ""}.`;
+          })
+          .join(" ")} Take each set to within 1–3 reps of failure.`,
+        source: "Schoenfeld et al., 2017; Baz-Valle et al., 2022; Pelland et al., 2024"
+      });
+    }
+    const high = MAIN_MUSCLES.map((muscle) => ({ muscle, sets: weekly.get(muscle) || 0 })).filter((row) => row.sets > 25);
+    if (high.length) {
+      cards.push({
+        id: "volume-high",
+        area: "training",
+        tone: "info",
+        title: `Very high volume for ${listNames(high.map((row) => ({ label: row.muscle })))}`,
+        body: `${high.map((row) => `${capital(row.muscle)} ${setsText(row.sets)}`).join(", ")} sets a week. Gains keep coming with more sets, but each extra set adds less while fatigue keeps adding up.`,
+        action: "If those lifts stall or you feel beat up, trim to about 20 sets a week and push the remaining sets harder.",
+        source: "Baz-Valle et al., 2022; Pelland et al., 2024"
+      });
+    }
+  }
+
+  // 10. A muscle with plenty of sets that only gets one day a week.
+  if (historyReady) {
+    const daysByMuscle = new Map();
+    for (const workout of recent) for (const entry of workout.entries || []) {
+      const muscle = exerciseIndex?.get(entry.exerciseId)?.muscle;
+      if (!muscle || !workingSets(entry).length) continue;
+      if (!daysByMuscle.has(muscle)) daysByMuscle.set(muscle, new Set());
+      daysByMuscle.get(muscle).add(dayOf(workout.startedAt));
+    }
+    const once = MAIN_MUSCLES.filter((muscle) => (done.get(muscle) || 0) >= 8 && (daysByMuscle.get(muscle)?.size || 0) <= 2);
+    if (once.length) {
+      cards.push({
+        id: "frequency",
+        area: "training",
+        tone: "info",
+        title: `${capital(listNames(once.map((muscle) => ({ label: muscle }))))} ${once.length === 1 ? "gets" : "get"} one day a week`,
+        body: `${once.map((muscle) => `${capital(muscle)} gets ${setsText(done.get(muscle))} sets a week`).join(", ")}, all on one day. Training a muscle twice a week grows it at least as well as once, and spreading the sets keeps the last ones higher quality.`,
+        action: "Move a few of those sets to a second day in your split.",
+        source: "Schoenfeld et al., 2016; Schoenfeld et al., 2019"
+      });
+    }
+  }
+
+  // 11. Short rest on big compound lifts.
+  const shortRest = new Set();
+  for (const day of orderedDays(splitDays)) for (const item of day.exercises || []) {
+    const exercise = exerciseIndex?.get(item.exerciseId);
+    if (isCompound(exercise) && item.restSec && item.restSec < 90) shortRest.add(exercise.name);
+  }
+  for (const workout of recent) for (const entry of workout.entries || []) {
+    const exercise = exerciseIndex?.get(entry.exerciseId);
+    if (isCompound(exercise) && entry.restSec && entry.restSec < 90 && workingSets(entry).length) shortRest.add(exercise.name);
+  }
+  if (shortRest.size) {
+    const names = [...shortRest];
+    cards.push({
+      id: "rest",
+      area: "training",
+      tone: "info",
+      title: "Rest longer on compound lifts",
+      body: `${names.slice(0, 3).join(", ")}${names.length > 3 ? ` and ${names.length - 3} more` : ""} ${names.length === 1 ? "is" : "are"} set to under 90 seconds of rest. Longer rest on multi-joint lifts led to more strength and muscle growth in trained lifters.`,
+      action: "Rest 2–3 minutes between sets of squats, presses, rows and deadlifts; 1–2 minutes is fine for isolation work.",
+      source: "Schoenfeld et al., 2016 (rest intervals); Singer et al., 2024"
+    });
+  }
+
+  // 12. More pushing than pulling.
+  if (basis) {
+    let push = 0;
+    let pull = 0;
+    const add = (exercise, sets) => {
+      if (isPull(exercise)) pull += sets;
+      else if (isPush(exercise)) push += sets;
+    };
+    if (historyReady) for (const workout of recent) for (const entry of workout.entries || []) add(exerciseIndex?.get(entry.exerciseId), workingSets(entry).length / 2);
+    else for (const day of orderedDays(splitDays).filter((d) => !d.rest)) for (const item of day.exercises || []) add(exerciseIndex?.get(item.exerciseId), ((Number(item.targetSets) || 3) * 7) / orderedDays(splitDays).length);
+    if (push >= 10 && pull < push * 0.7) {
+      cards.push({
+        id: "balance",
+        area: "training",
+        tone: "info",
+        title: "More pushing than pulling",
+        body: `About ${setsText(push)} pushing sets a week against ${setsText(pull)} pulling. Lifters who press much more than they pull tend to end up with weaker upper backs and rear shoulders.`,
+        action: `Add about ${Math.ceil(push - pull)} sets of rows, pulldowns or face pulls a week until pulling roughly matches pushing.`,
+        source: "Practical guideline; Kolber et al., 2009 (shoulder imbalance in lifters)"
+      });
+    }
+  }
+
+  // 13. Several main lifts going backwards: time to deload.
+  const dropping = lifts.filter((lift) => lift.trend === "down");
+  if (dropping.length >= 2) {
+    cards.push({
+      id: "fatigue",
+      area: "recovery",
+      tone: "warn",
+      title: `Strength is dipping on ${dropping.length} lifts`,
+      body: `${dropping.slice(0, 3).map((lift) => lift.name).join(", ")} ${dropping.length > 3 ? "and more are" : "are"} trending down over recent sessions. When several lifts drop together, accumulated fatigue is the usual cause.`,
+      action: "Take a deload week: about half your usual sets at slightly lighter weights, keep the movements, sleep well, then build back up.",
+      source: "Bell et al., 2023 (deloading consensus)"
+    });
+  }
+
+  // 14. Weekly cardio against health guidelines, once you're logging it.
+  const cardioEver = sessions.some((workout) => cardioSeconds(workout, exerciseIndex) > 0);
+  if (cardioEver && recent.length >= 2) {
+    const minutes = Math.round(sessions.filter((workout) => workout.startedAt >= now - 7 * DAY_MS).reduce((sum, workout) => sum + cardioSeconds(workout, exerciseIndex), 0) / 60);
+    if (minutes < 150) {
+      cards.push({
+        id: "cardio",
+        area: "recovery",
+        tone: "info",
+        title: `Cardio: ${minutes} of 150 minutes this week`,
+        body: "Health guidelines call for 150–300 minutes of moderate cardio a week on top of strength training. Low-impact cardio like walking or cycling interferes least with muscle and strength gains.",
+        action: `Add about ${Math.ceil((150 - minutes) / 30)} sessions of 30 minutes, e.g. incline walks after lifting or on rest days.`,
+        source: "WHO guidelines (Bull et al., 2020); Wilson et al., 2012"
+      });
+    }
+  }
+
   // The week at a glance.
   const weekStart = shiftDateKey(today, -6);
   const sessionsThisWeek = sessions.filter((workout) => dayOf(workout.startedAt) >= weekStart).length;
@@ -1061,5 +1306,18 @@ export function insights({ workouts = [], meals = [], bodyweights = [], settings
       }
     : null;
 
-  return { headline, cards: cards.map((card, index) => ({ card, index })).sort((x, y) => TONE_RANK[y.card.tone] - TONE_RANK[x.card.tone] || x.index - y.index).map((x) => x.card) };
+  // Where each card belongs in the app, and what it's based on.
+  const RATE_SOURCE = { leanBulk: "Iraki et al., 2019 (rate of gain while bulking)", cut: "Helms et al., 2014 (rate of loss while cutting)", maintain: "Your weigh-in trend" };
+  const META = {
+    "fuel-strength": ["nutrition", "Your own logs (a pattern, not proof)"],
+    stall: ["training", "Bell et al., 2023 (deloading); Schoenfeld et al., 2017 (light and heavy loads build muscle alike)"],
+    "pre-workout": ["nutrition", "Your own logs; Kerksick et al., 2017 (nutrient timing)"],
+    rate: ["nutrition", RATE_SOURCE[targets.goal]],
+    protein: ["nutrition", "Morton et al., 2018 (protein for muscle gain)"],
+    "training-days": ["nutrition", "Kerksick et al., 2017 (nutrient timing)"],
+    gaps: ["nutrition", ""],
+    micros: ["nutrition", "FDA Daily Values"]
+  };
+  const tagged = cards.map((card) => ({ area: META[card.id]?.[0] || "training", source: META[card.id]?.[1] || "", ...card }));
+  return { headline, cards: tagged.map((card, index) => ({ card, index })).sort((x, y) => TONE_RANK[y.card.tone] - TONE_RANK[x.card.tone] || x.index - y.index).map((x) => x.card) };
 }

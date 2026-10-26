@@ -1,18 +1,20 @@
-// The Coach: insight cards computed on the phone from eating and training
-// together (lib/model.js insights), and the weekly review Claude writes on
-// the server when ANTHROPIC_API_KEY is set.
-import { AlertTriangle, ArrowRight, CheckCircle2, Lightbulb, RefreshCw, Sparkles } from "lucide-react";
+// The Coach: insight cards computed on the phone from training and eating
+// together (lib/model.js insights), each with the research it rests on; the
+// weekly review Claude writes on the server when ANTHROPIC_API_KEY is set;
+// and the sets-per-muscle bars against the evidence-based weekly range.
+import { AlertTriangle, ArrowRight, BookOpen, CheckCircle2, Lightbulb, RefreshCw, Sparkles } from "lucide-react";
+import { motion } from "motion/react";
 import { type ComponentType, useEffect, useRef, useState } from "react";
 import { Card, FadeIn, Section } from "@/components/kit";
 import { Button } from "@/components/ui/button";
-import { fromDateKey } from "@/lib/model.js";
+import { fromDateKey, VOLUME_RANGE } from "@/lib/model.js";
 import { applyRemote, coach, coachReviews } from "@/lib/store.js";
 import { sync } from "@/lib/sync.js";
 import * as format from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
 import { cn } from "@/lib/utils";
 
-type Insight = { id: string; tone: "warn" | "info" | "good"; title: string; body: string; action?: string; evidence?: string };
+type Insight = { id: string; tone: "warn" | "info" | "good"; area?: string; title: string; body: string; action?: string; evidence?: string; source?: string };
 
 const TONES: Record<string, { icon: ComponentType<{ className?: string; strokeWidth?: number }>; cls: string }> = {
   warn: { icon: AlertTriangle, cls: "bg-pr/15 text-pr" },
@@ -37,6 +39,12 @@ export function InsightCard({ card, className }: { card: Insight; className?: st
           </p>
         ) : null}
         {card.evidence ? <p className="text-[12px] text-muted-foreground/80">Based on {card.evidence}</p> : null}
+        {card.source ? (
+          <p className="flex items-start gap-1 text-[12px] text-muted-foreground/80">
+            <BookOpen className="mt-[2px] size-3 shrink-0" strokeWidth={2.4} />
+            {card.source}
+          </p>
+        ) : null}
       </div>
     </Card>
   );
@@ -47,7 +55,7 @@ export function CoachStrip() {
   const { headline, cards } = useValue(coach) as { headline: Insight | null; cards: Insight[] };
   if (!cards.length) return null;
   return (
-    <Section action={<a className="text-primary" href="#/nutrition">All</a>} title="Coach">
+    <Section action={<a className="text-primary" href="#/coach">All</a>} title="Coach">
       {headline ? <p className="-mt-1 px-1 text-[14px] text-muted-foreground">{headline.title}</p> : null}
       <div className="no-scrollbar -mx-4 flex snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 pb-1">
         {cards.map((card) => (
@@ -142,17 +150,41 @@ export function WeeklyReview() {
   );
 }
 
-// On the Fuel page: the review, the week and every card.
+// On the Fuel page: the nutrition cards, with the rest on the Coach page.
 export function CoachSection() {
-  const { headline, cards } = useValue(coach) as { headline: Insight | null; cards: Insight[] };
+  const { cards } = useValue(coach) as { cards: Insight[] };
+  const nutrition = cards.filter((card) => card.area === "nutrition");
   return (
-    <Section footer="The Coach compares your eating with your lifts and weight. Each card waits until there's enough data and says what it's based on." title="Coach">
-      <WeeklyReview />
-      {headline ? <InsightCard card={headline} /> : null}
-      {cards.map((card) => (
+    <Section action={<a className="text-primary" href="#/coach">All coaching</a>} footer="Each card waits until there's enough data, and says what it's based on." title="Coach">
+      {nutrition.map((card) => (
         <InsightCard card={card} key={card.id} />
       ))}
-      {!headline && !cards.length ? <Card className="p-4 text-[14.5px] text-muted-foreground">Log a week of meals, workouts and weigh-ins and the Coach starts connecting them.</Card> : null}
+      {!nutrition.length ? <Card className="p-4 text-[14.5px] text-muted-foreground">Log a week of meals and weigh-ins and the Coach starts connecting them with your training.</Card> : null}
     </Section>
+  );
+}
+
+// Weekly sets per muscle with the 10–20 band the research supports.
+export function MuscleBars({ rows }: { rows: { muscle: string; sets: number }[] }) {
+  const [low, high] = VOLUME_RANGE;
+  const max = Math.max(high + 4, ...rows.map((r) => r.sets));
+  return (
+    <Card className="flex flex-col gap-3.5 p-5">
+      {rows.map((row, i) => (
+        <div className="grid grid-cols-[86px_1fr_36px] items-center gap-3 text-[14.5px]" key={row.muscle}>
+          <span className="truncate">{format.capitalize(row.muscle)}</span>
+          <span className="relative h-2.5 overflow-hidden rounded-full bg-muted">
+            <span className="absolute inset-y-0 bg-success/25" style={{ left: `${(low / max) * 100}%`, width: `${((high - low) / max) * 100}%` }} />
+            <motion.span
+              animate={{ width: `${(row.sets / max) * 100}%` }}
+              className={cn("absolute inset-y-0 left-0 rounded-full", row.sets < low ? "bg-pr" : "bg-gradient-to-r from-[var(--tint-2)] to-[var(--tint)]")}
+              initial={{ width: 0 }}
+              transition={{ type: "spring", stiffness: 120, damping: 20, delay: 0.05 + i * 0.04 }}
+            />
+          </span>
+          <span className={cn("text-right font-semibold tabular", row.sets < low && "text-pr")}>{Math.round(row.sets * 2) / 2}</span>
+        </div>
+      ))}
+    </Card>
   );
 }

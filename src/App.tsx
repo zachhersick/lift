@@ -20,11 +20,12 @@ import { History, WorkoutDetail } from "@/pages/history";
 import { ExerciseDetail, Progress } from "@/pages/progress";
 import { BodyweightPage } from "@/pages/bodyweight";
 import { NutritionPage } from "@/pages/nutrition";
+import { CoachPage } from "@/pages/coach";
 import { DayEditor, Split } from "@/pages/split";
 import { Settings } from "@/pages/settings";
 
 const TABS = [
-  { page: "today", label: "Today", icon: Dumbbell, match: ["today", "nutrition"] },
+  { page: "today", label: "Today", icon: Dumbbell, match: ["today", "nutrition", "coach"] },
   { page: "history", label: "History", icon: CalendarDays, match: ["history"] },
   { page: "progress", label: "Progress", icon: TrendingUp, match: ["progress", "exercise", "bodyweight"] },
   { page: "split", label: "Split", icon: ListOrdered, match: ["split"] },
@@ -38,6 +39,7 @@ function pageFor(page: string, id: string | null): ReactNode {
   if (page === "exercise" && id) return <ExerciseDetail id={id} />;
   if (page === "bodyweight") return <BodyweightPage />;
   if (page === "nutrition") return <NutritionPage />;
+  if (page === "coach") return <CoachPage />;
   if (page === "split") return id ? <DayEditor id={id} /> : <Split />;
   if (page === "settings") return <Settings />;
   return <Today />;

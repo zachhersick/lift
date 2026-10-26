@@ -283,10 +283,10 @@ const HIGH = 20;
 function MuscleVolume() {
   const list = useValue(sessions) as any[];
   const index = useValue(exerciseIndex);
-  const rows = useMemo(() => muscleSets(list, index, startOfWeek()), [list, index]) as { muscle: string; sets: number }[];
+  const rows = useMemo(() => muscleSets(list, index, startOfWeek(), { indirect: true }), [list, index]) as { muscle: string; sets: number }[];
   const max = Math.max(HIGH + 4, ...rows.map((r) => r.sets));
   return (
-    <Section footer={rows.length ? `Working sets since Monday. The green band is ${LOW}–${HIGH} sets, a common weekly range for growth.` : undefined} title="Sets per muscle">
+    <Section footer={rows.length ? `Working sets since Monday; presses, rows and squats count half a set for the muscles they assist. The green band is ${LOW}–${HIGH} sets, the weekly range with the best evidence for growth.` : undefined} title="Sets per muscle">
       <Card className="flex flex-col gap-3.5 p-5">
         {rows.length ? (
           rows.map((row, i) => (
