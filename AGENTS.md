@@ -20,7 +20,7 @@ single source of project guidance; `CLAUDE.md` imports it.
 
 Lift is an offline-capable workout tracker and installable PWA, with rotating
 splits, strength/cardio/timed sets, progress charts, bodyweight, nutrition
-(meals, measured maintenance, targets), a Coach that connects eating and
+(meals with macros and micronutrients, measured maintenance, targets), a Coach that connects eating and
 training, and JSON backups. ChatGPT logs meals through an MCP connector.
 It is a single npm package using React 19, Vite 8, Tailwind CSS 4, Motion and
 Preact signals. The backend is plain Node.js with GitHub OAuth and optional Neon
@@ -110,6 +110,9 @@ Use a production build and preview with `?sw` when checking offline behavior.
   `MCP_TOKEN_VERSION`, and the CSP `form-action` entries for ChatGPT's hosts.
 - Meals written by the server keep the record format the app syncs (`kind:
   "meal"`, `date` in the user's `settings.timeZone`), so the phone pulls them.
+  Fiber sits on the meal with the macros; other micronutrients go in
+  `meal.micros` (keys from `MICROS` in `model.js`). A missing micronutrient means
+  unknown, never zero.
 - Preserve server errors that avoid exposing internal details and deployment
   security headers. Keep `/api/*` outside the service worker navigation fallback.
 

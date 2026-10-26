@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   bodyweightId, cardioSeconds, dailyVolume, dateKey, defaultWeeklyGoal, e1rm, FIELDS, isComplete, setDistance, trackOf, exerciseHistory, isPersonalRecord, movingAverage, muscleSets, nextInSuperset,
   nextSplitDay, personalRecords, placeholderFor, plateBreakdown, previousEntry, previousSession, restsAfter, roundLoadable,
-  coachingContext, dailyIntake, dateKeyIn, fromDateKey, insights, dayTotals, estimateMaintenance, nutritionTargets, rateStatus, shiftDateKey, weightRate,
+  coachingContext, dailyIntake, dateKeyIn, fromDateKey, insights, mealMicro, MICROS, microAverages, dayTotals, estimateMaintenance, nutritionTargets, rateStatus, shiftDateKey, weightRate,
   splitDiff, startOfWeek, suggestion, supersetLabels, trend, warmupSets, weekStreak, weekSummary, workoutFromDay, workoutVolume
 } from "../src/lib/model.js";
 
@@ -481,4 +481,46 @@ test("coaching context summarizes weeks, targets and lifts", () => {
   assert.equal(context.lifts[0].trend, "up");
   assert.equal(context.lifts[0].stalledFor, 0);
   assert.equal(context.maintenance.method, "adaptive");
+});
+
+// ---------- micronutrients ----------
+
+test("micronutrients add up per day, and a meal that didn't report one leaves it partial", () => {
+  const day = dayTotals([
+    meal("2026-10-20", 600, { fiber: 8, micros: { sodium: 900, vitaminC: 40 } }),
+    meal("2026-10-20", 800, { micros: { sodium: 1200 } }),
+    meal("2026-10-20", 300)
+  ]);
+  assert.equal(day.micros.sodium, 2100);
+  assert.equal(day.microMeals.sodium, 2);
+  assert.equal(day.micros.fiber, 8, "fiber counts as a micronutrient too");
+  assert.equal(day.microMeals.fiber, 1);
+  assert.equal(day.micros.potassium, undefined, "never reported, so unknown");
+  assert.equal(mealMicro({ micros: { iron: "" } }, "iron"), null);
+  assert.ok(MICROS.find((m) => m.key === "sodium").kind === "limit");
+});
+
+test("micronutrient averages only use days where every meal reported the nutrient", () => {
+  const days = [...dailyIntake([
+    meal("2026-10-20", 600, { micros: { potassium: 1000 } }),
+    meal("2026-10-21", 600, { micros: { potassium: 3000 } }),
+    meal("2026-10-22", 600, { micros: { potassium: 500 } }),
+    meal("2026-10-22", 700)
+  ]).values()];
+  const potassium = microAverages(days).find((m) => m.key === "potassium");
+  assert.equal(potassium.days, 2, "Oct 22 had a meal without it");
+  assert.equal(potassium.avg, 2000);
+  assert.equal(Math.round(potassium.pct), 43);
+});
+
+test("the coach flags micronutrients far from their Daily Value", () => {
+  const meals = Array.from({ length: 6 }, (_, i) => meal(shiftDateKey(TODAY, -i - 1), 2500, { protein: 180, fiber: 10, micros: { sodium: 4200, potassium: 1500, vitaminC: 120 } }));
+  const card = insights({ meals, settings: { proteinTarget: 180 }, now: NOW }).cards.find((c) => c.id === "micros");
+  assert.equal(card.title, "Low on potassium and fiber, high on sodium");
+  assert.match(card.body, /Sodium 4,200 mg a day, 183% of the 2300 mg Daily Value/);
+  assert.match(card.action, /Sauces, deli meat/);
+  const fine = Array.from({ length: 6 }, (_, i) => meal(shiftDateKey(TODAY, -i - 1), 2500, { fiber: 30, micros: { sodium: 2000 } }));
+  assert.equal(insights({ meals: fine, now: NOW }).cards.find((c) => c.id === "micros"), undefined);
+  const context = coachingContext({ meals, now: NOW, weeks: 1 });
+  assert.deepEqual(context.micros.find((m) => m.nutrient === "Sodium"), { nutrient: "Sodium", perDay: 4200, unit: "mg", dailyValue: 2300, percentDV: 183, kind: "limit" });
 });

@@ -17,6 +17,10 @@ The look is dark-first and layered: glass surfaces, your accent color as soft gr
 - **Fuel** tracks what you eat. Meals arrive from your ChatGPT chat (see below) or you add them by hand. Today shows a calorie ring and protein/carbs/fat bars against your targets.
   - Targets come from a goal you pick (cut, maintain, lean bulk) and your **measured maintenance**: Lift fits a line through your weigh-ins and compares it with what you ate, so after about 10 logged days it knows what you actually burn instead of guessing from a formula. Days you didn't log are gaps, not zeros.
   - The Fuel page has each day's meals (tap one to fix ChatGPT's estimate), two weeks of calories against the target line, protein hit rate, and whether your weekly weight change is inside the range for your goal.
+  - **Micros**: fiber, sugar, saturated fat, cholesterol, sodium, potassium, calcium, iron, magnesium, zinc, and vitamins A, C, D, B12 and folate.
+    - Shown for the day or as a 7-day average, as a percent of the FDA Daily Value. Sodium, saturated fat and cholesterol are limits to stay under.
+    - A nutrient a meal didn't estimate counts as unknown, not zero, and partial totals say so (e.g. "2 of 3 meals").
+    - You can add or fix them in any meal under **Micronutrients**.
 - **Coach** connects your eating and your training. Rule cards, computed on the phone, only show once there's enough data, and each says what it's based on. Today shows them in a swipeable row; Fuel lists them all. They flag:
   - stalled lifts, with the likeliest cause in order: under-eating, low protein, then fatigue (deload);
   - whether your lifts climb faster in weeks you eat at maintenance or above;
@@ -24,6 +28,7 @@ The look is dark-first and layered: glass surfaces, your accent color as soft gr
   - a weight trend outside your goal's range, with how many kcal to change;
   - protein misses;
   - eating less on lifting days than on rest days;
+  - micronutrients well under (or, for sodium and the other limits, over) their Daily Value for the week;
   - unlogged days.
 - **Weekly review.** With `ANTHROPIC_API_KEY` set, Claude (Opus 5.5) writes a short review from the same summary once a week. It ends in two or three concrete actions for the week, syncs like any record, and stays readable offline.
 - **History** has a calendar and every workout. A workout's summary compares volume, sets and time with your last session of the same day, and lists its PRs.
@@ -89,16 +94,16 @@ Lift is a ChatGPT **connector** (an MCP server at `/api/mcp`). Once it's connect
 3. ChatGPT opens Lift's approval page. Sign in with GitHub if asked, then tap **Allow**. Only the account in `ALLOWED_GITHUB_ID` can approve.
 4. In your **Health** project, add an instruction along these lines:
 
-   > When I confirm what I ate, log it to Lift with `log_meal` (best-estimate calories, protein, carbs, fat and the items; pass a unique `ref`). Never log planned meals. Before suggesting what to eat, check `get_day`. For training or diet advice, read `get_coaching_context` first.
+   > When I confirm what I ate, log it to Lift with `log_meal` (best-estimate calories, protein, carbs, fat, fiber, the items, and in `micros` any micronutrients you can estimate reliably, such as sodium, potassium, calcium, iron, magnesium and vitamins; pass a unique `ref`). Never log planned meals. Before suggesting what to eat, check `get_day`. For training or diet advice, read `get_coaching_context` first.
 
 The tools ChatGPT gets:
 
 | Tool | What it does |
 | --- | --- |
-| `log_meal` | Logs a confirmed meal; a repeated `ref` updates instead of duplicating. |
+| `log_meal` | Logs a confirmed meal with calories, macros, fiber and optional micronutrients; a repeated `ref` updates instead of duplicating. |
 | `update_meal` | Corrects a meal already logged. |
 | `delete_meal` | Removes a meal logged by mistake. |
-| `get_day` | A day's meals and totals, against your targets, with what's left. |
+| `get_day` | A day's meals and totals against your targets, what's left, and micronutrients against Daily Values. |
 | `get_coaching_context` | Weekly calories and protein, training volume, bodyweight trend against your goal, measured maintenance, and your main lifts' e1RM progress and stalls. |
 
 Meals are dated in your time zone (the app tells the server which one) and reach the phone on its next sync, which also runs whenever you open Fuel.

@@ -3,7 +3,7 @@
 // hand over a summary of your training and eating for coaching. Meals are
 // written as ordinary records, so the phone picks them up on its next sync.
 import { createHash } from "node:crypto";
-import { coachingContext, dateKeyIn, dayTotals, energyPlan, live, uid } from "../src/lib/model.js";
+import { coachingContext, dateKeyIn, dayTotals, energyPlan, live, MICROS, uid } from "../src/lib/model.js";
 import { loadTrainingData } from "./coach.js";
 
 const PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
@@ -15,6 +15,14 @@ const MACRO_PROPS = {
   carbs: { type: "number", minimum: 0, maximum: 1000, description: "Grams." },
   fat: { type: "number", minimum: 0, maximum: 1000, description: "Grams." },
   fiber: { type: "number", minimum: 0, maximum: 500, description: "Grams, if known." }
+};
+// Everything but fiber, which sits with the macros.
+const MICRO_FIELDS = MICROS.filter((micro) => micro.key !== "fiber");
+const MICRO_SCHEMA = {
+  type: "object",
+  description: "Micronutrients for the whole meal, only those you can estimate reliably. Leave out the rest: a missing value means unknown, not zero.",
+  properties: Object.fromEntries(MICRO_FIELDS.map((micro) => [micro.key, { type: "number", minimum: 0, maximum: micro.max, description: `${micro.label} in ${micro.unit}.` }])),
+  additionalProperties: false
 };
 const ITEMS = {
   type: "array",
@@ -28,12 +36,13 @@ export const TOOLS = [
     name: "log_meal",
     title: "Log meal",
     description:
-      "Log a meal the user has actually eaten to Lift, their workout tracker. Only call this once the user confirms they ate it, never for planned or hypothetical meals. Include your best estimate of calories and macros. Pass `ref` (any id unique to this meal) so a retry doesn't log it twice. Returns the day's totals and what's left against their targets.",
+      "Log a meal the user has actually eaten to Lift, their workout tracker. Only call this once the user confirms they ate it, never for planned or hypothetical meals. Include your best estimate of calories and macros, plus fiber and any micronutrients (sodium, potassium, vitamins, minerals…) you can estimate reliably. Pass `ref` (any id unique to this meal) so a retry doesn't log it twice. Returns the day's totals, what's left against their targets and micronutrients against Daily Values.",
     inputSchema: {
       type: "object",
       properties: {
         name: { type: "string", maxLength: 120, description: "Short name, e.g. Chicken burrito bowl." },
         ...MACRO_PROPS,
+        micros: MICRO_SCHEMA,
         items: ITEMS,
         eaten_at: { type: "string", description: "ISO 8601 time it was eaten. Defaults to now." },
         date: { type: "string", description: "YYYY-MM-DD the meal counts toward, if not the day of eaten_at in the user's time zone." },
@@ -46,10 +55,10 @@ export const TOOLS = [
   {
     name: "update_meal",
     title: "Update meal",
-    description: "Correct a meal already logged in Lift (from log_meal or get_day). Only the fields given change.",
+    description: "Correct a meal already logged in Lift (from log_meal or get_day). Only the fields given change; micronutrients given are merged into the ones already logged.",
     inputSchema: {
       type: "object",
-      properties: { id: { type: "string" }, name: { type: "string", maxLength: 120 }, ...MACRO_PROPS, items: ITEMS, date: { type: "string", description: "YYYY-MM-DD" } },
+      properties: { id: { type: "string" }, name: { type: "string", maxLength: 120 }, ...MACRO_PROPS, micros: MICRO_SCHEMA, items: ITEMS, date: { type: "string", description: "YYYY-MM-DD" } },
       required: ["id"]
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
@@ -64,7 +73,7 @@ export const TOOLS = [
   {
     name: "get_day",
     title: "Get day",
-    description: "The meals logged in Lift for a day with totals, the user's calorie and macro targets and what's left. Use it before suggesting what to eat next.",
+    description: "The meals logged in Lift for a day with totals, the user's calorie and macro targets and what's left, and micronutrients against their Daily Values. Use it before suggesting what to eat next.",
     inputSchema: { type: "object", properties: { date: { type: "string", description: "YYYY-MM-DD. Defaults to today in the user's time zone." } } },
     annotations: { readOnlyHint: true, openWorldHint: false }
   },
@@ -99,6 +108,19 @@ function readMacros(args, required) {
   return out;
 }
 
+function readMicros(micros) {
+  if (micros === undefined || micros === null) return undefined;
+  if (typeof micros !== "object" || Array.isArray(micros)) throw toolError("micros must be an object.");
+  const out = {};
+  for (const [key, value] of Object.entries(micros)) {
+    const micro = MICRO_FIELDS.find((m) => m.key === key);
+    if (!micro) throw toolError(`Unknown micronutrient "${key}". Use: ${MICRO_FIELDS.map((m) => m.key).join(", ")}.`);
+    const n = number(value, micro.max, key);
+    if (n !== undefined) out[key] = n;
+  }
+  return out;
+}
+
 function readItems(items) {
   if (items === undefined) return undefined;
   if (!Array.isArray(items)) throw toolError("items must be a list.");
@@ -115,7 +137,7 @@ function readDate(value) {
   return String(value);
 }
 
-const publicMeal = (meal) => ({ id: meal.id, date: meal.date, name: meal.name, eaten_at: meal.eatenAt ? new Date(meal.eatenAt).toISOString() : null, calories: meal.calories, protein: meal.protein, carbs: meal.carbs, fat: meal.fat, ...(meal.fiber != null ? { fiber: meal.fiber } : {}), items: meal.items || [], source: meal.source });
+const publicMeal = (meal) => ({ id: meal.id, date: meal.date, name: meal.name, eaten_at: meal.eatenAt ? new Date(meal.eatenAt).toISOString() : null, calories: meal.calories, protein: meal.protein, carbs: meal.carbs, fat: meal.fat, ...(meal.fiber != null ? { fiber: meal.fiber } : {}), ...(meal.micros && Object.keys(meal.micros).length ? { micros: meal.micros } : {}), items: meal.items || [], source: meal.source });
 
 export function createMcp({ store }) {
   async function data() {
@@ -135,6 +157,16 @@ export function createMcp({ store }) {
       totals: { calories: Math.round(totals.calories), protein: Math.round(totals.protein), carbs: Math.round(totals.carbs), fat: Math.round(totals.fat), fiber: Math.round(totals.fiber) },
       targets: { goal: targets.goal, calories: targets.calories, protein: targets.protein, carbs: targets.carbs, fat: targets.fat },
       remaining: { calories: left("calories"), protein: left("protein"), carbs: left("carbs"), fat: left("fat") },
+      // Only nutrients some meal reported; partial when not every meal did.
+      micros: MICROS.filter((micro) => totals.microMeals[micro.key]).map((micro) => ({
+        nutrient: micro.key,
+        amount: Math.round(totals.micros[micro.key] * 10) / 10,
+        unit: micro.unit,
+        daily_value: micro.dv,
+        percent_dv: micro.dv ? Math.round((totals.micros[micro.key] / micro.dv) * 100) : null,
+        kind: micro.kind,
+        ...(totals.microMeals[micro.key] < list.length ? { partial: `${totals.microMeals[micro.key]} of ${list.length} meals` } : {})
+      })),
       maintenance: { calories: maintenance.calories, confidence: maintenance.confidence }
     };
   }
@@ -163,7 +195,8 @@ export function createMcp({ store }) {
       const date = readDate(args.date) || dateKeyIn(eatenAt, loaded.timeZone);
       const ref = args.ref ? clean(args.ref, 100) : "";
       const id = ref ? `meal_c${createHash("sha256").update(ref).digest("hex").slice(0, 20)}` : uid("meal");
-      const meal = await write({ id, kind: "meal", source: "chatgpt", name, ...macros, items: readItems(args.items) || [], date, eatenAt, loggedAt: now, deleted: false }, now);
+      const micros = readMicros(args.micros) || {};
+      const meal = await write({ id, kind: "meal", source: "chatgpt", name, ...macros, micros, items: readItems(args.items) || [], date, eatenAt, loggedAt: now, deleted: false }, now);
       loaded.meals = [...loaded.meals.filter((m) => m.id !== id), meal];
       return { logged: publicMeal(meal), day: await dayReport(date, loaded) };
     },
@@ -173,6 +206,8 @@ export function createMcp({ store }) {
       if (args.name !== undefined) change.name = clean(args.name, 120) || meal.name;
       const items = readItems(args.items);
       if (items) change.items = items;
+      const micros = readMicros(args.micros);
+      if (micros) change.micros = { ...(meal.micros || {}), ...micros };
       const date = readDate(args.date);
       if (date) change.date = date;
       const saved = await write({ ...meal, ...change }, now);
