@@ -19,7 +19,9 @@ single source of project guidance; `CLAUDE.md` imports it.
 ## Project overview and map
 
 Lift is an offline-capable workout tracker and installable PWA, with rotating
-splits, strength/cardio/timed sets, progress charts, bodyweight and JSON backups.
+splits, strength/cardio/timed sets, progress charts, bodyweight, nutrition
+(meals, measured maintenance, targets), a Coach that connects eating and
+training, and JSON backups. ChatGPT logs meals through an MCP connector.
 It is a single npm package using React 19, Vite 8, Tailwind CSS 4, Motion and
 Preact signals. The backend is plain Node.js with GitHub OAuth and optional Neon
 Postgres storage.
@@ -27,15 +29,17 @@ Postgres storage.
 | Location | Responsibility |
 | --- | --- |
 | `src/main.tsx`, `src/App.tsx` | Startup, appearance, sync, service worker and app shell |
-| `src/pages/` | Today, workout, history, progress, bodyweight, split and settings screens |
+| `src/pages/` | Today, workout, history, progress, bodyweight, nutrition (Fuel), split and settings screens |
+| `src/components/insights.tsx`, `meal-sheet.tsx` | Coach cards, weekly AI review and the meal editor |
 | `src/components/kit.tsx` | Shared page, card, row, sheet and motion primitives |
 | `src/components/ui/`, `src/components/kokonutui/` | Existing UI components styled for Lift |
-| `src/lib/model.js` | Pure training, progression, history, plate and statistics logic |
+| `src/lib/model.js` | Pure training, progression, history, plate, statistics, nutrition and Coach logic (shared with the server) |
 | `src/lib/store.js`, `db.js`, `sync.js` | Signals, IndexedDB records/outbox and server synchronization |
 | `src/lib/actions.js`, `router.js` | Shared actions and hash navigation |
 | `src/styles.css`, `public/theme-init.js` | Theme tokens and appearance before first paint |
 | `server/app.js`, `auth.js`, `http.js`, `store.js` | API routing, auth, request validation and memory/Neon stores |
-| `api/index.js` | Vercel entry point for every `/api/*` request |
+| `server/oauth.js`, `mcp.js`, `coach.js` | ChatGPT connector (OAuth 2.1 + MCP tools) and the weekly Claude review |
+| `api/index.js` | Vercel entry point for every `/api/*` and `/.well-known/*` request |
 | `tests/model.test.js`, `tests/app.test.js` | Domain logic and API/auth/sync tests |
 | `vite.config.ts`, `vercel.json` | Local API integration, PWA build and deployment configuration |
 | `assets/icon.svg`, `scripts/build-icons.mjs` | Source icon and PNG generation |
@@ -100,6 +104,12 @@ Use a production build and preview with `?sw` when checking offline behavior.
 - Preserve GitHub account restriction, OAuth state verification, signed sessions,
   request body limits and same-origin checks on protected writes. Keep the
   development login bypass disabled on Vercel.
+- The ChatGPT connector authenticates with bearer tokens only, never cookies.
+  Keep its redirect-host allowlist, required PKCE S256, single-use codes and
+  refresh tokens (`lift_once`), token binding to `ALLOWED_GITHUB_ID` and
+  `MCP_TOKEN_VERSION`, and the CSP `form-action` entries for ChatGPT's hosts.
+- Meals written by the server keep the record format the app syncs (`kind:
+  "meal"`, `date` in the user's `settings.timeZone`), so the phone pulls them.
 - Preserve server errors that avoid exposing internal details and deployment
   security headers. Keep `/api/*` outside the service worker navigation fallback.
 
@@ -122,13 +132,16 @@ device validation from a local build.
 
 ## Build and deployment
 
-`vercel.json` builds with `npm run build`, serves `dist/` and rewrites `/api/*` to
-`api/index.js`. The Vercel function has a 15-second limit. No GitHub Actions
+`vercel.json` builds with `npm run build`, serves `dist/` and rewrites `/api/*` and
+`/.well-known/*` to `api/index.js`. The Vercel function has a 60-second limit (the
+weekly review calls Claude). No GitHub Actions
 workflow is currently checked into this repository.
 
 Production requires `DATABASE_URL`, `APP_URL`, `GITHUB_CLIENT_ID`,
 `GITHUB_CLIENT_SECRET`, `ALLOWED_GITHUB_ID` and a `SESSION_SECRET` of at least 32
-characters. The Neon store initializes its schema on first use. Follow the
+characters. Optional: `ANTHROPIC_API_KEY` (weekly review), `MCP_TOKEN_VERSION` (bump
+to disconnect ChatGPT) and `OAUTH_REDIRECT_HOSTS`. The Neon store initializes its
+schema on first use. Follow the
 deployment and OAuth setup in `README.md`; keep values out of source control.
 Without `DATABASE_URL`, the API falls back to non-durable memory storage.
 

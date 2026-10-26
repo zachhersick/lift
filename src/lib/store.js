@@ -3,7 +3,7 @@
 // through save/update/remove.
 import { computed, signal } from "@preact/signals-core";
 import { BUILT_IN } from "./exercises.js";
-import { BARS, bodyweightId, dateKey, energyPlan, finished, live, newer, orderedDays, PLATES, uid } from "./model.js";
+import { BARS, bodyweightId, dateKey, energyPlan, finished, insights, live, newer, orderedDays, PLATES, uid } from "./model.js";
 import * as db from "./db.js";
 
 export const DEFAULT_SETTINGS = { id: "settings", kind: "settings", unit: "lb", step: 5, defaultRest: 120, sound: true, theme: "system", tint: "blue", weeklyGoal: null, goal: "maintain", calorieTarget: null, proteinTarget: null, timeZone: null };
@@ -24,6 +24,7 @@ export const splitDaysAll = ofKind("splitDay");
 export const workoutsAll = ofKind("workout");
 const bodyweightsAll = ofKind("bodyweight");
 const mealsAll = ofKind("meal");
+const reviewsAll = ofKind("coachReview");
 
 // Bar and plates default to the unit's standard set until you change them.
 export const settings = computed(() => {
@@ -56,6 +57,10 @@ export const meals = computed(() => live(mealsAll.value).sort((a, b) => b.date.l
 export const energy = computed(() => energyPlan(mealsAll.value, bodyweightsAll.value, settings.value));
 export const maintenance = computed(() => energy.value.maintenance);
 export const targets = computed(() => energy.value.targets);
+
+// The Coach's cards, and the weekly reviews Claude wrote, newest first.
+export const coach = computed(() => insights({ workouts: workoutsAll.value, meals: mealsAll.value, bodyweights: bodyweightsAll.value, settings: settings.value, exerciseIndex: exerciseIndex.value }));
+export const coachReviews = computed(() => live(reviewsAll.value).sort((a, b) => b.date.localeCompare(a.date)));
 
 export function saveMeal(meal) {
   return save({ source: "manual", items: [], ...meal, id: meal.id || uid("meal"), kind: "meal", date: meal.date || dateKey(meal.eatenAt || Date.now()), deleted: false });

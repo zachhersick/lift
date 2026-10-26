@@ -1,9 +1,10 @@
 // Fuel: what you ate (logged from ChatGPT or by hand) against targets from
 // your goal, the maintenance Lift works out from your log and weigh-ins,
-// and the last two weeks of calories.
+// the last two weeks of calories and the Coach.
 import { ChevronLeft, ChevronRight, Plus, Sparkles, Utensils } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
+import { CoachSection } from "@/components/insights";
 import { MealSheet } from "@/components/meal-sheet";
 import { Card, Empty, FadeIn, Page, Row, Section, StatTiles, TopBar } from "@/components/kit";
 import { Button } from "@/components/ui/button";
@@ -294,6 +295,8 @@ export function NutritionPage() {
       <Section footer="Maintenance is average intake minus the energy that went into or came out of your bodyweight. It sharpens as you log." title="Energy balance">
         <MaintenanceCard />
       </Section>
+
+      <CoachSection />
 
       <MealSheet date={day} meal={sheet && sheet !== "new" ? sheet : null} onClose={() => setSheet(null)} open={sheet !== null} />
     </Page>

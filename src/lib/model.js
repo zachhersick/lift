@@ -762,3 +762,211 @@ export function coachingContext({ workouts = [], meals = [], bodyweights = [], s
     nextWorkout: next?.day ? (next.day.rest ? "Rest day" : next.day.name) : null
   };
 }
+
+// ---------- coach ----------
+
+const mean = (list) => list.reduce((sum, n) => sum + n, 0) / list.length;
+const signedPct = (n) => `${n >= 0 ? "+" : "−"}${Math.abs(Math.round(n * 100) / 100)}%`;
+const kcalText = (n) => Math.round(n).toLocaleString("en-US");
+const roundTo = (n, step) => Math.round(n / step) * step;
+const TONE_RANK = { warn: 3, info: 2, good: 1 };
+const GOAL_NAME = { cut: "cut", maintain: "maintenance", leanBulk: "lean bulk" };
+const RATE_TITLES = {
+  leanBulk: { below: "Gaining too slowly for a lean bulk", above: "Gaining faster than a lean bulk needs" },
+  cut: { below: "Losing faster than a cut should", above: "Losing too slowly for your cut" },
+  maintain: { below: "Weight is drifting down", above: "Weight is drifting up" }
+};
+
+// Whether a day's eating hit the goal: calories in the goal's window and
+// protein within 10% of target.
+function onTarget(day, targets) {
+  if (!targets.calories) return false;
+  const ratio = day.calories / targets.calories;
+  const calories = targets.goal === "leanBulk" ? ratio >= 0.95 && ratio <= 1.15 : targets.goal === "cut" ? ratio >= 0.8 && ratio <= 1.05 : ratio >= 0.9 && ratio <= 1.1;
+  return calories && (!targets.protein || day.protein >= targets.protein * 0.9);
+}
+
+// The Coach: insight cards from your eating and training together. Each
+// rule stays silent until it has enough data, and says what it's based on.
+// Returns a "this week" headline and cards, most urgent first.
+export function insights({ workouts = [], meals = [], bodyweights = [], settings = {}, exerciseIndex = null, now = Date.now(), dayOf = dateKey } = {}) {
+  const today = dayOf(now);
+  const unit = settings.unit === "kg" ? "kg" : "lb";
+  const plan = energyPlan(meals, bodyweights, settings, today);
+  const { targets, maintenance } = plan;
+  const intake = dailyIntake(meals);
+  const sessions = finished(workouts).filter((workout) => !workout.rest && workout.startedAt <= now);
+  const before = (days) => Array.from({ length: days }, (_, i) => shiftDateKey(today, -i - 1));
+  const logged = (days) => before(days).map((date) => intake.get(date)).filter(Boolean);
+  const lifts = liftProgress(workouts, exerciseIndex, { now });
+  const histories = new Map(lifts.map((lift) => [lift.exerciseId, exerciseHistory(workouts, lift.exerciseId, { before: now + 1 }).filter((point) => point.bestE1rm > 0)]));
+  const cards = [];
+
+  // 1. Strength in weeks you ate enough vs. weeks you didn't.
+  if (maintenance.method === "adaptive") {
+    const weeks = [];
+    for (let i = 0; i < 8; i += 1) {
+      const to = shiftDateKey(today, -7 * i);
+      const from = shiftDateKey(to, -6);
+      const days = [...intake.values()].filter((day) => day.date >= from && day.date <= to);
+      if (days.length < 4) continue;
+      const changes = [];
+      for (const history of histories.values()) {
+        for (let k = 1; k < history.length; k += 1) {
+          const key = dayOf(history[k].date);
+          if (key >= from && key <= to) changes.push(((history[k].bestE1rm - history[k - 1].bestE1rm) / history[k - 1].bestE1rm) * 100);
+        }
+      }
+      if (changes.length < 2) continue;
+      const avg = mean(days.map((day) => day.calories));
+      weeks.push({ fed: avg >= maintenance.calories - 100, under: avg < maintenance.calories - 250, change: mean(changes) });
+    }
+    const fed = weeks.filter((week) => week.fed);
+    const under = weeks.filter((week) => week.under);
+    if (fed.length >= 2 && under.length >= 2) {
+      const a = mean(fed.map((week) => week.change));
+      const b = mean(under.map((week) => week.change));
+      if (a - b >= 0.5) {
+        cards.push({
+          id: "fuel-strength",
+          tone: "info",
+          title: "Your lifts climb when you eat enough",
+          body: `Your main lifts' estimated 1RM moved ${signedPct(a)} per session in weeks at or above maintenance, and ${signedPct(b)} in weeks under it.`,
+          evidence: `${fed.length} weeks at maintenance or above, ${under.length} under`,
+          action: targets.goal === "cut" ? "Keep training days closest to maintenance and take the deficit on rest days." : "Keep your weekly average at or above maintenance while you push for strength."
+        });
+      }
+    }
+  }
+
+  // 2. Stalled lifts, and the likeliest reason.
+  const stalled = lifts.filter((lift) => lift.stalledFor >= 3);
+  if (stalled.length) {
+    const recent = logged(14);
+    const avgCalories = recent.length >= 5 ? mean(recent.map((day) => day.calories)) : null;
+    const avgProtein = recent.length >= 5 ? mean(recent.map((day) => day.protein)) : null;
+    let why;
+    let action;
+    if (avgCalories !== null && targets.calories && avgCalories < targets.calories - 150) {
+      why = `Over the last two weeks you've averaged ${kcalText(avgCalories)} kcal against a ${kcalText(targets.calories)} target.`;
+      action = `Eat about ${kcalText(Math.max(100, roundTo(Math.min(400, targets.calories - avgCalories), 50)))} kcal more on training days, mostly carbs before you lift.`;
+    } else if (avgProtein !== null && targets.protein && avgProtein < targets.protein * 0.85) {
+      why = `Protein has averaged ${Math.round(avgProtein)} g against ${targets.protein} g.`;
+      action = `Get protein to ${targets.protein} g a day before changing the program.`;
+    } else {
+      why = avgCalories !== null ? "You're eating enough, so fatigue is the likelier cause." : "There isn't enough food logged to tell whether eating is the cause.";
+      action = "Take a deload week at about 90% of your working weights, or switch rep range (e.g. 8–12 → 5–8) for a few weeks.";
+    }
+    cards.push({
+      id: "stall",
+      tone: "warn",
+      title: stalled.length === 1 ? `${stalled[0].name} has stalled` : `${stalled.length} lifts have stalled`,
+      body: `No new best estimated 1RM: ${stalled.slice(0, 3).map((lift) => `${lift.name} (${lift.stalledFor} sessions)`).join(", ")}. ${why}`,
+      action
+    });
+  }
+
+  // 3. PRs after a pre-workout meal vs. without one.
+  const prSessions = new Set();
+  for (const history of histories.values()) {
+    let best = 0;
+    history.forEach((point, k) => {
+      if (k > 0 && point.bestE1rm > best + 0.01) prSessions.add(point.workoutId);
+      best = Math.max(best, point.bestE1rm);
+    });
+  }
+  const timed = live(meals).filter((meal) => meal.eatenAt);
+  const fueledRuns = { yes: [], no: [] };
+  for (const workout of sessions.filter((w) => w.startedAt >= now - 56 * DAY_MS)) {
+    if (!intake.has(dayOf(workout.startedAt))) continue;
+    const carbs = timed.filter((meal) => meal.eatenAt < workout.startedAt && meal.eatenAt >= workout.startedAt - 4 * 3_600_000).reduce((sum, meal) => sum + (Number(meal.carbs) || 0), 0);
+    fueledRuns[carbs >= 40 ? "yes" : "no"].push(prSessions.has(workout.id));
+  }
+  if (fueledRuns.yes.length >= 3 && fueledRuns.no.length >= 3) {
+    const rate = (list) => list.filter(Boolean).length / list.length;
+    const a = rate(fueledRuns.yes);
+    const b = rate(fueledRuns.no);
+    if (a - b >= 0.2) {
+      cards.push({
+        id: "pre-workout",
+        tone: "info",
+        title: "You PR more after a pre-workout meal",
+        body: `${Math.round(a * 100)}% of sessions with 40 g+ carbs in the 4 hours before hit a PR, vs ${Math.round(b * 100)}% without.`,
+        evidence: `${fueledRuns.yes.length + fueledRuns.no.length} logged sessions`,
+        action: "Eat a carb-heavy meal 1–3 hours before you lift."
+      });
+    }
+  }
+
+  // 4. Weight rate against the goal's range.
+  if (plan.rate) {
+    const [low, high] = RATE_BANDS[targets.goal];
+    const moving = `Your trend weight is moving ${plan.rate.perWeek >= 0 ? "+" : "−"}${Math.abs(Math.round(plan.rate.perWeek * 100) / 100)} ${unit}/week (${signedPct(plan.rate.percent)})`;
+    if (plan.rateStatus === "in") {
+      cards.push({ id: "rate", tone: "good", title: `Right on pace for your ${GOAL_NAME[targets.goal]}`, body: `${moving}, inside the ${signedPct(low)} to ${signedPct(high)} range.` });
+    } else {
+      const goalPerWeek = (plan.rate.weight * ((low + high) / 2)) / 100;
+      const perDay = ((goalPerWeek - plan.rate.perWeek) * (unit === "kg" ? 7700 : 3500)) / 7;
+      const change = roundTo(perDay, 50) || (perDay > 0 ? 50 : -50);
+      cards.push({
+        id: "rate",
+        tone: "warn",
+        title: RATE_TITLES[targets.goal][plan.rateStatus],
+        body: `${moving}. A ${GOAL_NAME[targets.goal]} aims for ${signedPct(low)} to ${signedPct(high)} a week.`,
+        evidence: `${plan.rate.days} days of weigh-ins`,
+        action: `${change > 0 ? "Add" : "Cut"} about ${kcalText(Math.abs(change))} kcal a day${targets.autoCalories ? "; your automatic target adjusts as the trend moves" : ""}.`
+      });
+    }
+  }
+
+  // 5. Protein consistency over the last week.
+  const week = logged(7);
+  if (targets.protein && week.length >= 4) {
+    const misses = week.filter((day) => day.protein < targets.protein * 0.9);
+    const hits = week.length - misses.length;
+    if (hits / week.length < 0.7) {
+      const short = Math.round(mean(misses.map((day) => targets.protein - day.protein)));
+      cards.push({ id: "protein", tone: "warn", title: `Protein hit ${hits} of ${week.length} days`, body: `On the days you missed you were about ${short} g short of ${targets.protein} g.`, action: short <= 45 ? "A shake or 250 g of Greek yogurt closes that gap." : "Add a palm-sized portion of protein to two meals." });
+    } else if (hits / week.length >= 0.85 && week.length >= 5) {
+      cards.push({ id: "protein", tone: "good", title: "Protein is locked in", body: `You hit ${targets.protein} g on ${hits} of ${week.length} logged days this week.` });
+    }
+  }
+
+  // 6. Eating less on training days than rest days.
+  const trainingDays = new Set(sessions.map((workout) => dayOf(workout.startedAt)));
+  const month = logged(28);
+  const onTraining = month.filter((day) => trainingDays.has(day.date));
+  const onRest = month.filter((day) => !trainingDays.has(day.date));
+  if (onTraining.length >= 4 && onRest.length >= 4) {
+    const a = mean(onTraining.map((day) => day.calories));
+    const b = mean(onRest.map((day) => day.calories));
+    if (a < b - 150) {
+      cards.push({ id: "training-days", tone: "info", title: "You eat less on lifting days", body: `${kcalText(a)} kcal on training days vs ${kcalText(b)} on rest days over the last four weeks.`, action: "Move about 200 kcal of carbs from rest days to training days, around your session." });
+    }
+  }
+
+  // 7. Unlogged days, which make every estimate less sure.
+  if (intake.size) {
+    const first = [...intake.keys()][0];
+    const missing = before(7).filter((date) => date >= first && !intake.has(date)).length;
+    if (missing >= 2) {
+      cards.push({ id: "gaps", tone: "info", title: `${missing} days unlogged this week`, body: "Unlogged days are left out of averages, so maintenance and these insights get less sure.", action: "Ask ChatGPT to log what you remember, even roughly." });
+    }
+  }
+
+  // The week at a glance.
+  const weekStart = shiftDateKey(today, -6);
+  const sessionsThisWeek = sessions.filter((workout) => dayOf(workout.startedAt) >= weekStart).length;
+  const daysThisWeek = [...intake.values()].filter((day) => day.date >= weekStart && day.date < today);
+  const fueled = daysThisWeek.filter((day) => onTarget(day, targets)).length;
+  const headline = sessionsThisWeek || daysThisWeek.length
+    ? {
+        id: "week",
+        tone: daysThisWeek.length && fueled / daysThisWeek.length >= 0.7 ? "good" : "info",
+        title: `This week: ${sessionsThisWeek} ${sessionsThisWeek === 1 ? "session" : "sessions"}${daysThisWeek.length ? `, on target ${fueled} of ${daysThisWeek.length} days` : ""}`,
+        body: daysThisWeek.length ? `On target means ${GOAL_NAME[targets.goal]} calories and ${targets.protein ?? "—"} g protein.` : "Log meals to see how your eating lines up with training."
+      }
+    : null;
+
+  return { headline, cards: cards.map((card, index) => ({ card, index })).sort((x, y) => TONE_RANK[y.card.tone] - TONE_RANK[x.card.tone] || x.index - y.index).map((x) => x.card) };
+}

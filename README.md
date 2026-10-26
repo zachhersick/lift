@@ -17,6 +17,15 @@ The look is dark-first and layered: glass surfaces, your accent color as soft gr
 - **Fuel** tracks what you eat. Meals arrive from your ChatGPT chat (see below) or you add them by hand. Today shows a calorie ring and protein/carbs/fat bars against your targets.
   - Targets come from a goal you pick (cut, maintain, lean bulk) and your **measured maintenance**: Lift fits a line through your weigh-ins and compares it with what you ate, so after about 10 logged days it knows what you actually burn instead of guessing from a formula. Days you didn't log are gaps, not zeros.
   - The Fuel page has each day's meals (tap one to fix ChatGPT's estimate), two weeks of calories against the target line, protein hit rate, and whether your weekly weight change is inside the range for your goal.
+- **Coach** connects your eating and your training. Rule cards, computed on the phone, only show once there's enough data, and each says what it's based on. Today shows them in a swipeable row; Fuel lists them all. They flag:
+  - stalled lifts, with the likeliest cause in order: under-eating, low protein, then fatigue (deload);
+  - whether your lifts climb faster in weeks you eat at maintenance or above;
+  - whether you PR more after a carb-heavy meal in the 4 hours before training;
+  - a weight trend outside your goal's range, with how many kcal to change;
+  - protein misses;
+  - eating less on lifting days than on rest days;
+  - unlogged days.
+- **Weekly review.** With `ANTHROPIC_API_KEY` set, Claude (Opus 5.5) writes a short review from the same summary once a week. It ends in two or three concrete actions for the week, syncs like any record, and stays readable offline.
 - **History** has a calendar and every workout. A workout's summary compares volume, sets and time with your last session of the same day, and lists its PRs.
 - **Progress** has a training-volume card (upper body, lower body, core; 7/30/90 days) and lists each exercise with a sparkline and trend. The exercise page swipes between charts of estimated 1RM (Epley), heaviest set, volume and reps over 1M/3M/1Y/All, with PRs, best reps at each weight, every session and the exercise's note. **Bodyweight** has its own chart with a 7-day average.
 - **Split**: start from a template or build your own. Drag days and exercises to reorder, add rest days, set each exercise's sets, rep range, rest and supersets, and pick from ~100 built-in exercises or your own.
@@ -64,6 +73,7 @@ Optional:
 | --- | --- |
 | `MCP_TOKEN_VERSION` | Change it (e.g. `1` → `2`) to disconnect ChatGPT immediately. |
 | `OAUTH_REDIRECT_HOSTS` | Comma-separated hosts the connector may redirect to. Defaults to `chatgpt.com,chat.openai.com`. |
+| `ANTHROPIC_API_KEY` | Turns on the weekly AI review: one Claude call a week, a few cents. Without it, the rule-based Coach still works. |
 
 Sessions last 30 days. Every write from the app needs the session cookie, a JSON body and an `Origin` header that matches `APP_URL`.
 
@@ -110,11 +120,12 @@ The one iOS limit: a home-screen web app can't play a sound while it's in the ba
 ```
 api/index.js                Vercel function; every /api/* and /.well-known/* request lands here
 server/                     auth (GitHub OAuth, signed cookie), sync API, Neon/memory store,
-                            oauth.js + mcp.js (the ChatGPT connector)
+                            oauth.js + mcp.js (the ChatGPT connector), coach.js (weekly AI review)
 index.html, vite.config.ts  Vite entry; the config also mounts the API for dev/preview and builds the service worker
 src/lib/                    model.js (pure, tested logic), store/db/sync (IndexedDB + signals + sync), keypad, timer, theme
 src/components/kokonutui/   Kokonut UI components, restyled to the app's tokens
-src/components/             kit (page frame, cards, rows, sheets), keypad, plates, islands, charts, shader hero, picker
+src/components/             kit (page frame, cards, rows, sheets), keypad, plates, islands, charts, shader hero, picker,
+                            meal sheet, insights (Coach cards and weekly review)
 src/pages/                  Today, Workout, History, Progress, Bodyweight, Fuel (nutrition), Split, Settings
 src/styles.css              Tailwind v4 theme: dark/light tokens and accent colors
 public/                     icons, manifest, theme-init.js (applies the theme before first paint)

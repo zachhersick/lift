@@ -282,3 +282,35 @@ test("MCP notifications get no reply and unknown methods an error", async () => 
   assert.equal((await rpc(app, tokens.access_token, "nope")).body.error.code, -32601);
   assert.equal((await request(app, { path: "/api/mcp", headers: auth })).status, 405);
 });
+
+test("the weekly review asks Claude with fallbacks on and saves a synced record", async () => {
+  const calls = [];
+  const anthropic = { beta: { messages: { create: async (params) => {
+    calls.push(params);
+    return { model: "claude-opus-5-5", stop_reason: "end_turn", content: [{ type: "text", text: "Solid week.\nThis week:\n- Eat 2,700 kcal" }] };
+  } } } };
+  const store = new MemoryStore();
+  const off = createApp({ store, env });
+  assert.equal((await request(off, { method: "POST", path: "/api/coach/review", cookie: signedIn, body: {} })).status, 503, "off without a key");
+  assert.equal((await request(off, { path: "/api/session", cookie: signedIn })).body.coach, false);
+
+  const app = createApp({ store, env, anthropic });
+  assert.equal((await request(app, { method: "POST", path: "/api/coach/review", cookie: signedIn, body: {}, origin: "https://evil.example" })).status, 403);
+  assert.equal((await request(app, { method: "POST", path: "/api/coach/review", cookie: signedIn, body: {} })).status, 409, "nothing logged yet");
+  const meal = { id: "m1", kind: "meal", updatedAt: 1, date: "2026-10-20", name: "Oats", calories: 600, protein: 40, carbs: 80, fat: 10 };
+  await request(app, { method: "POST", path: "/api/sync", cookie: signedIn, body: { since: 0, changes: [meal] } });
+
+  const response = await request(app, { method: "POST", path: "/api/coach/review", cookie: signedIn, body: {} });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.review.kind, "coachReview");
+  assert.match(response.body.review.text, /^Solid week/);
+  assert.equal(calls[0].model, "claude-opus-5-5");
+  assert.equal(calls[0].fallbacks, "default");
+  assert.deepEqual(calls[0].betas, ["server-side-fallback-2026-07-01"]);
+  assert.match(calls[0].messages[0].content, /"weeks":\[/);
+  const pulled = await request(app, { method: "POST", path: "/api/sync", cookie: signedIn, body: { since: 0, changes: [] } });
+  assert.ok(pulled.body.records.some((r) => r.kind === "coachReview"), "the review syncs to the phone");
+
+  const refused = createApp({ store, env, anthropic: { beta: { messages: { create: async () => ({ stop_reason: "refusal", content: [] }) } } } });
+  assert.equal((await request(refused, { method: "POST", path: "/api/coach/review", cookie: signedIn, body: {} })).status, 502);
+});

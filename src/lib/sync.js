@@ -5,7 +5,8 @@ import { signal } from "@preact/signals-core";
 import * as db from "./db.js";
 import { applyRemote, pending, records, whenChanged } from "./store.js";
 
-export const sync = signal({ status: "starting", user: null, lastSync: null, error: "" });
+// `coach` says whether the server can write weekly reviews.
+export const sync = signal({ status: "starting", user: null, coach: false, lastSync: null, error: "" });
 
 let running = false;
 let again = false;
@@ -17,7 +18,7 @@ export async function checkSession() {
   try {
     const response = await fetch("/api/session", { credentials: "same-origin", cache: "no-store" });
     const body = await response.json().catch(() => ({}));
-    set({ user: body.ok ? body.user : null, status: body.ok ? sync.value.status : "signedOut" });
+    set({ user: body.ok ? body.user : null, coach: Boolean(body.ok && body.coach), status: body.ok ? sync.value.status : "signedOut" });
     return body.ok ? body.user : null;
   } catch {
     set({ status: "offline" });

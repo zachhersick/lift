@@ -8,6 +8,7 @@ import {
   newOAuthState, parseCookies, readSession, SESSION_COOKIE, sessionCookie, STATE_COOKIE
 } from "./auth.js";
 import { PULL_LIMIT } from "./store.js";
+import { writeReview } from "./coach.js";
 import { createMcp } from "./mcp.js";
 import {
   authorizationServerMetadata, consentPage, exchangeToken, issueCode, oauthConfig, protectedResourceMetadata, readAuthorizeRequest,
@@ -69,7 +70,8 @@ export function cleanChanges(changes) {
   return [...byId.values()];
 }
 
-export function createApp({ store, env = process.env, fetchImpl = fetch }) {
+// `anthropic` replaces the Claude client in tests.
+export function createApp({ store, env = process.env, fetchImpl = fetch, anthropic = null }) {
   const config = appConfig(env);
   const oauth = oauthConfig(env, config);
   const mcp = createMcp({ store });
@@ -177,7 +179,7 @@ export function createApp({ store, env = process.env, fetchImpl = fetch }) {
     // ---- everything else needs a signed-in session ----
     const user = session(req);
     if (path === "/api/session") {
-      return user ? sendJson(res, { ok: true, user: { login: user.login } }) : sendJson(res, { ok: false, signedIn: false });
+      return user ? sendJson(res, { ok: true, user: { login: user.login }, coach: Boolean(env.ANTHROPIC_API_KEY || anthropic) }) : sendJson(res, { ok: false, signedIn: false });
     }
     if (!user) return sendJson(res, { ok: false, signedIn: false, error: "Sign in to sync." }, 401);
     if (req.method !== "GET" && !sameOrigin(req)) return sendJson(res, { ok: false, error: "Cross-site request refused." }, 403);
@@ -193,6 +195,11 @@ export function createApp({ store, env = process.env, fetchImpl = fetch }) {
       // device should start over and send everything it has.
       const reset = since > 0 && !rows.length && since > (await store.head());
       return sendJson(res, { ok: true, accepted, records: rows.map((row) => row.doc), cursor: reset ? 0 : cursor, more: rows.length === PULL_LIMIT, reset });
+    }
+    // The weekly AI review (needs ANTHROPIC_API_KEY).
+    if (path === "/api/coach/review" && req.method === "POST") {
+      if (!env.ANTHROPIC_API_KEY && !anthropic) return sendJson(res, { ok: false, error: "Add ANTHROPIC_API_KEY to turn on weekly reviews." }, 503);
+      return sendJson(res, { ok: true, review: await writeReview({ store, apiKey: env.ANTHROPIC_API_KEY, client: anthropic }) });
     }
     return sendJson(res, { ok: false, error: "Not found." }, 404);
   }

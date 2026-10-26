@@ -1,5 +1,6 @@
 // Today: the next day in the rotation over a live gradient, this week's
-// rings, what you ate, sets per muscle, consistency, bodyweight and recent PRs.
+// rings, what you ate, the Coach, sets per muscle, consistency, bodyweight
+// and recent PRs.
 import { Cloud, Moon, Play, Scale, Trophy } from "lucide-react";
 import { motion } from "motion/react";
 import { type CSSProperties, lazy, Suspense, useMemo, useState } from "react";
@@ -23,6 +24,7 @@ import { now } from "@/lib/timer.js";
 import * as format from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
 import { BodyweightSheet } from "./bodyweight";
+import { CoachStrip } from "@/components/insights";
 import { FuelCard } from "./nutrition";
 
 const MeshHero = lazy(() => import("@/components/mesh-hero"));
@@ -83,6 +85,9 @@ export function Today() {
       </FadeIn>
       <FadeIn delay={0.1}>
         <FuelCard />
+      </FadeIn>
+      <FadeIn delay={0.11}>
+        <CoachStrip />
       </FadeIn>
       <FadeIn delay={0.12}>
         <MuscleVolume />

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   bodyweightId, cardioSeconds, dailyVolume, dateKey, defaultWeeklyGoal, e1rm, FIELDS, isComplete, setDistance, trackOf, exerciseHistory, isPersonalRecord, movingAverage, muscleSets, nextInSuperset,
   nextSplitDay, personalRecords, placeholderFor, plateBreakdown, previousEntry, previousSession, restsAfter, roundLoadable,
-  dailyIntake, dateKeyIn, dayTotals, estimateMaintenance, nutritionTargets, rateStatus, shiftDateKey, weightRate,
+  coachingContext, dailyIntake, dateKeyIn, fromDateKey, insights, dayTotals, estimateMaintenance, nutritionTargets, rateStatus, shiftDateKey, weightRate,
   splitDiff, startOfWeek, suggestion, supersetLabels, trend, warmupSets, weekStreak, weekSummary, workoutFromDay, workoutVolume
 } from "../src/lib/model.js";
 
@@ -381,4 +381,104 @@ test("weight rate is checked against the goal's band", () => {
   assert.equal(rateStatus(rate, "maintain"), "above");
   assert.equal(rateStatus(rate, "cut"), "above");
   assert.equal(weightRate(gaining.slice(0, 3), { today: span[2] }), null, "needs a week of data");
+});
+
+// ---------- coach ----------
+
+const NOW = new Date(2026, 9, 25, 21, 0).getTime();
+const TODAY = dateKey(NOW);
+const at = (date, hour) => fromDateKey(date) + hour * 3_600_000;
+const bench = (id, date, weight, reps = 5) => workout(id, at(date, 18), "push", [entry("bench", [set(weight, reps), set(weight, reps)])]);
+const flatWeights = (count, weight = 180) => Array.from({ length: count }, (_, i) => ({ id: `bw${i}`, date: shiftDateKey(TODAY, -i - 1), weight }));
+const ids = (result) => result.cards.map((card) => card.id);
+
+test("the coach stays quiet without data", () => {
+  assert.deepEqual(insights({ now: NOW }), { headline: null, cards: [] });
+  const few = insights({ meals: [meal(shiftDateKey(TODAY, -1), 2500)], now: NOW });
+  assert.deepEqual(ids(few), [], "one logged day is too little for any rule");
+});
+
+test("strength and pre-workout meals are compared across fed and under-fed weeks", () => {
+  // Eight weeks alternating 2,900 and 2,100 kcal with a flat weight, so
+  // maintenance lands near 2,500. Fed weeks add a carb snack before lifting
+  // and bench goes up; under-fed weeks it holds.
+  const meals = [];
+  const workouts = [];
+  let weight = 200;
+  for (let i = 55; i >= 1; i -= 1) {
+    const date = shiftDateKey(TODAY, -i);
+    const fedWeek = Math.floor((i - 1) / 7) % 2 === 0;
+    meals.push(meal(date, fedWeek ? 2300 : 2100, { eatenAt: at(date, 12), protein: 190 }));
+    if (fedWeek) meals.push(meal(date, 600, { eatenAt: at(date, 15), carbs: 80 }));
+    if (i % 2 === 0) {
+      if (fedWeek) weight += 5;
+      workouts.push(bench(`w${i}`, date, weight));
+    }
+  }
+  const result = insights({ workouts, meals, bodyweights: flatWeights(28), settings: { goal: "maintain" }, now: NOW });
+  const fuel = result.cards.find((card) => card.id === "fuel-strength");
+  assert.ok(fuel, "fuel vs strength fires");
+  assert.match(fuel.body, /per session in weeks at or above maintenance/);
+  const pre = result.cards.find((card) => card.id === "pre-workout");
+  assert.ok(pre, "pre-workout fuel fires");
+  assert.match(pre.body, /^\d+% of sessions with 40 g\+ carbs/);
+  assert.equal(result.cards.find((card) => card.id === "stall"), undefined, "bench is still moving");
+  assert.match(result.headline.title, /^This week: \d+ sessions?, on target \d+ of \d+ days$/);
+});
+
+test("a stalled lift is blamed on under-eating, low protein or fatigue, in that order", () => {
+  const workouts = Array.from({ length: 6 }, (_, i) => bench(`s${i}`, shiftDateKey(TODAY, -2 * i - 1), 225));
+  const days = (calories, protein) => Array.from({ length: 10 }, (_, i) => meal(shiftDateKey(TODAY, -i - 1), calories, { protein }));
+  const settings = { calorieTarget: 2600, proteinTarget: 180 };
+  const hungry = insights({ workouts, meals: days(2000, 190), settings, now: NOW }).cards.find((card) => card.id === "stall");
+  assert.equal(hungry.tone, "warn");
+  assert.match(hungry.title, /bench has stalled/);
+  assert.match(hungry.body, /\(5 sessions\)/);
+  assert.match(hungry.action, /Eat about 400 kcal more on training days/);
+  const lowProtein = insights({ workouts, meals: days(2600, 120), settings, now: NOW }).cards.find((card) => card.id === "stall");
+  assert.match(lowProtein.action, /Get protein to 180 g/);
+  const tired = insights({ workouts, meals: days(2600, 190), settings, now: NOW }).cards.find((card) => card.id === "stall");
+  assert.match(tired.action, /deload/);
+});
+
+test("the weight rate card says how many calories to change", () => {
+  const meals = Array.from({ length: 20 }, (_, i) => meal(shiftDateKey(TODAY, -i - 1), 2700, { protein: 185 }));
+  const slow = insights({ meals, bodyweights: flatWeights(21), settings: { goal: "leanBulk" }, now: NOW }).cards.find((card) => card.id === "rate");
+  assert.equal(slow.title, "Gaining too slowly for a lean bulk");
+  assert.match(slow.action, /^Add about 350 kcal a day/);
+  const ok = insights({ meals, bodyweights: flatWeights(21), settings: { goal: "maintain" }, now: NOW }).cards.find((card) => card.id === "rate");
+  assert.equal(ok.tone, "good");
+});
+
+test("protein misses, eating less on lifting days and unlogged days get their own cards", () => {
+  const meals = [];
+  const workouts = [];
+  for (let i = 1; i <= 28; i += 1) {
+    const date = shiftDateKey(TODAY, -i);
+    if (i === 2 || i === 4) continue; // two unlogged days this week
+    const training = i % 2 === 1;
+    if (training) workouts.push(bench(`t${i}`, date, 135 + i));
+    meals.push(meal(date, training ? 2200 : 2700, { protein: 120 }));
+  }
+  const result = insights({ workouts, meals, settings: { calorieTarget: 2500, proteinTarget: 180 }, now: NOW });
+  const protein = result.cards.find((card) => card.id === "protein");
+  assert.equal(protein.title, "Protein hit 0 of 5 days");
+  assert.match(protein.body, /about 60 g short/);
+  const split = result.cards.find((card) => card.id === "training-days");
+  assert.match(split.body, /2,200 kcal on training days vs 2,700 on rest days/);
+  assert.equal(result.cards.find((card) => card.id === "gaps").title, "2 days unlogged this week");
+  assert.deepEqual(result.cards.map((card) => card.tone), [...result.cards.map((card) => card.tone)].sort((a, b) => ({ warn: 0, info: 1, good: 2 })[a] - ({ warn: 0, info: 1, good: 2 })[b]), "most urgent first");
+});
+
+test("coaching context summarizes weeks, targets and lifts", () => {
+  const workouts = Array.from({ length: 4 }, (_, i) => bench(`c${i}`, shiftDateKey(TODAY, -3 * i - 1), 200 + 5 * (3 - i)));
+  const meals = Array.from({ length: 14 }, (_, i) => meal(shiftDateKey(TODAY, -i - 1), 2500, { protein: 180 }));
+  const context = coachingContext({ workouts, meals, bodyweights: flatWeights(14), settings: { goal: "maintain", unit: "lb" }, now: NOW, weeks: 2 });
+  assert.equal(context.weeks.length, 2);
+  assert.equal(context.weeks[1].to, TODAY);
+  assert.equal(context.weeks[0].avgCalories, 2500);
+  assert.equal(context.lifts[0].name, "bench");
+  assert.equal(context.lifts[0].trend, "up");
+  assert.equal(context.lifts[0].stalledFor, 0);
+  assert.equal(context.maintenance.method, "adaptive");
 });

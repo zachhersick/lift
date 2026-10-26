@@ -3,8 +3,8 @@
 // hand over a summary of your training and eating for coaching. Meals are
 // written as ordinary records, so the phone picks them up on its next sync.
 import { createHash } from "node:crypto";
-import { BUILT_IN } from "../src/lib/exercises.js";
 import { coachingContext, dateKeyIn, dayTotals, energyPlan, live, uid } from "../src/lib/model.js";
+import { loadTrainingData } from "./coach.js";
 
 const PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -189,11 +189,9 @@ export function createMcp({ store }) {
       return dayReport(readDate(args.date) || dateKeyIn(now, loaded.timeZone), loaded);
     },
     async get_coaching_context(args, now) {
-      const [loaded, workouts, exercises, splitDays] = await Promise.all([data(), store.listKind("workout"), store.listKind("exercise"), store.listKind("splitDay")]);
-      const index = new Map(BUILT_IN.map((exercise) => [exercise.id, exercise]));
-      for (const record of exercises) index.set(record.id, { ...index.get(record.id), ...record });
+      const loaded = await loadTrainingData(store);
       const weeks = Math.min(12, Math.max(1, Math.round(Number(args.weeks) || 4)));
-      return coachingContext({ workouts, meals: loaded.meals, bodyweights: loaded.bodyweights, settings: loaded.settings, exerciseIndex: index, splitDays, now, dayOf: (t) => dateKeyIn(t, loaded.timeZone), weeks });
+      return coachingContext({ ...loaded, now, dayOf: (t) => dateKeyIn(t, loaded.timeZone), weeks });
     }
   };
 
