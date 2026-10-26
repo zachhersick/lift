@@ -1,14 +1,15 @@
 // Fuel: what you ate (logged from ChatGPT or by hand) against targets from
-// your goal, the maintenance Lift works out from your log and weigh-ins,
-// the last two weeks of calories and the Coach.
+// your goal, micronutrients against their Daily Values, the maintenance Lift
+// works out from your log and weigh-ins, the last two weeks of calories and
+// the Coach.
 import { ChevronLeft, ChevronRight, Plus, Sparkles, Utensils } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import { CoachSection } from "@/components/insights";
 import { MealSheet } from "@/components/meal-sheet";
-import { Card, Empty, FadeIn, Page, Row, Section, StatTiles, TopBar } from "@/components/kit";
+import { Card, Empty, FadeIn, Page, Row, Section, Segmented, StatTiles, TopBar } from "@/components/kit";
 import { Button } from "@/components/ui/button";
-import { dailyIntake, dateKey, dayTotals, fromDateKey, RATE_BANDS, rateStatus, shiftDateKey, weightRate } from "@/lib/model.js";
+import { dailyIntake, dateKey, dayTotals, fromDateKey, MICROS, microAverages, RATE_BANDS, rateStatus, shiftDateKey, weightRate } from "@/lib/model.js";
 import { bodyweights, maintenance, meals, settings, targets } from "@/lib/store.js";
 import { syncNow } from "@/lib/sync.js";
 import * as format from "@/lib/format.js";
@@ -157,6 +158,71 @@ function CalorieBars({ end, selected, onSelect }: { end: string; selected: strin
   );
 }
 
+const microAmount = (n: number) => (n < 10 ? String(Math.round(n * 10) / 10) : Math.round(n).toLocaleString());
+
+// Micronutrients for one day, or averaged over the last 7 days, against
+// their Daily Values. Only what some meal reported is shown.
+function Micronutrients({ day }: { day: string }) {
+  const list = useValue(meals) as any[];
+  const [range, setRange] = useState<"day" | "week">("day");
+  const intake = useMemo(() => dailyIntake(list), [list]);
+  const totals = intake.get(day);
+  const rows =
+    range === "day"
+      ? MICROS.filter((m: any) => totals?.microMeals?.[m.key]).map((m: any) => ({
+          ...m,
+          value: totals.micros[m.key],
+          note: totals.microMeals[m.key] < totals.meals ? `${totals.microMeals[m.key]} of ${totals.meals} meals` : ""
+        }))
+      : microAverages(Array.from({ length: 7 }, (_, i) => intake.get(shiftDateKey(dateKey(), -i - 1))).filter(Boolean))
+          .filter((m: any) => m.days)
+          .map((m: any) => ({ ...m, value: m.avg, note: `avg of ${format.plural(m.days, "day")}` }));
+  return (
+    <Section
+      action={<Segmented label="Micronutrient range" onChange={setRange} options={[{ value: "day", label: "Day" }, { value: "week", label: "7-day avg" }]} size="sm" value={range} />}
+      footer={rows.length ? "Percent of the FDA Daily Value. Sodium, saturated fat and cholesterol are limits to stay under. A nutrient a meal didn't estimate counts as unknown, not zero." : undefined}
+      title="Micros"
+    >
+      {rows.length ? (
+        <Card className="flex flex-col gap-3.5 p-4">
+          {rows.map((m: any) => {
+            const pct = m.dv ? (m.value / m.dv) * 100 : null;
+            const over = m.kind === "limit" && pct !== null && pct > 100;
+            return (
+              <div className="flex flex-col gap-1" key={m.key}>
+                <div className="flex items-baseline justify-between gap-2 text-[14px]">
+                  <span className="min-w-0 truncate">
+                    <span className="font-medium">{m.label}</span>
+                    {m.note ? <span className="ml-1.5 text-[12px] text-muted-foreground">{m.note}</span> : null}
+                  </span>
+                  <span className="shrink-0 text-muted-foreground tabular">
+                    {microAmount(m.value)} {m.unit}
+                    {pct !== null ? <span className={cn("ml-2 font-semibold", over ? "text-pr" : "text-foreground")}>{Math.round(pct)}%</span> : null}
+                  </span>
+                </div>
+                {pct !== null ? (
+                  <span className="relative h-1.5 overflow-hidden rounded-full bg-muted">
+                    <motion.span
+                      animate={{ width: `${Math.min(100, pct)}%` }}
+                      className={cn("absolute inset-y-0 left-0 rounded-full", over ? "bg-pr" : m.kind === "limit" ? "bg-muted-foreground/50" : "bg-primary")}
+                      initial={{ width: 0 }}
+                      transition={{ type: "spring", stiffness: 120, damping: 20 }}
+                    />
+                  </span>
+                ) : null}
+              </div>
+            );
+          })}
+        </Card>
+      ) : (
+        <Card className="p-4 text-[14.5px] text-muted-foreground">
+          {range === "day" ? "No micronutrients logged for this day." : "No micronutrients logged this week."} Ask ChatGPT to include sodium, potassium, fiber, vitamins and minerals when it logs a meal, or add them in a meal under Micronutrients.
+        </Card>
+      )}
+    </Section>
+  );
+}
+
 const CONFIDENCE: Record<string, string> = { high: "Solid estimate", medium: "Getting there", rough: "Rough guess", none: "" };
 
 function MaintenanceCard() {
@@ -278,6 +344,8 @@ export function NutritionPage() {
           </Card>
         )}
       </Section>
+
+      <Micronutrients day={day} />
 
       <Section action={<span>tap a day</span>} footer="Dashed days weren't logged, so they're left out of averages instead of counting as zero." title="Last 2 weeks">
         <Card>

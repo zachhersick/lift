@@ -314,3 +314,31 @@ test("the weekly review asks Claude with fallbacks on and saves a synced record"
   const refused = createApp({ store, env, anthropic: { beta: { messages: { create: async () => ({ stop_reason: "refusal", content: [] }) } } } });
   assert.equal((await request(refused, { method: "POST", path: "/api/coach/review", cookie: signedIn, body: {} })).status, 502);
 });
+
+test("ChatGPT can log micronutrients, and get_day reports them against Daily Values", async () => {
+  const app = createApp({ store: new MemoryStore(), env });
+  const { tokens } = await connect(app);
+  const token = tokens.access_token;
+  const base = { calories: 600, protein: 40, carbs: 60, fat: 20, date: "2026-10-20" };
+  const first = await callTool(app, token, "log_meal", { ...base, name: "Salmon bowl", fiber: 9, micros: { sodium: 800, potassium: 1200, vitaminD: 12 }, ref: "m1" });
+  assert.equal(first.isError, false);
+  assert.deepEqual(first.structuredContent.logged.micros, { sodium: 800, potassium: 1200, vitaminD: 12 });
+  await callTool(app, token, "log_meal", { ...base, name: "Toast", micros: { sodium: 400 }, ref: "m2" });
+  const day = (await callTool(app, token, "get_day", { date: "2026-10-20" })).structuredContent;
+  const sodium = day.micros.find((m) => m.nutrient === "sodium");
+  assert.equal(sodium.amount, 1200);
+  assert.equal(sodium.percent_dv, 52);
+  assert.equal(sodium.partial, undefined, "both meals reported sodium");
+  assert.equal(day.micros.find((m) => m.nutrient === "potassium").partial, "1 of 2 meals");
+  assert.equal(day.micros.find((m) => m.nutrient === "fiber").amount, 9);
+
+  const merged = await callTool(app, token, "update_meal", { id: first.structuredContent.logged.id, micros: { calcium: 150 } });
+  assert.deepEqual(merged.structuredContent.updated.micros, { sodium: 800, potassium: 1200, vitaminD: 12, calcium: 150 });
+  const unknown = await callTool(app, token, "log_meal", { ...base, name: "x", micros: { unobtainium: 5 } });
+  assert.equal(unknown.isError, true);
+  assert.match(unknown.content[0].text, /Unknown micronutrient "unobtainium"/);
+  const tooMuch = await callTool(app, token, "log_meal", { ...base, name: "x", micros: { sodium: 999999 } });
+  assert.equal(tooMuch.isError, true);
+  const schema = (await rpc(app, token, "tools/list")).body.result.tools.find((t) => t.name === "log_meal").inputSchema;
+  assert.ok(schema.properties.micros.properties.magnesium);
+});

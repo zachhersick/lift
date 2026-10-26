@@ -563,14 +563,61 @@ export function dateKeyIn(time = Date.now(), timeZone) {
   }
 }
 
-// Calories and macros added up over a list of meals.
+// Micronutrients with their FDA Daily Values (2,000 kcal label reference).
+// A "goal" is something to reach, a "limit" something to stay under. Sugar
+// has no Daily Value, so it's tracked without a bar. Fiber is stored on the
+// meal like the macros; the rest live in `meal.micros`.
+export const MICROS = [
+  { key: "fiber", label: "Fiber", unit: "g", dv: 28, kind: "goal", max: 300 },
+  { key: "sugar", label: "Sugar", unit: "g", dv: null, kind: "limit", max: 1000 },
+  { key: "saturatedFat", label: "Saturated fat", unit: "g", dv: 20, kind: "limit", max: 500 },
+  { key: "cholesterol", label: "Cholesterol", unit: "mg", dv: 300, kind: "limit", max: 5000 },
+  { key: "sodium", label: "Sodium", unit: "mg", dv: 2300, kind: "limit", max: 50000 },
+  { key: "potassium", label: "Potassium", unit: "mg", dv: 4700, kind: "goal", max: 50000 },
+  { key: "calcium", label: "Calcium", unit: "mg", dv: 1300, kind: "goal", max: 20000 },
+  { key: "iron", label: "Iron", unit: "mg", dv: 18, kind: "goal", max: 500 },
+  { key: "magnesium", label: "Magnesium", unit: "mg", dv: 420, kind: "goal", max: 10000 },
+  { key: "zinc", label: "Zinc", unit: "mg", dv: 11, kind: "goal", max: 500 },
+  { key: "vitaminA", label: "Vitamin A", unit: "mcg", dv: 900, kind: "goal", max: 100000 },
+  { key: "vitaminC", label: "Vitamin C", unit: "mg", dv: 90, kind: "goal", max: 20000 },
+  { key: "vitaminD", label: "Vitamin D", unit: "mcg", dv: 20, kind: "goal", max: 2500 },
+  { key: "vitaminB12", label: "Vitamin B12", unit: "mcg", dv: 2.4, kind: "goal", max: 10000 },
+  { key: "folate", label: "Folate", unit: "mcg", dv: 400, kind: "goal", max: 20000 }
+];
+export const MICRO_KEYS = MICROS.map((micro) => micro.key);
+
+// One micronutrient on a meal, or null when it wasn't estimated.
+export function mealMicro(meal, key) {
+  const value = key === "fiber" ? meal?.fiber : meal?.micros?.[key];
+  return value === null || value === undefined || value === "" || !Number.isFinite(Number(value)) ? null : Math.max(0, Number(value));
+}
+
+// Calories and macros added up over a list of meals, plus micronutrients.
+// A micronutrient a meal didn't report isn't counted as zero: `microMeals`
+// says how many meals reported each one, so a total can be shown as partial.
 export function dayTotals(meals) {
-  const totals = { meals: 0, calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
+  const totals = { meals: 0, calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, micros: {}, microMeals: {} };
   for (const meal of live(meals)) {
     for (const key of MACROS) totals[key] += amount(meal[key]);
+    for (const key of MICRO_KEYS) {
+      const value = mealMicro(meal, key);
+      if (value === null) continue;
+      totals.micros[key] = (totals.micros[key] || 0) + value;
+      totals.microMeals[key] = (totals.microMeals[key] || 0) + 1;
+    }
     totals.meals += 1;
   }
   return totals;
+}
+
+// Per-day averages of each micronutrient over days where every meal reported
+// it, against its Daily Value. Days with a gap would read falsely low.
+export function microAverages(intakeDays) {
+  return MICROS.map((micro) => {
+    const days = intakeDays.filter((day) => day.meals > 0 && (day.microMeals?.[micro.key] || 0) === day.meals);
+    const avg = days.length ? days.reduce((sum, day) => sum + day.micros[micro.key], 0) / days.length : null;
+    return { ...micro, days: days.length, avg, pct: avg !== null && micro.dv ? (avg / micro.dv) * 100 : null };
+  });
 }
 
 // Totals per date. A day with no meals is missing from the map: a gap in the
@@ -749,6 +796,7 @@ export function coachingContext({ workouts = [], meals = [], bodyweights = [], s
     });
   }
   const next = nextSplitDay(splitDays, workouts);
+  const lastWeek = Array.from({ length: 7 }, (_, i) => intake.get(shiftDateKey(today, -i - 1))).filter(Boolean);
   return {
     today,
     unit: settings.unit === "kg" ? "kg" : "lb",
@@ -758,6 +806,10 @@ export function coachingContext({ workouts = [], meals = [], bodyweights = [], s
     weightRate: plan.rate ? { perWeek: Math.round(plan.rate.perWeek * 100) / 100, percentPerWeek: Math.round(plan.rate.percent * 100) / 100, status: plan.rateStatus } : null,
     todayIntake: (({ meals: count, calories, protein, carbs, fat }) => ({ meals: count, calories, protein, carbs, fat }))(intake.get(today) || dayTotals([])),
     weeks: weekRows,
+    // Last 7 days, only nutrients reported for every meal on at least 3 days.
+    micros: microAverages(lastWeek)
+      .filter((micro) => micro.days >= 3)
+      .map((micro) => ({ nutrient: micro.label, perDay: Math.round(micro.avg * 10) / 10, unit: micro.unit, dailyValue: micro.dv, percentDV: micro.pct === null ? null : Math.round(micro.pct), kind: micro.kind })),
     lifts: liftProgress(workouts, exerciseIndex, { now }).map(({ lastDate, exerciseId, ...row }) => ({ ...row, lastDone: dayOf(lastDate) })),
     nextWorkout: next?.day ? (next.day.rest ? "Rest day" : next.day.name) : null
   };
@@ -770,6 +822,28 @@ const signedPct = (n) => `${n >= 0 ? "+" : "−"}${Math.abs(Math.round(n * 100) 
 const kcalText = (n) => Math.round(n).toLocaleString("en-US");
 const roundTo = (n, step) => Math.round(n / step) * step;
 const TONE_RANK = { warn: 3, info: 2, good: 1 };
+const MICRO_TIPS = {
+  fiber: "Beans, oats, berries and vegetables add fiber.",
+  saturatedFat: "Swap some fatty meat, butter and cheese for lean meat and olive oil.",
+  cholesterol: "Egg yolks and fatty or organ meats are the usual sources.",
+  sodium: "Sauces, deli meat, takeout and protein bars carry most of it.",
+  potassium: "Potatoes, bananas, beans, yogurt and spinach are high in potassium.",
+  calcium: "Dairy, fortified milk, tofu and sardines cover calcium.",
+  iron: "Red meat, lentils and spinach (with vitamin C) help with iron.",
+  magnesium: "Nuts, seeds, dark chocolate and leafy greens add magnesium.",
+  zinc: "Red meat, shellfish and pumpkin seeds are good zinc sources.",
+  vitaminA: "Carrots, sweet potatoes and spinach cover vitamin A.",
+  vitaminC: "Citrus, peppers, berries and kiwi cover vitamin C.",
+  vitaminD: "Fatty fish and eggs help; ask a doctor about a vitamin D supplement.",
+  vitaminB12: "Meat, fish, dairy and eggs supply B12.",
+  folate: "Leafy greens, beans and fortified grains add folate."
+};
+const nutrientName = (micro) => (micro.label.startsWith("Vitamin") ? micro.label : micro.label.toLowerCase());
+const listNames = (list) => {
+  const names = list.map(nutrientName);
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0];
+};
+const microAmount = (n) => (n < 10 ? String(Math.round(n * 10) / 10) : kcalText(n));
 const GOAL_NAME = { cut: "cut", maintain: "maintenance", leanBulk: "lean bulk" };
 const RATE_TITLES = {
   leanBulk: { below: "Gaining too slowly for a lean bulk", above: "Gaining faster than a lean bulk needs" },
@@ -952,6 +1026,25 @@ export function insights({ workouts = [], meals = [], bodyweights = [], settings
     if (missing >= 2) {
       cards.push({ id: "gaps", tone: "info", title: `${missing} days unlogged this week`, body: "Unlogged days are left out of averages, so maintenance and these insights get less sure.", action: "Ask ChatGPT to log what you remember, even roughly." });
     }
+  }
+
+  // 8. Micronutrients far from their Daily Value over the last week.
+  const microWeek = microAverages(week).filter((micro) => micro.dv && micro.days >= 4);
+  const low = microWeek.filter((micro) => micro.kind === "goal" && micro.pct < 50).sort((a, b) => a.pct - b.pct);
+  const high = microWeek.filter((micro) => micro.kind === "limit" && micro.pct > 120).sort((a, b) => b.pct - a.pct);
+  const flagged = [...high, ...low].slice(0, 3);
+  if (flagged.length) {
+    const shownLow = flagged.filter((micro) => micro.kind === "goal");
+    const shownHigh = flagged.filter((micro) => micro.kind === "limit");
+    const title = [shownLow.length ? `Low on ${listNames(shownLow)}` : "", shownHigh.length ? `${shownLow.length ? "high" : "High"} on ${listNames(shownHigh)}` : ""].filter(Boolean).join(", ");
+    cards.push({
+      id: "micros",
+      tone: "info",
+      title,
+      body: `Over the last week: ${flagged.map((micro) => `${micro.label} ${microAmount(micro.avg)} ${micro.unit} a day, ${Math.round(micro.pct)}% of the ${micro.dv} ${micro.unit} Daily Value`).join("; ")}.`,
+      evidence: `days where every meal had an estimate (${Math.min(...flagged.map((micro) => micro.days))}+)`,
+      action: flagged.map((micro) => MICRO_TIPS[micro.key]).join(" ")
+    });
   }
 
   // The week at a glance.
