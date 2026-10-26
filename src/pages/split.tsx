@@ -1,16 +1,18 @@
-// Split: the days in your rotation (drag to reorder), and the editor for one
-// day's exercises with sets, rep range, rest and supersets.
+// Split: the days in your rotation (drag to reorder) with the weekly sets it
+// gives each muscle, and the editor for one day's exercises with sets, rep
+// range, rest and supersets.
 import { GripVertical, ListOrdered, Moon, Plus, Trash2 } from "lucide-react";
 import { Reorder, useDragControls } from "motion/react";
 import { type ReactNode, useEffect, useState } from "react";
 import WheelPicker from "@/components/kokonutui/wheel-picker";
 import { ExercisePicker } from "@/components/exercise-picker";
+import { MuscleBars } from "@/components/insights";
 import { Card, Chip, Empty, Page, Row, Section, Sheet, SheetAction, Stepper, Toggle, TopBar } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { addDay, applyTemplate } from "@/lib/actions.js";
 import { ask } from "@/lib/dialogs";
 import { TEMPLATES } from "@/lib/exercises.js";
-import { lastDoneAt, nextSplitDay, supersetLabels, trackOf, uid } from "@/lib/model.js";
+import { lastDoneAt, MAIN_MUSCLES, nextSplitDay, splitWeeklySets, supersetLabels, trackOf, uid, VOLUME_RANGE } from "@/lib/model.js";
 import { go } from "@/lib/router.js";
 import { exerciseIndex, exerciseName, finishedWorkouts, records, remove, saveMany, settings, splitDays, update } from "@/lib/store.js";
 import * as format from "@/lib/format.js";
@@ -47,6 +49,10 @@ export function Split() {
   const next = nextSplitDay(days, done);
 
   const persist = () => saveMany(order.map((day: any, position: number) => ({ ...day, position })));
+  const index = useValue(exerciseIndex) as Map<string, any>;
+  const weekly = splitWeeklySets(days, index);
+  const volumeRows = [...MAIN_MUSCLES, ...[...weekly.keys()].filter((m) => !MAIN_MUSCLES.includes(m) && !["cardio", "full body", "other"].includes(m))].map((muscle) => ({ muscle, sets: weekly.get(muscle) || 0 }));
+  const under = volumeRows.filter((row) => row.sets < VOLUME_RANGE[0]);
 
   return (
     <Page>
@@ -72,6 +78,15 @@ export function Split() {
           </Reorder.Group>
         </Section>
       )}
+      {days.some((day: any) => !day.rest && day.exercises?.length) ? (
+        <Section
+          action={<a className="text-primary" href="#/coach">Coach</a>}
+          footer={`What this rotation gives each muscle in a 7-day week from your target sets, counting half a set for assisted muscles. The green band is 10–20 hard sets, the range with the best evidence for growth.${under.length ? ` Under it: ${under.map((row) => row.muscle).join(", ")}.` : ""}`}
+          title="Sets per muscle"
+        >
+          <MuscleBars rows={volumeRows} />
+        </Section>
+      ) : null}
       <Card className="divide-y divide-border">
         <Row icon={Plus} onClick={async () => go(`split/${(await addDay()).id}`)} title="Add training day" tone="action" />
         <Row icon={Moon} iconClass="bg-violet-500/15 text-violet-400" onClick={() => addDay({ rest: true })} title="Add rest day" tone="action" />

@@ -21,7 +21,20 @@ The look is dark-first and layered: glass surfaces, your accent color as soft gr
     - Shown for the day or as a 7-day average, as a percent of the FDA Daily Value. Sodium, saturated fat and cholesterol are limits to stay under.
     - A nutrient a meal didn't estimate counts as unknown, not zero, and partial totals say so (e.g. "2 of 3 meals").
     - You can add or fix them in any meal under **Micronutrients**.
-- **Coach** connects your eating and your training. Rule cards, computed on the phone, only show once there's enough data, and each says what it's based on. Today shows them in a swipeable row; Fuel lists them all. They flag:
+- **Coach**: science-based advice across the whole app, from your training, eating and bodyweight together.
+  - The rule cards are computed on the phone. Each one waits until there's enough data, then names the study or guideline it rests on.
+  - Today shows them in a swipeable row; the **Coach** page groups them into Training, Nutrition, and Recovery & cardio, with a sets-per-muscle chart and the reference list.
+  - Fuel shows the nutrition cards, and **Split** shows how many weekly sets your rotation gives each muscle.
+
+  Training (presses, rows, squats and hinges count half a set for the muscles they assist, per Pelland et al., 2024):
+  - muscles under about 10 hard sets a week (Schoenfeld et al., 2017; Baz-Valle et al., 2022), with how many sets to add, an exercise and the split day. For example: "Triceps: add 4 sets a week, e.g. Rope Pushdown on Push." Very high volume is flagged too.
+  - a muscle trained only one day a week (Schoenfeld et al., 2016; 2019);
+  - under 90 seconds' rest on compound lifts (Schoenfeld et al., 2016; Singer et al., 2024);
+  - much more pushing than pulling;
+  - several lifts dropping at once, which calls for a deload (Bell et al., 2023);
+  - cardio under 150 minutes a week once you log it (WHO, 2020).
+
+  Nutrition:
   - stalled lifts, with the likeliest cause in order: under-eating, low protein, then fatigue (deload);
   - whether your lifts climb faster in weeks you eat at maintenance or above;
   - whether you PR more after a carb-heavy meal in the 4 hours before training;

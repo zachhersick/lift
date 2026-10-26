@@ -30,7 +30,8 @@ Postgres storage.
 | --- | --- |
 | `src/main.tsx`, `src/App.tsx` | Startup, appearance, sync, service worker and app shell |
 | `src/pages/` | Today, workout, history, progress, bodyweight, nutrition (Fuel), split and settings screens |
-| `src/components/insights.tsx`, `meal-sheet.tsx` | Coach cards, weekly AI review and the meal editor |
+| `src/pages/coach.tsx`, `src/components/insights.tsx` | Coach page (cards by area, sets per muscle, sources), Coach cards and weekly AI review |
+| `src/components/meal-sheet.tsx` | Meal editor with macros and micronutrients |
 | `src/components/kit.tsx` | Shared page, card, row, sheet and motion primitives |
 | `src/components/ui/`, `src/components/kokonutui/` | Existing UI components styled for Lift |
 | `src/lib/model.js` | Pure training, progression, history, plate, statistics, nutrition and Coach logic (shared with the server) |
@@ -113,6 +114,10 @@ Use a production build and preview with `?sw` when checking offline behavior.
   Fiber sits on the meal with the macros; other micronutrients go in
   `meal.micros` (keys from `MICROS` in `model.js`). A missing micronutrient means
   unknown, never zero.
+- Coach rules live in `insights()` in `model.js`; every card carries an `area`
+  (training, nutrition, recovery) and a `source`. Keep new rules grounded in
+  published evidence or label them as patterns in the user's own data, and keep
+  the reference list on the Coach page in step.
 - Preserve server errors that avoid exposing internal details and deployment
   security headers. Keep `/api/*` outside the service worker navigation fallback.
 

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   bodyweightId, cardioSeconds, dailyVolume, dateKey, defaultWeeklyGoal, e1rm, FIELDS, isComplete, setDistance, trackOf, exerciseHistory, isPersonalRecord, movingAverage, muscleSets, nextInSuperset,
   nextSplitDay, personalRecords, placeholderFor, plateBreakdown, previousEntry, previousSession, restsAfter, roundLoadable,
-  coachingContext, dailyIntake, dateKeyIn, fromDateKey, insights, mealMicro, MICROS, microAverages, dayTotals, estimateMaintenance, nutritionTargets, rateStatus, shiftDateKey, weightRate,
+  coachingContext, indirectMuscles, splitWeeklySets, dailyIntake, dateKeyIn, fromDateKey, insights, mealMicro, MICROS, microAverages, dayTotals, estimateMaintenance, nutritionTargets, rateStatus, shiftDateKey, weightRate,
   splitDiff, startOfWeek, suggestion, supersetLabels, trend, warmupSets, weekStreak, weekSummary, workoutFromDay, workoutVolume
 } from "../src/lib/model.js";
 
@@ -523,4 +523,114 @@ test("the coach flags micronutrients far from their Daily Value", () => {
   assert.equal(insights({ meals: fine, now: NOW }).cards.find((c) => c.id === "micros"), undefined);
   const context = coachingContext({ meals, now: NOW, weeks: 1 });
   assert.deepEqual(context.micros.find((m) => m.nutrient === "Sodium"), { nutrient: "Sodium", perDay: 4200, unit: "mg", dailyValue: 2300, percentDV: 183, kind: "limit" });
+});
+
+// ---------- training coach ----------
+
+const lib = new Map([
+  ["bp", { id: "bp", name: "Bench Press", muscle: "chest", equipment: "barbell" }],
+  ["fly", { id: "fly", name: "Cable Fly", muscle: "chest", equipment: "cable" }],
+  ["row", { id: "row", name: "Barbell Row", muscle: "back", equipment: "barbell" }],
+  ["pd", { id: "pd", name: "Rope Pushdown", muscle: "triceps", equipment: "cable" }],
+  ["sq", { id: "sq", name: "Back Squat", muscle: "quads", equipment: "barbell" }],
+  ["lat", { id: "lat", name: "Dumbbell Lateral Raise", muscle: "shoulders", equipment: "dumbbell" }],
+  ["walk", { id: "walk", name: "Incline Walk", muscle: "cardio", equipment: "machine", track: "cardio" }]
+]);
+const lifted = (id, at, items) => workout(id, at, "d1", items.map(([exerciseId, sets, extra = {}]) => entry(exerciseId, Array.from({ length: sets }, () => set(100, 10)), extra)));
+
+test("presses, rows and squats count half a set for the muscles they assist", () => {
+  assert.deepEqual(indirectMuscles(lib.get("bp")), ["triceps", "shoulders"]);
+  assert.deepEqual(indirectMuscles(lib.get("fly")), [], "a fly doesn't train triceps");
+  assert.deepEqual(indirectMuscles(lib.get("row")), ["biceps"]);
+  assert.deepEqual(indirectMuscles({ name: "Deadlift", muscle: "back" }), ["hamstrings", "glutes"]);
+  const list = [lifted("a", 1000, [["bp", 4], ["pd", 2]])];
+  const rows = Object.fromEntries(muscleSets(list, lib, 0, { indirect: true }).map((r) => [r.muscle, r.sets]));
+  assert.deepEqual(rows, { chest: 4, triceps: 4, shoulders: 2 });
+  assert.deepEqual(muscleSets(list, lib, 0).map((r) => r.muscle), ["chest", "triceps"], "direct only by default");
+});
+
+test("the split's weekly sets scale the rotation to seven days", () => {
+  const days = [
+    { id: "push", position: 0, name: "Push", exercises: [{ exerciseId: "bp", targetSets: 3 }, { exerciseId: "pd", targetSets: 2 }] },
+    { id: "pull", position: 1, name: "Pull", exercises: [{ exerciseId: "row", targetSets: 4 }] },
+    { id: "rest", position: 2, name: "Rest", rest: true, exercises: [] }
+  ];
+  const weekly = splitWeeklySets(days, lib);
+  assert.equal(Math.round(weekly.get("chest") * 10) / 10, 7, "3 sets × 7/3");
+  assert.equal(Math.round(weekly.get("triceps") * 10) / 10, Math.round(((2 + 1.5) * 7) / 3 * 10) / 10);
+  assert.equal(Math.round(weekly.get("biceps") * 10) / 10, Math.round((2 * 7) / 3 * 10) / 10);
+});
+
+test("a muscle under 10 sets a week gets a specific fix, on the right split day", () => {
+  // Push days have bench but no direct triceps work, so triceps only gets
+  // half a set per bench set: 4 × 7 sessions × ½ over two weeks = 7 a week.
+  const days = [
+    { id: "push", position: 0, name: "Push", exercises: [{ exerciseId: "bp", targetSets: 4 }, { exerciseId: "fly", targetSets: 2 }, { exerciseId: "lat", targetSets: 4 }] },
+    { id: "legs", position: 1, name: "Legs", exercises: [{ exerciseId: "sq", targetSets: 6 }] },
+    { id: "pull", position: 2, name: "Pull", exercises: [{ exerciseId: "row", targetSets: 6 }] }
+  ];
+  const workouts = [];
+  for (let i = 1; i <= 14; i += 1) {
+    const at = NOW - i * 86_400_000;
+    workouts.push(i % 2 ? lifted(`p${i}`, at, [["bp", 4], ["fly", 2], ["lat", 4]]) : lifted(`l${i}`, at, [["sq", 6]]));
+  }
+  const card = insights({ workouts, exerciseIndex: lib, splitDays: days, now: NOW }).cards.find((c) => c.id === "volume-low");
+  assert.equal(card.area, "training");
+  assert.match(card.body, /^Over the last two weeks: back 0, biceps 0, hamstrings 0, triceps 7 sets a week/);
+  assert.match(card.action, /^Back: add 10 sets a week, e\.g\. Lat Pulldown on Pull\./);
+  assert.match(card.action, /Take each set to within 1–3 reps of failure\.$/);
+  assert.match(card.source, /Schoenfeld et al., 2017/);
+  assert.ok(!/chest/.test(card.body), "chest is in range");
+
+  // Before there's two weeks of history, the split is read instead:
+  // triceps = 4 sets × ½ × 7/3 ≈ 4.7 a week.
+  const bySplit = insights({ exerciseIndex: lib, splitDays: days, now: NOW }).cards.find((c) => c.id === "volume-low");
+  assert.match(bySplit.body, /^Your split works out to: hamstrings 0, triceps 4\.5, biceps 7, glutes 7 sets a week/);
+  assert.match(bySplit.action, /Triceps: add 6 sets a week, e\.g\. Rope Pushdown on Push\./);
+});
+
+test("training rules flag one-day muscles, short rest, push/pull imbalance and dropping lifts", () => {
+  const workouts = [];
+  for (let i = 0; i < 4; i += 1) {
+    const at = NOW - (i * 3 + 1) * 86_400_000;
+    workouts.push(lifted(`w${i}`, at, i === 0 || i === 2 ? [["bp", 10, { restSec: 60 }], ["pd", 4]] : [["sq", 5]]));
+  }
+  workouts.push(lifted("old", NOW - 20 * 86_400_000, [["sq", 3]]));
+  const result = insights({ workouts, exerciseIndex: lib, now: NOW });
+  const ids = result.cards.map((c) => c.id);
+  assert.ok(ids.includes("rest"));
+  assert.match(result.cards.find((c) => c.id === "rest").body, /^Bench Press is set to under 90 seconds/);
+  assert.ok(ids.includes("balance"), "lots of pressing, no pulling");
+  assert.match(result.cards.find((c) => c.id === "balance").action, /rows, pulldowns or face pulls/);
+
+  // Chest on days 1 and 8 only, legs in between: 10 chest sets a week, all on one day.
+  const weekly = [1, 4, 8, 11].map((d) => lifted(`f${d}`, NOW - d * 86_400_000, d === 1 || d === 8 ? [["bp", 10], ["row", 10]] : [["sq", 6]]));
+  weekly.push(lifted("f-old", NOW - 30 * 86_400_000, [["bp", 1]]));
+  const once = insights({ workouts: weekly, exerciseIndex: lib, now: NOW }).cards.find((c) => c.id === "frequency");
+  assert.ok(once, "chest gets all its sets on one day a week");
+
+  const dropping = [180, 180, 175, 170, 165, 160].flatMap((w, i) => [workout(`d${i}`, NOW - (12 - 2 * i) * 86_400_000, "d1", [entry("bp", [set(w, 5)]), entry("sq", [set(w + 100, 5)])])]);
+  const fatigue = insights({ workouts: dropping, exerciseIndex: lib, now: NOW }).cards.find((c) => c.id === "fatigue");
+  assert.equal(fatigue.area, "recovery");
+  assert.match(fatigue.action, /deload week/);
+});
+
+test("cardio is checked against 150 minutes a week once you log it", () => {
+  const cardioSet = (minutes) => ({ id: Math.random(), seconds: minutes * 60, incline: 10, speed: 3, type: "working", done: true });
+  const workouts = [
+    workout("c1", NOW - 2 * 86_400_000, "d1", [entry("walk", [cardioSet(30)])]),
+    workout("c2", NOW - 4 * 86_400_000, "d1", [entry("walk", [cardioSet(20)])])
+  ];
+  const card = insights({ workouts, exerciseIndex: lib, now: NOW }).cards.find((c) => c.id === "cardio");
+  assert.equal(card.title, "Cardio: 50 of 150 minutes this week");
+  assert.match(card.source, /WHO/);
+  assert.equal(insights({ workouts: [lifted("x", NOW - 86_400_000, [["bp", 3]])], exerciseIndex: lib, now: NOW }).cards.find((c) => c.id === "cardio"), undefined, "no cardio logged, no nagging");
+});
+
+test("every card says where it belongs and what it's based on", () => {
+  const meals = Array.from({ length: 6 }, (_, i) => meal(shiftDateKey(TODAY, -i - 1), 2500, { protein: 120 }));
+  const result = insights({ meals, settings: { proteinTarget: 180 }, now: NOW });
+  const protein = result.cards.find((c) => c.id === "protein");
+  assert.equal(protein.area, "nutrition");
+  assert.match(protein.source, /Morton et al., 2018/);
 });

@@ -1,5 +1,5 @@
 // Hash routes: #/today, #/workout/<id>, #/history, #/history/<id>,
-// #/progress, #/exercise/<id>, #/bodyweight, #/nutrition, #/split,
+// #/progress, #/exercise/<id>, #/bodyweight, #/nutrition, #/coach, #/split,
 // #/split/<id>, #/settings.
 import { signal } from "@preact/signals-core";
 

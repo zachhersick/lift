@@ -59,7 +59,7 @@ export const maintenance = computed(() => energy.value.maintenance);
 export const targets = computed(() => energy.value.targets);
 
 // The Coach's cards, and the weekly reviews Claude wrote, newest first.
-export const coach = computed(() => insights({ workouts: workoutsAll.value, meals: mealsAll.value, bodyweights: bodyweightsAll.value, settings: settings.value, exerciseIndex: exerciseIndex.value }));
+export const coach = computed(() => insights({ workouts: workoutsAll.value, meals: mealsAll.value, bodyweights: bodyweightsAll.value, settings: settings.value, exerciseIndex: exerciseIndex.value, splitDays: splitDaysAll.value }));
 export const coachReviews = computed(() => live(reviewsAll.value).sort((a, b) => b.date.localeCompare(a.date)));
 
 export function saveMeal(meal) {

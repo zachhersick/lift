@@ -1,6 +1,6 @@
 // Progress: training volume over time, bodyweight, and every exercise with
 // its trend; the exercise page swipes between charts and lists records.
-import { ArrowDownRight, ArrowRight, ArrowUpRight, ChevronRight, Dumbbell, NotebookPen, Scale, Search, Sparkles, Trash2, Utensils } from "lucide-react";
+import { ArrowDownRight, ArrowRight, ArrowUpRight, ChevronRight, Dumbbell, GraduationCap, NotebookPen, Scale, Search, Sparkles, Trash2, Utensils } from "lucide-react";
 import { motion } from "motion/react";
 import { useMemo, useState } from "react";
 import MetricCard from "@/components/kokonutui/metric-card";
@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { ask } from "@/lib/dialogs";
 import { dateKey, exerciseHistory, finished, personalRecords, trackOf, trend, workingSets } from "@/lib/model.js";
 import { go } from "@/lib/router.js";
-import { bodyweights, exerciseIndex, maintenance, remove, sessions, settings } from "@/lib/store.js";
+import { bodyweights, coach, exerciseIndex, maintenance, remove, sessions, settings } from "@/lib/store.js";
 import * as format from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
 import { cn } from "@/lib/utils";
@@ -88,6 +88,7 @@ export function Progress() {
   const count = (t: string) => rows.filter((r) => r.trend === t).length;
   const latest = entries[0];
   const energy = useValue(maintenance) as any;
+  const coachCards = (useValue(coach) as any).cards as any[];
 
   return (
     <Page>
@@ -108,6 +109,18 @@ export function Progress() {
             <span className="text-[20px] font-semibold tracking-tight tabular">{latest ? `${format.weight(latest.weight)} ${s.unit}` : "Not logged yet"}</span>
           </span>
           <Sparkline values={[...entries].reverse().slice(-14).map((e) => e.weight)} />
+        </button>
+      </FadeIn>
+      <FadeIn delay={0.06}>
+        <button className="surface flex w-full items-center gap-4 rounded-3xl p-4 text-left active:scale-[0.99]" onClick={() => go("coach")} type="button">
+          <span className="grid size-11 place-items-center rounded-2xl bg-primary/15 text-primary">
+            <GraduationCap className="size-5" strokeWidth={2.2} />
+          </span>
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="text-[13px] text-muted-foreground">Coach</span>
+            <span className="text-[17px] font-semibold tracking-tight">{coachCards.length ? `${coachCards.length} ${coachCards.length === 1 ? "suggestion" : "suggestions"}` : "All good for now"}</span>
+          </span>
+          <ChevronRight className="size-[18px] text-muted-foreground/60" strokeWidth={2.4} />
         </button>
       </FadeIn>
       <FadeIn delay={0.07}>
