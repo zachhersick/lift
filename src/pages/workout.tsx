@@ -3,7 +3,7 @@
 // and reps go through the docked number pad. Also edits finished workouts.
 import NumberFlow from "@number-flow/react";
 import {
-  ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronUp, Eye, Flame, Flag, Link2, MoreHorizontal, NotebookPen, Play, Plus,
+  ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronUp, Eye, Flame, Flag, Link2, MoreHorizontal, NotebookPen, Pencil, Play, Plus,
   Repeat2, Square, Timer, Trash2, Trophy, Unlink, X
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -12,7 +12,7 @@ import HoldButton from "@/components/kokonutui/hold-button";
 import { Burst } from "@/components/kokonutui/particle-button";
 import WheelPicker from "@/components/kokonutui/wheel-picker";
 import { LineChart } from "@/components/chart";
-import { ExercisePicker } from "@/components/exercise-picker";
+import { EditExerciseSheet, ExercisePicker } from "@/components/exercise-picker";
 import { Card, Empty, Page, Row, Section, Sheet, SheetAction, spring, StatTiles, Stepper, TopBar } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { ask, choose } from "@/lib/dialogs";
@@ -281,7 +281,7 @@ function DetailsSheet({ open, onClose, workout, change }: { open: boolean; onClo
   );
 }
 
-type SheetKind = null | "menu" | "rest" | "note" | "swap" | "peek" | { type: number };
+type SheetKind = null | "menu" | "rest" | "note" | "swap" | "peek" | "edit" | { type: number };
 
 function ExerciseCard({ workout, entry, index, label, live, change }: { workout: any; entry: any; index: number; label: any; live: boolean; change: (fn: (d: any) => void) => void }) {
   const [sheet, setSheet] = useState<SheetKind>(null);
@@ -608,6 +608,7 @@ function ExerciseCard({ workout, entry, index, label, live, change }: { workout:
         <Card className="divide-y divide-border">
           <Row icon={Eye} iconClass="bg-emerald-500/15 text-emerald-500" onClick={() => setSheet("peek")} title="History" />
           <Row icon={Repeat2} iconClass="bg-muted text-foreground" onClick={() => setSheet("swap")} title="Swap exercise" />
+          {exercise.id ? <Row icon={Pencil} iconClass="bg-muted text-foreground" onClick={() => setSheet("edit")} title="Edit exercise" /> : null}
           <Row
             disabled={index === 0}
             icon={ChevronUp}
@@ -695,6 +696,7 @@ function ExerciseCard({ workout, entry, index, label, live, change }: { workout:
       </Sheet>
 
       <ExercisePicker exclude={[entry.exerciseId]} onClose={() => setSheet(null)} onPick={(picked) => changeEntry((t) => (t.exerciseId = picked.id))} open={sheet === "swap"} title="Swap exercise" />
+      <EditExerciseSheet id={entry.exerciseId} onClose={() => setSheet(null)} open={sheet === "edit"} />
     </div>
   );
 }

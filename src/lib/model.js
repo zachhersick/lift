@@ -35,6 +35,13 @@ export function lastDoneAt(splitDayId, workouts) {
 }
 
 export const isWorking = (set) => Boolean(set?.done) && set.type !== "warmup";
+
+// Whether any logged workout has a completed set of this exercise. Once it
+// does, the exercise's tracking type is fixed, since those sets were
+// recorded with that type's fields.
+export function exerciseInUse(workouts, exerciseId) {
+  return live(workouts).some((workout) => (workout.entries || []).some((entry) => entry.exerciseId === exerciseId && entry.sets?.some((set) => set.done)));
+}
 export const workingSets = (entry) => (entry?.sets || []).filter(isWorking);
 
 // ---------- tracking types ----------

@@ -1,12 +1,15 @@
 // Choose an exercise: fuzzy search (Kokonut's matcher), filter by muscle,
-// recent ones first, then A–Z. Create a custom exercise when nothing fits.
+// recent ones first, then A–Z. Create a custom exercise when nothing fits,
+// and edit any exercise's name, muscle, equipment or tracking type.
 import { Plus, Search, X } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import { fuzzyMatch } from "@/components/kokonutui/action-search-bar";
-import { EQUIPMENT, MUSCLES } from "@/lib/exercises.js";
-import { byNewest, uid } from "@/lib/model.js";
-import { exercises, save, sessions } from "@/lib/store.js";
+import { BUILT_IN, EQUIPMENT, MUSCLES } from "@/lib/exercises.js";
+import { byNewest, exerciseInUse, uid } from "@/lib/model.js";
+import { exerciseIndex, exercises, resetExercise, save, saveExercise, sessions, workouts } from "@/lib/store.js";
+import { ask } from "@/lib/dialogs";
+import { notify } from "@/lib/notify";
 import { capitalize } from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
 import { Card, Chip, Row, Section, Sheet, SheetAction } from "./kit";
@@ -171,33 +174,29 @@ export function ExercisePicker({ open, onClose, onPick, title = "Add Exercise", 
   );
 }
 
-function CreateExercise({ open, draft, onBack, onClose, onSaved }: { open: boolean; draft: { name: string; muscle: string; equipment: string }; onBack: () => void; onClose: () => void; onSaved: (e: Exercise) => void }) {
-  const [name, setName] = useState(draft.name);
-  const [muscle, setMuscle] = useState(draft.muscle);
-  const [equipment, setEquipment] = useState(draft.equipment);
-  const [track, setTrack] = useState(draft.muscle === "cardio" ? "cardio" : "strength");
-  const submit = async () => {
-    if (!name.trim()) return;
-    onSaved(await save({ id: uid("x"), kind: "exercise", name: name.trim(), muscle, equipment, track }));
-  };
+type Fields = { name: string; muscle: string; equipment: string; track: string };
+
+// Name, muscle group, tracking type and equipment, for creating or editing.
+function ExerciseFields({ value, onChange, trackLocked, autoFocus }: { value: Fields; onChange: (next: Fields) => void; trackLocked?: string; autoFocus?: boolean }) {
+  const set = (change: Partial<Fields>) => onChange({ ...value, ...change });
   return (
-    <Sheet left={<SheetAction onClick={onBack}>Back</SheetAction>} onClose={onClose} open={open} right={<SheetAction bold disabled={!name.trim()} onClick={submit}>Add</SheetAction>} tall title="New Exercise">
+    <>
       <Card className="p-4">
-        <input autoFocus className="w-full bg-transparent text-[17px] outline-none placeholder:text-muted-foreground" onChange={(e) => setName(e.currentTarget.value)} placeholder="Name, e.g. Cable Y-Raise" value={name} />
+        <input aria-label="Exercise name" autoFocus={autoFocus} className="w-full bg-transparent text-[17px] outline-none placeholder:text-muted-foreground" onChange={(e) => set({ name: e.currentTarget.value })} placeholder="Name, e.g. Cable Y-Raise" value={value.name} />
       </Card>
-      <Section footer="The muscle group feeds your weekly sets. Barbell lifts get plate math and a bar warm-up." title="Muscle group">
+      <Section footer="The muscle group feeds your weekly sets and the Coach. Barbell lifts get plate math and a bar warm-up." title="Muscle group">
         <div className="flex flex-wrap gap-2">
           {MUSCLES.map((m: string) => (
-            <Chip key={m} on={muscle === m} onClick={() => setMuscle(m)}>
+            <Chip key={m} on={value.muscle === m} onClick={() => set({ muscle: m })}>
               {capitalize(m)}
             </Chip>
           ))}
         </div>
       </Section>
-      <Section footer={TRACK_HELP[track]} title="Logged as">
+      <Section footer={trackLocked ? `Fixed once sets are logged: your past sets were recorded as ${trackLocked.toLowerCase()}. Make a new exercise to log it another way.` : TRACK_HELP[value.track]} title="Logged as">
         <div className="flex flex-wrap gap-2">
           {["strength", "cardio", "timed"].map((t) => (
-            <Chip key={t} on={track === t} onClick={() => setTrack(t)}>
+            <Chip className={trackLocked && value.track !== t ? "pointer-events-none opacity-40" : undefined} key={t} on={value.track === t} onClick={() => !trackLocked && set({ track: t })}>
               {capitalize(t)}
             </Chip>
           ))}
@@ -206,12 +205,70 @@ function CreateExercise({ open, draft, onBack, onClose, onSaved }: { open: boole
       <Section title="Equipment">
         <div className="flex flex-wrap gap-2">
           {EQUIPMENT.map((m: string) => (
-            <Chip key={m} on={equipment === m} onClick={() => setEquipment(m)}>
+            <Chip key={m} on={value.equipment === m} onClick={() => set({ equipment: m })}>
               {capitalize(m)}
             </Chip>
           ))}
         </div>
       </Section>
+    </>
+  );
+}
+
+function CreateExercise({ open, draft, onBack, onClose, onSaved }: { open: boolean; draft: { name: string; muscle: string; equipment: string }; onBack: () => void; onClose: () => void; onSaved: (e: Exercise) => void }) {
+  const [fields, setFields] = useState<Fields>({ ...draft, track: draft.muscle === "cardio" ? "cardio" : "strength" });
+  const submit = async () => {
+    if (!fields.name.trim()) return;
+    onSaved(await save({ id: uid("x"), kind: "exercise", ...fields, name: fields.name.trim() }));
+  };
+  return (
+    <Sheet left={<SheetAction onClick={onBack}>Back</SheetAction>} onClose={onClose} open={open} right={<SheetAction bold disabled={!fields.name.trim()} onClick={submit}>Add</SheetAction>} tall title="New Exercise">
+      <ExerciseFields autoFocus onChange={setFields} value={fields} />
+    </Sheet>
+  );
+}
+
+// Fix an exercise: rename it, or move it to the right muscle group (say,
+// triceps instead of chest). Past workouts follow the change; for built-ins
+// it's an override you can reset.
+export function EditExerciseSheet({ id, open, onClose }: { id: string; open: boolean; onClose: () => void }) {
+  const index = useValue(exerciseIndex) as Map<string, any>;
+  const list = useValue(workouts) as any[];
+  const exercise = index.get(id);
+  const [fields, setFields] = useState<Fields>({ name: "", muscle: "chest", equipment: "barbell", track: "strength" });
+  useEffect(() => {
+    if (open && exercise) setFields({ name: exercise.name || "", muscle: exercise.muscle || "chest", equipment: exercise.equipment || "other", track: exercise.track || "strength" });
+  }, [open]);
+  if (!exercise) return null;
+  const inUse = exerciseInUse(list, id);
+  const original = exercise.builtIn ? BUILT_IN.find((e: any) => e.id === id) : null;
+  const changed = original && (["name", "muscle", "equipment", "track"] as const).some((key) => (exercise[key] || "") !== (original[key] || ""));
+  const submit = async () => {
+    if (!fields.name.trim()) return;
+    await saveExercise(id, { ...fields, name: fields.name.trim(), track: inUse ? exercise.track || "strength" : fields.track });
+    notify(`${fields.name.trim()} updated`);
+    onClose();
+  };
+  return (
+    <Sheet left={<SheetAction onClick={onClose}>Cancel</SheetAction>} onClose={onClose} open={open} right={<SheetAction bold disabled={!fields.name.trim()} onClick={submit}>Save</SheetAction>} tall title="Edit Exercise">
+      <ExerciseFields onChange={setFields} trackLocked={inUse ? capitalize(exercise.track || "strength") : undefined} value={fields} />
+      <p className="px-1 text-[13px] text-muted-foreground">
+        Changes apply everywhere, including past workouts, your split, charts and the Coach.{exercise.builtIn ? " This is a built-in exercise, so the change is saved as your own version." : ""}
+      </p>
+      {changed ? (
+        <Card>
+          <Row
+            onClick={async () => {
+              if (await ask({ title: `Reset ${original.name}?`, message: "Goes back to the built-in name, muscle group, equipment and type. Your note stays.", confirm: "Reset" })) {
+                await resetExercise(id);
+                onClose();
+              }
+            }}
+            title="Reset to built-in"
+            tone="action"
+          />
+        </Card>
+      ) : null}
     </Sheet>
   );
 }
