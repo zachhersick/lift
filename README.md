@@ -29,7 +29,18 @@ The look is dark-first and layered: glass surfaces, your accent color as soft gr
     - You can add or fix them in any meal under **Micronutrients**.
 - **Coach**: science-based advice across the whole app, from your training, eating and bodyweight together.
   - The rule cards are computed on the phone. Each one waits until there's enough data, then names the study or guideline it rests on.
-  - Today shows them in a swipeable row; the **Coach** page groups them into Training, Nutrition, and Recovery & cardio, with a sets-per-muscle chart and the reference list.
+  - Today shows them in a swipeable row; the **Coach** tab groups them into Training, Nutrition, and Recovery & cardio, with a sets-per-muscle chart and the reference list.
+  - **Analyze my split** (top of the Coach tab) checks your rotation against the research and lists exact edits to its exercises, each with the reason and the study behind it: "Legs · Standing Calf Raise: 4 → 5 sets", "Add Hip Thrust: 2 × 10–15", "Lying Leg Curl: swap for Seated Leg Curl". Apply one, or **Apply all**, and Undo puts the split back. It's a deterministic optimizer that runs on the phone, with no API: it edits a copy of the split one set at a time and re-measures after each change. It covers:
+    - weekly sets per muscle, aiming for 10–20;
+    - about 10 direct sets per session at most;
+    - training each muscle twice a week;
+    - pulling as much as pushing;
+    - lengthened-position exercise choices (Maeo et al., 2021 and 2023; Kinoshita et al., 2023);
+    - rest on compound lifts;
+    - rep ranges of 5–30;
+    - a new rep range for lifts that have stalled in your logs.
+
+    It also reports a 0–100 split score, now and after the changes.
   - Fuel shows the nutrition cards, and **Split** shows how many weekly sets your rotation gives each muscle.
 
   Training (presses, rows, squats and hinges count half a set for the muscles they assist, per Pelland et al., 2024):

@@ -165,16 +165,27 @@ export function CoachSection() {
 }
 
 // Weekly sets per muscle with the 10–20 band the research supports.
-export function MuscleBars({ rows }: { rows: { muscle: string; sets: number }[] }) {
+// `after`, when given, is drawn as a lighter bar: the sets once suggested
+// changes are applied.
+export function MuscleBars({ rows }: { rows: { muscle: string; sets: number; after?: number }[] }) {
   const [low, high] = VOLUME_RANGE;
-  const max = Math.max(high + 4, ...rows.map((r) => r.sets));
+  const max = Math.max(high + 4, ...rows.map((r) => Math.max(r.sets, r.after ?? 0)));
+  const half = (n: number) => Math.round(n * 2) / 2;
   return (
     <Card className="flex flex-col gap-3.5 p-5">
       {rows.map((row, i) => (
-        <div className="grid grid-cols-[86px_1fr_36px] items-center gap-3 text-[14.5px]" key={row.muscle}>
+        <div className="grid grid-cols-[86px_1fr_minmax(36px,auto)] items-center gap-3 text-[14.5px]" key={row.muscle}>
           <span className="truncate">{format.capitalize(row.muscle)}</span>
           <span className="relative h-2.5 overflow-hidden rounded-full bg-muted">
             <span className="absolute inset-y-0 bg-success/25" style={{ left: `${(low / max) * 100}%`, width: `${((high - low) / max) * 100}%` }} />
+            {row.after !== undefined ? (
+              <motion.span
+                animate={{ width: `${(row.after / max) * 100}%` }}
+                className="absolute inset-y-0 left-0 rounded-full bg-primary/30"
+                initial={{ width: 0 }}
+                transition={{ type: "spring", stiffness: 120, damping: 20, delay: 0.25 + i * 0.04 }}
+              />
+            ) : null}
             <motion.span
               animate={{ width: `${(row.sets / max) * 100}%` }}
               className={cn("absolute inset-y-0 left-0 rounded-full", row.sets < low ? "bg-pr" : "bg-gradient-to-r from-[var(--tint-2)] to-[var(--tint)]")}
@@ -182,7 +193,17 @@ export function MuscleBars({ rows }: { rows: { muscle: string; sets: number }[] 
               transition={{ type: "spring", stiffness: 120, damping: 20, delay: 0.05 + i * 0.04 }}
             />
           </span>
-          <span className={cn("text-right font-semibold tabular", row.sets < low && "text-pr")}>{Math.round(row.sets * 2) / 2}</span>
+          <span className={cn("text-right font-semibold tabular", row.sets < low && row.after === undefined && "text-pr")}>
+            {row.after !== undefined && half(row.after) !== half(row.sets) ? (
+              <>
+                <span className={cn(row.sets < low && "text-pr")}>{half(row.sets)}</span>
+                <span className="text-muted-foreground"> → </span>
+                <span className="text-primary">{half(row.after)}</span>
+              </>
+            ) : (
+              half(row.sets)
+            )}
+          </span>
         </div>
       ))}
     </Card>
