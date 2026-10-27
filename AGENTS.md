@@ -30,7 +30,7 @@ Postgres storage.
 | --- | --- |
 | `src/main.tsx`, `src/App.tsx` | Startup, appearance, sync, service worker and app shell |
 | `src/pages/` | Today, workout, history, progress, bodyweight, nutrition (Fuel), split and settings screens |
-| `src/pages/coach.tsx`, `src/components/insights.tsx` | Coach page (cards by area, sets per muscle, sources), Coach cards and weekly AI review |
+| `src/pages/coach.tsx`, `src/components/insights.tsx` | Coach tab (split analyzer, cards by area, sets per muscle, sources), Coach cards and weekly AI review |
 | `src/components/meal-sheet.tsx` | Meal editor with macros and micronutrients |
 | `src/components/kit.tsx` | Shared page, card, row, sheet and motion primitives |
 | `src/components/ui/`, `src/components/kokonutui/` | Existing UI components styled for Lift |
@@ -118,6 +118,10 @@ Use a production build and preview with `?sw` when checking offline behavior.
   (training, nutrition, recovery) and a `source`. Keep new rules grounded in
   published evidence or label them as patterns in the user's own data, and keep
   the reference list on the Coach page in step.
+- The split analyzer is `analyzeSplit()` in `model.js`: pure and deterministic, no
+  API. Its suggestions carry an `edit` applied with `applySplitEdit()` through the
+  store's `update`, so split edits sync like any other change. Each rule names
+  its source; keep them evidence-based and in the Coach page's reference list.
 - Preserve server errors that avoid exposing internal details and deployment
   security headers. Keep `/api/*` outside the service worker navigation fallback.
 

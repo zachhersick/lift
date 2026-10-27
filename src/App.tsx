@@ -1,6 +1,6 @@
 // App shell: routes with page transitions, the floating tab bar, the bar that
 // returns you to a running workout, islands, the number pad and dialogs.
-import { CalendarDays, ChevronUp, Dumbbell, ListOrdered, Settings2, TrendingUp } from "lucide-react";
+import { CalendarDays, ChevronUp, Dumbbell, GraduationCap, ListOrdered, Settings2, TrendingUp } from "lucide-react";
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { type ReactNode, useEffect, useRef } from "react";
 import { AlertHost } from "@/components/alert-host";
@@ -25,10 +25,11 @@ import { DayEditor, Split } from "@/pages/split";
 import { Settings } from "@/pages/settings";
 
 const TABS = [
-  { page: "today", label: "Today", icon: Dumbbell, match: ["today", "nutrition", "coach"] },
+  { page: "today", label: "Today", icon: Dumbbell, match: ["today", "nutrition"] },
   { page: "history", label: "History", icon: CalendarDays, match: ["history"] },
   { page: "progress", label: "Progress", icon: TrendingUp, match: ["progress", "exercise", "bodyweight"] },
   { page: "split", label: "Split", icon: ListOrdered, match: ["split"] },
+  { page: "coach", label: "Coach", icon: GraduationCap, match: ["coach"] },
   { page: "settings", label: "Settings", icon: Settings2, match: ["settings"] }
 ];
 

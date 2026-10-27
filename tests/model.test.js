@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import {
   bodyweightId, cardioSeconds, dailyVolume, dateKey, defaultWeeklyGoal, e1rm, FIELDS, isComplete, setDistance, trackOf, exerciseHistory, isPersonalRecord, movingAverage, muscleSets, nextInSuperset,
   nextSplitDay, personalRecords, placeholderFor, plateBreakdown, previousEntry, previousSession, restsAfter, roundLoadable,
-  coachingContext, exerciseInUse, stepProgress, workoutSteps, indirectMuscles, splitWeeklySets, dailyIntake, dateKeyIn, fromDateKey, insights, mealMicro, MICROS, microAverages, dayTotals, estimateMaintenance, nutritionTargets, rateStatus, shiftDateKey, weightRate,
+  analyzeSplit, applySplitEdit, coachingContext, exerciseInUse, stepProgress, workoutSteps, indirectMuscles, splitWeeklySets, dailyIntake, dateKeyIn, fromDateKey, insights, mealMicro, MICROS, microAverages, dayTotals, estimateMaintenance, nutritionTargets, rateStatus, shiftDateKey, weightRate,
   splitDiff, startOfWeek, suggestion, supersetLabels, trend, warmupSets, weekStreak, weekSummary, workoutFromDay, workoutVolume
 } from "../src/lib/model.js";
+import { BUILT_IN, slug, TEMPLATES } from "../src/lib/exercises.js";
 
 const day = (id, position, extra = {}) => ({ id, kind: "splitDay", name: id, position, exercises: [], ...extra });
 const set = (weight, reps, extra = {}) => ({ id: `${weight}-${reps}-${Math.random()}`, weight, reps, type: "working", done: true, ...extra });
@@ -578,7 +579,7 @@ test("a muscle under 10 sets a week gets a specific fix, on the right split day"
   assert.equal(card.area, "training");
   assert.match(card.body, /^Over the last two weeks: back 0, biceps 0, hamstrings 0, triceps 7 sets a week/);
   assert.match(card.action, /^Back: add 10 sets a week, e\.g\. Lat Pulldown on Pull\./);
-  assert.match(card.action, /Take each set to within 1–3 reps of failure\.$/);
+  assert.match(card.action, /Take each set to within 1–3 reps of failure\. For exact edits, analyze your split on the Coach tab\.$/);
   assert.match(card.source, /Schoenfeld et al., 2017/);
   assert.ok(!/chest/.test(card.body), "chest is in range");
 
@@ -659,4 +660,159 @@ test("a workout's focus steps keep a superset on one screen", () => {
   assert.deepEqual(stepProgress(first, entries), { done: 1, total: 2, complete: false });
   assert.deepEqual(stepProgress(pair, entries), { done: 2, total: 2, complete: true });
   assert.equal(stepProgress(empty, entries).complete, false, "no sets isn't done");
+});
+
+// ---------- split analyzer ----------
+
+const LIB = new Map(BUILT_IN.map((exercise) => [exercise.id, exercise]));
+const b = (name) => `b_${slug(name)}`;
+const lift = (name, targetSets = 3, repMin = 8, repMax = 12, restSec = 120) => ({ exerciseId: b(name), targetSets, repMin, repMax, restSec });
+const rotation = (...list) => list.map((extra, i) => day(extra.name || `d${i}`, i, extra));
+const analyze = (splitDays, workouts = []) => analyzeSplit({ splitDays, exerciseIndex: LIB, workouts, now: NOW });
+const find = (result, name) => result.suggestions.find((s) => s.name === name || s.item.exerciseId === b(name));
+// Every suggestion applied, the way "Apply all" writes the split.
+const applied = (splitDays, result) => splitDays.map((d) => ({ ...d, exercises: result.plan.find((p) => p.id === d.id)?.exercises || d.exercises }));
+
+test("the analyzer adds sets to an exercise you already do, up to five", () => {
+  // Triceps: 2 sets × 7/2 = 7 a week, so one more set (3.5) reaches 10.
+  const days = rotation({ name: "Upper", exercises: [lift("Overhead Cable Extension", 2), lift("Lat Pulldown", 3), lift("Dumbbell Curl", 3), lift("Pec Deck", 3), lift("Dumbbell Lateral Raise", 3)] }, { name: "Rest", rest: true });
+  const result = analyze(days);
+  const tri = find(result, "Overhead Cable Extension");
+  assert.deepEqual(tri.changes, [{ field: "sets", from: 2, to: 3 }]);
+  assert.equal(tri.priority, 1);
+  assert.match(tri.why, /^Triceps get about 7 sets a week/);
+  assert.match(tri.source, /Schoenfeld et al., 2017/);
+  assert.deepEqual(tri.edit, { dayId: "Upper", index: 0, exerciseId: b("Overhead Cable Extension"), fields: { targetSets: 3 } });
+  assert.ok(result.suggestions.every((s) => s.item.targetSets <= 5), "no exercise past five sets");
+  assert.ok(result.muscles.find((m) => m.muscle === "triceps").after >= 10);
+});
+
+test("a muscle with no exercise gets one, picking a lengthened choice", () => {
+  const days = rotation({ name: "Legs", exercises: [lift("Back Squat", 4, 5, 8, 180), lift("Leg Press", 3)] }, { name: "Rest", rest: true });
+  const result = analyze(days);
+  const curl = find(result, "Seated Leg Curl");
+  assert.equal(curl.kind, "add");
+  assert.equal(curl.edit.dayId, "Legs");
+  assert.ok(curl.item.targetSets >= 2 && curl.item.targetSets <= 5);
+  assert.deepEqual([curl.item.repMin, curl.item.repMax, curl.item.restSec], [10, 15, 90], "isolation defaults");
+  assert.ok(!find(result, "Lying Leg Curl"));
+});
+
+test("an exercise you log most is preferred over the default pick", () => {
+  const days = rotation({ name: "Arms", exercises: [lift("Barbell Curl", 3)] }, { name: "Rest", rest: true });
+  const workouts = [workout("w1", NOW - 86_400_000, "Arms", [entry(b("Skull Crusher"), [set(60, 10)])])];
+  assert.ok(find(analyze(days, workouts), "Skull Crusher"));
+});
+
+test("well over 20 sets a week is trimmed back to 20, isolation first", () => {
+  // Chest: (4 + 4) × 7/2 = 28 a week.
+  const days = rotation({ name: "Chest", exercises: [lift("Bench Press", 4, 6, 10, 180), lift("Cable Fly", 4)] }, { name: "Rest", rest: true });
+  const result = analyze(days);
+  const fly = find(result, "Cable Fly");
+  assert.equal(fly.changes[0].field, "sets");
+  assert.ok(fly.changes[0].to < 4);
+  assert.match(fly.source, /Baz-Valle/);
+  assert.ok(result.muscles.find((m) => m.muscle === "chest").after <= 20);
+});
+
+test("more than 10 direct sets in a session move to a related day", () => {
+  const days = rotation(
+    { name: "Chest", exercises: [lift("Bench Press", 4, 6, 10, 180), lift("Incline Dumbbell Press", 4), lift("Cable Fly", 4)] },
+    { name: "Shoulders", exercises: [lift("Overhead Press", 3, 6, 10, 180), lift("Dumbbell Lateral Raise", 3)] },
+    { name: "Rest", rest: true }, { name: "Rest2", rest: true }, { name: "Rest3", rest: true }, { name: "Rest4", rest: true }, { name: "Rest5", rest: true }
+  );
+  const result = analyze(days);
+  const moved = result.suggestions.filter((s) => s.priority === 2);
+  assert.ok(moved.some((s) => s.dayId === "Chest" && s.changes[0].to < s.changes[0].from));
+  const added = moved.find((s) => s.dayId === "Shoulders" && s.kind === "add");
+  assert.ok(added, "the extra sets land on the shoulder day");
+  assert.match(added.why, /^Chest gets 12 direct sets on Chest/);
+  assert.match(added.source, /Pelland/);
+});
+
+test("a muscle trained once a week gets a second day", () => {
+  // Seven-day rotation: each day is once a week. Triceps 9 sets, all on Arms.
+  const days = rotation(
+    { name: "Arms", exercises: [lift("Overhead Cable Extension", 3), lift("Skull Crusher", 3), lift("Dumbbell Kickback", 3), lift("Barbell Curl", 3), lift("Hammer Curl", 3), lift("Cable Curl", 3), lift("Concentration Curl", 3)] },
+    { name: "Chest", exercises: [lift("Pec Deck", 4), lift("Cable Fly", 4), lift("Dumbbell Fly", 3)] },
+    { name: "R1", rest: true }, { name: "R2", rest: true }, { name: "R3", rest: true }, { name: "R4", rest: true }, { name: "R5", rest: true }
+  );
+  const result = analyze(days);
+  const second = result.suggestions.find((s) => s.dayId === "Chest" && s.kind === "add" && LIB.get(s.item.exerciseId).muscle === "triceps");
+  assert.ok(second, "triceps work added to the chest day");
+  assert.match(second.why, /Triceps are trained about once a week/);
+  assert.ok(result.muscles.find((m) => m.muscle === "triceps").frequency >= 2);
+});
+
+test("pushdown-only triceps, lying curls and seated calf raises are swapped", () => {
+  const days = rotation(
+    { name: "Upper", exercises: [lift("Rope Pushdown", 4)] },
+    { name: "Lower", exercises: [lift("Lying Leg Curl", 4), lift("Seated Calf Raise", 4)] }
+  );
+  const result = analyze(days);
+  const swaps = Object.fromEntries(result.suggestions.filter((s) => s.kind === "swap").map((s) => [s.name, s.changes.find((c) => c.field === "exercise").to]));
+  assert.deepEqual(swaps, { "Rope Pushdown": "Overhead Cable Extension", "Lying Leg Curl": "Seated Leg Curl", "Seated Calf Raise": "Standing Calf Raise" });
+  assert.match(find(result, "Rope Pushdown").source, /Maeo et al., 2023/);
+  assert.equal(find(result, "Rope Pushdown").edit.fields.exerciseId, b("Overhead Cable Extension"));
+});
+
+test("short rest on compounds and rep ranges outside 5–30 are fixed", () => {
+  const days = rotation({ name: "Full", exercises: [lift("Back Squat", 3, 3, 4, 60), lift("Leg Extension", 3, 35, 50, 60)] });
+  const result = analyze(days);
+  const squat = find(result, "Back Squat");
+  assert.deepEqual(squat.changes.filter((c) => c.field !== "sets"), [{ field: "reps", from: [3, 4], to: [5, 8] }, { field: "rest", from: 60, to: 150 }]);
+  assert.match(squat.source, /Singer et al., 2024/);
+  const ext = find(result, "Leg Extension");
+  assert.deepEqual(ext.changes.find((c) => c.field === "reps"), { field: "reps", from: [35, 50], to: [15, 25] });
+  assert.ok(!ext.changes.some((c) => c.field === "rest"), "isolation rest is left alone");
+});
+
+test("much more pushing than pulling adds pulling sets", () => {
+  const days = rotation(
+    { name: "Push", exercises: [lift("Bench Press", 4, 6, 10, 180), lift("Overhead Press", 4, 6, 10, 180), lift("Dumbbell Lateral Raise", 4), lift("Overhead Cable Extension", 4)] },
+    { name: "Pull", exercises: [lift("Lat Pulldown", 2)] }
+  );
+  const result = analyze(days);
+  const pulls = result.suggestions.filter((s) => s.why.includes("pushing sets a week"));
+  assert.ok(pulls.length);
+  assert.match(pulls[0].source, /Kolber et al., 2009/);
+  const after = analyze(applied(days, result));
+  assert.ok(!after.suggestions.some((s) => s.why.includes("pushing sets a week")), "balanced after applying");
+});
+
+test("a stalled lift gets a new rep range", () => {
+  const days = rotation({ name: "Push", exercises: [lift("Bench Press", 4, 5, 8, 180)] }, { name: "Rest", rest: true });
+  const workouts = [100, 100, 100, 100].map((w, i) => workout(`s${i}`, NOW - (10 - i) * 86_400_000, "Push", [entry(b("Bench Press"), [set(w, 5)])]));
+  const bench = find(analyze(days, workouts), "Bench Press");
+  assert.deepEqual(bench.changes.find((c) => c.field === "reps"), { field: "reps", from: [5, 8], to: [8, 12] });
+  assert.match(bench.why, /hasn't beaten its best in 3 sessions/);
+  assert.match(bench.source, /your logs/);
+});
+
+test("applying every suggestion leaves nothing for volume and raises the score", () => {
+  for (const template of TEMPLATES) {
+    const days = template.days.map((d, i) => day(`${template.id}-${i}`, i, d));
+    const result = analyze(days);
+    assert.ok(result.ready);
+    assert.ok(result.score.after >= result.score.before, template.name);
+    const again = analyze(applied(days, result));
+    assert.ok(!again.suggestions.some((s) => s.priority === 1), `${template.name}: no volume left to fix`);
+    for (const row of again.muscles) assert.ok(row.before >= 10, `${template.name}: ${row.muscle} reaches 10`);
+  }
+});
+
+test("applySplitEdit adds once, changes in place and refuses a stale edit", () => {
+  const list = [lift("Bench Press"), lift("Rope Pushdown")];
+  assert.equal(applySplitEdit(list, { index: 1, exerciseId: b("Rope Pushdown"), fields: { targetSets: 4 } })[1].targetSets, 4);
+  assert.equal(list[1].targetSets, 3, "the input isn't changed");
+  assert.equal(applySplitEdit(list, { index: 1, exerciseId: b("Bench Press"), fields: { targetSets: 4 } }), null);
+  const added = applySplitEdit(list, { add: lift("Hip Thrust", 2) });
+  assert.equal(added.length, 3);
+  assert.equal(applySplitEdit(added, { add: lift("Hip Thrust", 2) }).length, 3);
+});
+
+test("an empty split isn't ready and has nothing to suggest", () => {
+  const result = analyze([day("rest", 0, { rest: true })]);
+  assert.equal(result.ready, false);
+  assert.deepEqual(result.suggestions, []);
 });
