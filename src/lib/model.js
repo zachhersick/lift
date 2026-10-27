@@ -379,6 +379,28 @@ export function supersetLabels(entries) {
   return labels;
 }
 
+// The screens of a workout's focus view: each exercise on its own, or a
+// whole superset together since you alternate between its exercises.
+export function workoutSteps(entries) {
+  const labels = supersetLabels(entries);
+  const steps = [];
+  entries.forEach((entry, index) => {
+    if (labels[index] && !labels[index].first) {
+      const step = steps[steps.length - 1];
+      step.entryIds.push(entry.id);
+      step.end = index;
+    } else steps.push({ entryIds: [entry.id], start: index, end: index });
+  });
+  return steps;
+}
+
+// Checked and total sets in a step; it's done when every set is checked.
+export function stepProgress(step, entries) {
+  const sets = entries.filter((entry) => step.entryIds.includes(entry.id)).flatMap((entry) => entry.sets || []);
+  const done = sets.filter((set) => set.done).length;
+  return { done, total: sets.length, complete: sets.length > 0 && done === sets.length };
+}
+
 // Rest only after the last exercise of a superset (or any standalone one).
 export function restsAfter(entries, index) {
   const label = supersetLabels(entries)[index];

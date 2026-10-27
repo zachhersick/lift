@@ -3,11 +3,11 @@
 // and reps go through the docked number pad. Also edits finished workouts.
 import NumberFlow from "@number-flow/react";
 import {
-  ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronUp, Eye, Flame, Flag, Link2, MoreHorizontal, NotebookPen, Pencil, Play, Plus,
+  ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronLeft, ChevronUp, Eye, Flame, Flag, Link2, List, MoreHorizontal, NotebookPen, Pencil, Play, Plus,
   Repeat2, Square, Timer, Trash2, Trophy, Unlink, X
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import HoldButton from "@/components/kokonutui/hold-button";
 import { Burst } from "@/components/kokonutui/particle-button";
 import WheelPicker from "@/components/kokonutui/wheel-picker";
@@ -20,7 +20,7 @@ import { haptic } from "@/lib/haptics.js";
 import { closePad, openPad, pad } from "@/lib/keypad.js";
 import {
   dateKey, exerciseHistory, fromDateKey, isPersonalRecord, newEntry, newSet, nextInSuperset, personalRecords, placeholderFor,
-  previousEntry, splitDiff, suggestion, supersetLabels, uid, warmupSets, workoutVolume, FIELDS, trackOf, cardioSeconds
+  previousEntry, splitDiff, stepProgress, suggestion, supersetLabels, uid, warmupSets, workoutSteps, workoutVolume, FIELDS, trackOf, cardioSeconds
 } from "@/lib/model.js";
 import { notify } from "@/lib/notify";
 import { back, go } from "@/lib/router.js";
@@ -37,6 +37,34 @@ const TYPE_LABEL: Record<string, string> = { warmup: "W", drop: "D", failure: "F
 const TYPE_NAME: Record<string, string> = { working: "Working set", warmup: "Warm-up", drop: "Drop set", failure: "To failure" };
 const TYPE_COLOR: Record<string, string> = { warmup: "text-amber-500", drop: "text-violet-400", failure: "text-red-400" };
 
+// Which exercise the focus screen is on, per workout, so iOS reloading the
+// home-screen app doesn't lose your place.
+const focusKey = (workoutId: string) => `lift-focus-${workoutId}`;
+function readFocus(workoutId: string): string | null {
+  try {
+    return localStorage.getItem(focusKey(workoutId));
+  } catch {
+    return null;
+  }
+}
+function writeFocus(workoutId: string, entryId: string | null) {
+  try {
+    if (entryId) localStorage.setItem(focusKey(workoutId), entryId);
+    else localStorage.removeItem(focusKey(workoutId));
+  } catch {
+    // Storage blocked (private mode): the screen still works, it just won't survive a reload.
+  }
+}
+
+const SLIDE = {
+  enter: (direction: number) => ({ x: 48 * direction, opacity: 0 }),
+  center: { x: 0, opacity: 1 },
+  exit: (direction: number) => ({ x: -48 * direction, opacity: 0 })
+};
+
+// A live workout opens on one exercise at a time (a superset's exercises
+// share a screen), with Next exercise to move on. "All exercises" switches to
+// the full list, which is also how a finished workout is edited.
 export function WorkoutPage({ id }: { id: string }) {
   const all = useValue(records) as Map<string, any>;
   const tick = useValue(now);
@@ -45,7 +73,50 @@ export function WorkoutPage({ id }: { id: string }) {
   const [adding, setAdding] = useState(false);
   const [details, setDetails] = useState(false);
   const target = useValue(pad) as any;
+  const history = useValue(sessions) as any[];
   const live = Boolean(workout && !workout.deleted && !workout.finishedAt);
+  const [view, setView] = useState<"focus" | "all">("focus");
+  const [focusId, setFocusId] = useState<string | null>(() => readFocus(id));
+  const [direction, setDirection] = useState(1);
+  const lastStep = useRef(0);
+  const currentIds = useRef<string[]>([]);
+
+  const steps = workoutSteps(workout?.entries || []);
+  let stepIndex = steps.findIndex((step) => focusId !== null && step.entryIds.includes(focusId));
+  if (stepIndex < 0) {
+    // Nothing chosen yet: the first step with sets left. An exercise that was
+    // removed: whatever took its place.
+    const open = steps.findIndex((step) => !stepProgress(step, workout?.entries || []).complete);
+    stepIndex = focusId !== null ? Math.min(lastStep.current, steps.length - 1) : open >= 0 ? open : steps.length - 1;
+  }
+  lastStep.current = Math.max(0, stepIndex);
+  currentIds.current = steps[stepIndex]?.entryIds || [];
+
+  const focusOn = (entryId: string, dir = 1) => {
+    setDirection(dir);
+    setFocusId(entryId);
+    writeFocus(id, entryId);
+  };
+  const goStep = (index: number) => {
+    const step = steps[index];
+    if (!step) return;
+    closePad();
+    focusOn(step.entryIds[0], index >= stepIndex ? 1 : -1);
+    window.scrollTo(0, 0);
+  };
+
+  // Remember the starting step right away, so finishing its sets doesn't
+  // jump ahead on its own; moving on is up to Next exercise.
+  useEffect(() => {
+    if (focusId === null && live && currentIds.current[0]) focusOn(currentIds.current[0]);
+  }, [focusId, live, steps.length]);
+
+  // The pad's Next can run on into the next exercise: follow it there.
+  useEffect(() => {
+    if (!target || !live || view !== "focus" || currentIds.current.includes(target.entryId)) return;
+    const step = workoutSteps(workout?.entries || []).find((s) => s.entryIds.includes(target.entryId));
+    if (step) focusOn(step.entryIds[0]);
+  }, [target?.entryId]);
 
   useEffect(() => {
     keepAwake(live);
@@ -91,6 +162,7 @@ export function WorkoutPage({ id }: { id: string }) {
       draft.entries = draft.entries.map((entry: any) => ({ ...entry, sets: entry.sets.filter((set: any) => set.done) })).filter((entry: any) => entry.sets.length);
       draft.finishedAt = Date.now();
     });
+    writeFocus(id, null);
     await offerSplitUpdate(asPlanned);
     go(`history/${id}?done=1`, { replace: true });
   };
@@ -113,6 +185,7 @@ export function WorkoutPage({ id }: { id: string }) {
   const discardNow = async () => {
     closePad();
     stopRest();
+    writeFocus(id, null);
     await remove(id);
     go(live ? "today" : "history", { replace: true });
   };
@@ -129,6 +202,137 @@ export function WorkoutPage({ id }: { id: string }) {
     back(`history/${id}`);
   };
 
+  const addExercise = (exercise: any) => {
+    const entry = newEntry(exercise.id, { targetSets: trackOf(exercise) === "cardio" ? 1 : 3 }, s.defaultRest);
+    change((draft) => draft.entries.push(entry));
+    if (live && view === "focus") focusOn(entry.id);
+  };
+  const picker = <ExercisePicker onClose={() => setAdding(false)} onPick={addExercise} open={adding} />;
+  const openPicker = () => {
+    closePad();
+    setAdding(true);
+  };
+
+  if (live && view === "focus") {
+    const step = steps[stepIndex];
+    const nextStep = steps[stepIndex + 1];
+    const progress = step ? stepProgress(step, entries) : null;
+    const names = (ids: string[]) => ids.map((entryId) => exerciseName(entries.find((e) => e.id === entryId)?.exerciseId)).join(" + ");
+    // Last time's top set for the next exercise, like the chips on Today.
+    const nextEntry = nextStep ? entries.find((e) => e.id === nextStep.entryIds[0]) : null;
+    const nextTrack = nextEntry ? trackOf(exerciseIndex.value.get(nextEntry.exerciseId)) : "strength";
+    const lastSets = nextEntry ? (previousEntry(history, nextEntry.exerciseId, { before: workout.startedAt })?.entry.sets || []).filter((x: any) => x.done && x.type !== "warmup") : [];
+    const lastTop = nextTrack === "strength" ? [...lastSets].sort((a: any, b: any) => b.weight - a.weight || b.reps - a.reps)[0] : [...lastSets].sort((a: any, b: any) => (b.seconds || 0) - (a.seconds || 0))[0];
+
+    return (
+      <Page className="gap-4">
+        <TopBar
+          backLabel="Today"
+          backTo="today"
+          large={false}
+          title={workout.name}
+          trailing={
+            <>
+              <button
+                aria-label="All exercises"
+                className="grid size-9 place-items-center rounded-full bg-muted text-foreground active:bg-accent"
+                onClick={() => {
+                  closePad();
+                  setView("all");
+                }}
+                type="button"
+              >
+                <List className="size-[18px]" strokeWidth={2.4} />
+              </button>
+              <Button onClick={finish} size="sm">
+                Finish
+              </Button>
+            </>
+          }
+        />
+
+        {step ? (
+          <>
+            <div className="flex flex-col gap-1.5 px-1">
+              <div className="flex items-baseline justify-between gap-3 text-[13px] text-muted-foreground">
+                <span className="font-semibold text-foreground">
+                  Exercise {stepIndex + 1} of {steps.length}
+                </span>
+                <span className="tabular">
+                  {format.clock((tick - workout.startedAt) / 1000)} · {doneSets}/{totalSets} sets
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                {steps.map((item, i) => {
+                  const p = stepProgress(item, entries);
+                  return (
+                    <button
+                      aria-current={i === stepIndex ? "step" : undefined}
+                      aria-label={`Exercise ${i + 1}: ${names(item.entryIds)}${p.complete ? ", done" : ""}`}
+                      className="flex h-7 min-w-0 flex-1 items-center"
+                      key={item.entryIds[0]}
+                      onClick={() => goStep(i)}
+                      type="button"
+                    >
+                      <span className={cn("relative w-full overflow-hidden rounded-full bg-muted transition-[height]", i === stepIndex ? "h-2.5 ring-2 ring-primary/35" : "h-1.5")}>
+                        <motion.span
+                          animate={{ width: `${p.total ? (p.done / p.total) * 100 : 0}%` }}
+                          className={cn("absolute inset-y-0 left-0 rounded-full", p.complete ? "bg-success" : "bg-primary")}
+                          initial={false}
+                          transition={spring}
+                        />
+                      </span>
+                    </button>
+                  );
+                })}
+                <button aria-label="Add exercise" className="ml-1 grid size-7 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground active:bg-accent" onClick={openPicker} type="button">
+                  <Plus className="size-4" strokeWidth={2.6} />
+                </button>
+              </div>
+            </div>
+
+            <AnimatePresence custom={direction} initial={false} mode="popLayout">
+              <motion.div animate="center" className="flex flex-col gap-4" custom={direction} exit="exit" initial="enter" key={step.entryIds[0]} transition={{ type: "spring", stiffness: 380, damping: 36 }} variants={SLIDE}>
+                {entries.slice(step.start, step.end + 1).map((entry, offset) => (
+                  <ExerciseCard change={change} entry={entry} index={step.start + offset} key={entry.id} label={labels[step.start + offset]} live workout={workout} />
+                ))}
+              </motion.div>
+            </AnimatePresence>
+
+            <div className="flex flex-col gap-3">
+              {nextStep ? (
+                <button className="surface flex items-center gap-3 rounded-2xl px-4 py-3 text-left active:scale-[0.99]" onClick={() => goStep(stepIndex + 1)} type="button">
+                  <span className="text-[11.5px] font-semibold tracking-wide text-muted-foreground uppercase">Up next</span>
+                  <span className="min-w-0 flex-1 truncate text-[15px] font-medium">{names(nextStep.entryIds)}</span>
+                  {lastTop ? <span className="shrink-0 text-[13px] text-muted-foreground tabular">{format.shortSet(lastTop, nextTrack)}</span> : null}
+                </button>
+              ) : null}
+              <div className="flex gap-2">
+                <Button aria-label="Previous exercise" className="w-[92px]" disabled={stepIndex === 0} onClick={() => goStep(stepIndex - 1)} size="lg" variant="secondary">
+                  <ChevronLeft className="size-5" strokeWidth={2.6} /> Back
+                </Button>
+                {nextStep ? (
+                  <Button className="flex-1" onClick={() => goStep(stepIndex + 1)} size="lg" variant={progress?.complete ? "default" : "tinted"}>
+                    Next exercise <ArrowRight className="size-5" strokeWidth={2.6} />
+                  </Button>
+                ) : (
+                  <Button className="flex-1" onClick={finish} size="lg" variant={progress?.complete ? "default" : "tinted"}>
+                    <Check className="size-5" strokeWidth={2.8} /> Finish workout
+                  </Button>
+                )}
+              </div>
+            </div>
+          </>
+        ) : (
+          <Empty action={<Button onClick={openPicker} variant="tinted">Add exercise</Button>} icon={Plus} title="No exercises yet">
+            Add the first exercise to start logging sets.
+          </Empty>
+        )}
+        {picker}
+      </Page>
+    );
+  }
+
   return (
     <Page className="gap-5">
       <TopBar
@@ -136,9 +340,24 @@ export function WorkoutPage({ id }: { id: string }) {
         backTo={live ? "today" : `history/${id}`}
         title={workout.name}
         trailing={
-          <Button onClick={live ? finish : doneEditing} size="sm">
-            {live ? "Finish" : "Done"}
-          </Button>
+          <>
+            {live ? (
+              <Button
+                onClick={() => {
+                  closePad();
+                  setView("focus");
+                  window.scrollTo(0, 0);
+                }}
+                size="sm"
+                variant="tinted"
+              >
+                Focus
+              </Button>
+            ) : null}
+            <Button onClick={live ? finish : doneEditing} size="sm">
+              {live ? "Finish" : "Done"}
+            </Button>
+          </>
         }
       >
         <button aria-label="Workout details" className="flex w-full flex-col items-start text-left" onClick={() => setDetails(true)} type="button">
@@ -160,7 +379,24 @@ export function WorkoutPage({ id }: { id: string }) {
           <AnimatePresence initial={false}>
             {entries.map((entry, index) => (
               <motion.div animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} initial={{ opacity: 0, height: 0 }} key={entry.id} layout transition={spring}>
-                <ExerciseCard change={change} entry={entry} index={index} label={labels[index]} live={live} workout={workout} />
+                <ExerciseCard
+                  change={change}
+                  entry={entry}
+                  index={index}
+                  label={labels[index]}
+                  live={live}
+                  onTitle={
+                    live
+                      ? () => {
+                          closePad();
+                          focusOn(entry.id);
+                          setView("focus");
+                          window.scrollTo(0, 0);
+                        }
+                      : undefined
+                  }
+                  workout={workout}
+                />
               </motion.div>
             ))}
           </AnimatePresence>
@@ -171,14 +407,7 @@ export function WorkoutPage({ id }: { id: string }) {
         </Empty>
       )}
 
-      <Button
-        onClick={() => {
-          closePad();
-          setAdding(true);
-        }}
-        size="lg"
-        variant="tinted"
-      >
+      <Button onClick={openPicker} size="lg" variant="tinted">
         <Plus className="size-5" strokeWidth={2.6} /> Add exercise
       </Button>
 
@@ -207,7 +436,7 @@ export function WorkoutPage({ id }: { id: string }) {
         </HoldButton>
       </div>
 
-      <ExercisePicker onClose={() => setAdding(false)} onPick={(exercise) => change((draft) => draft.entries.push(newEntry(exercise.id, { targetSets: trackOf(exercise) === "cardio" ? 1 : 3 }, s.defaultRest)))} open={adding} />
+      {picker}
       <DetailsSheet change={change} onClose={() => setDetails(false)} open={details} workout={workout} />
     </Page>
   );
@@ -283,7 +512,9 @@ function DetailsSheet({ open, onClose, workout, change }: { open: boolean; onClo
 
 type SheetKind = null | "menu" | "rest" | "note" | "swap" | "peek" | "edit" | { type: number };
 
-function ExerciseCard({ workout, entry, index, label, live, change }: { workout: any; entry: any; index: number; label: any; live: boolean; change: (fn: (d: any) => void) => void }) {
+// `onTitle` replaces the history peek on the title (the list uses it to jump
+// back into focus on this exercise).
+function ExerciseCard({ workout, entry, index, label, live, change, onTitle }: { workout: any; entry: any; index: number; label: any; live: boolean; change: (fn: (d: any) => void) => void; onTitle?: () => void }) {
   const [sheet, setSheet] = useState<SheetKind>(null);
   const [burst, setBurst] = useState<string | null>(null);
   const index_ = useValue(exerciseIndex) as Map<string, any>;
@@ -393,7 +624,8 @@ function ExerciseCard({ workout, entry, index, label, live, change }: { workout:
             className="flex min-w-0 flex-1 flex-col text-left"
             onClick={() => {
               closePad();
-              setSheet("peek");
+              if (onTitle) onTitle();
+              else setSheet("peek");
             }}
             type="button"
           >
