@@ -7,7 +7,13 @@ A workout tracker for your gym split. Log the sets, weight and reps for every ex
 The look is dark-first and layered: glass surfaces, your accent color as soft gradients, a live shader behind the Up Next card and the Workout Complete screen, springy motion, animated numbers and activity rings. It's built with React, Tailwind, [motion](https://motion.dev), [Kokonut UI](https://kokonutui.com) components and [Paper Shaders](https://shaders.paper.design). Light mode and six accent colors are in Settings.
 
 - **Today** shows the next day in your rotation (Push → Pull → Legs → Rest → repeat) on a live gradient, with last time's top set for each exercise and **Start**. Below that: **activity rings** for the week (workouts against your weekly goal, sets and volume against last week), **sets per muscle** against a 10–20 set band, a 3D **consistency** terrain of the last four months with your streak, your **bodyweight**, and recent PRs. Doing a different day than suggested just moves the rotation along.
-- **Workout**: one card per exercise with `SET · PREVIOUS · LB · REPS · ✓`.
+- **Workout**: a live workout shows **one exercise at a time** (a superset's exercises share a screen) with `SET · PREVIOUS · LB · REPS · ✓`.
+  - **Focus screen.**
+    - A strip at the top shows every exercise and how far along it is; tap one to jump to it.
+    - **Up next** shows the following exercise with last time's top set.
+    - **Next exercise** lights up once every set is checked; **Back** returns to the previous one. On the last exercise it becomes **Finish workout**.
+    - Lift remembers which exercise you're on, even if iOS reloads the app.
+    - The list button shows **All exercises** (add, reorder, notes, hold to finish); tap an exercise's title there to focus on it. Editing a finished workout uses the list.
   - **Number pad.** Weight and reps use a docked keypad instead of the iPhone keyboard. **±** buttons step by your weight jump, **Next** goes weight → reps → next set → next exercise, and the barbell key opens the **plate calculator** (plates per side for your bar and the plates your gym has).
   - **Smart fill.** Empty boxes show last time's numbers (or the suggested weight when it's time to go up), and ✓ on an empty row logs exactly that. Tap **Previous** to copy last time into a row; **Add Set** copies the set above.
   - **Progression hint** (double progression): once every set reaches the top of the rep range, it suggests adding your weight jump.

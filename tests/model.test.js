@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   bodyweightId, cardioSeconds, dailyVolume, dateKey, defaultWeeklyGoal, e1rm, FIELDS, isComplete, setDistance, trackOf, exerciseHistory, isPersonalRecord, movingAverage, muscleSets, nextInSuperset,
   nextSplitDay, personalRecords, placeholderFor, plateBreakdown, previousEntry, previousSession, restsAfter, roundLoadable,
-  coachingContext, exerciseInUse, indirectMuscles, splitWeeklySets, dailyIntake, dateKeyIn, fromDateKey, insights, mealMicro, MICROS, microAverages, dayTotals, estimateMaintenance, nutritionTargets, rateStatus, shiftDateKey, weightRate,
+  coachingContext, exerciseInUse, stepProgress, workoutSteps, indirectMuscles, splitWeeklySets, dailyIntake, dateKeyIn, fromDateKey, insights, mealMicro, MICROS, microAverages, dayTotals, estimateMaintenance, nutritionTargets, rateStatus, shiftDateKey, weightRate,
   splitDiff, startOfWeek, suggestion, supersetLabels, trend, warmupSets, weekStreak, weekSummary, workoutFromDay, workoutVolume
 } from "../src/lib/model.js";
 
@@ -640,4 +640,23 @@ test("an exercise counts as in use once a set of it is completed", () => {
   assert.equal(exerciseInUse([planned], "x"), false, "unchecked sets don't count");
   assert.equal(exerciseInUse([planned, workout("b", 2, "d", [entry("x", [set(100, 5)])])], "x"), true);
   assert.equal(exerciseInUse([{ ...workout("b", 2, "d", [entry("x", [set(100, 5)])]), deleted: true }], "x"), false, "deleted workouts don't count");
+});
+
+test("a workout's focus steps keep a superset on one screen", () => {
+  const entries = [
+    { id: "a", sets: [set(100, 5), { ...set(100, 5), done: false }] },
+    { id: "b", supersetId: "ss", sets: [set(50, 10)] },
+    { id: "c", supersetId: "ss", sets: [set(30, 12)] },
+    { id: "d", sets: [] }
+  ];
+  assert.deepEqual(workoutSteps(entries), [
+    { entryIds: ["a"], start: 0, end: 0 },
+    { entryIds: ["b", "c"], start: 1, end: 2 },
+    { entryIds: ["d"], start: 3, end: 3 }
+  ]);
+  assert.deepEqual(workoutSteps([]), []);
+  const [first, pair, empty] = workoutSteps(entries);
+  assert.deepEqual(stepProgress(first, entries), { done: 1, total: 2, complete: false });
+  assert.deepEqual(stepProgress(pair, entries), { done: 2, total: 2, complete: true });
+  assert.equal(stepProgress(empty, entries).complete, false, "no sets isn't done");
 });
