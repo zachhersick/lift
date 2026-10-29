@@ -10,7 +10,7 @@ import { EditExerciseSheet } from "@/components/exercise-picker";
 import { Card, Empty, FadeIn, Page, Row, Section, Segmented, StatTiles, TopBar } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { ask } from "@/lib/dialogs";
-import { dateKey, exerciseHistory, finished, personalRecords, trackOf, trend, workingSets } from "@/lib/model.js";
+import { dateKey, exerciseHistory, finished, muscleGroup, personalRecords, trackOf, trend, workingSets } from "@/lib/model.js";
 import { go } from "@/lib/router.js";
 import { bodyweights, coach, exerciseIndex, maintenance, remove, sessions, settings } from "@/lib/store.js";
 import * as format from "@/lib/format.js";
@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 import { NoteSheet } from "./workout";
 
 const UPPER = new Set(["chest", "back", "shoulders", "biceps", "triceps", "forearms"]);
-const LOWER = new Set(["quads", "hamstrings", "glutes", "calves"]);
+const LOWER = new Set(["quads", "hamstrings", "glutes", "adductors", "calves"]);
 
 // Daily volume split into upper body, lower body and everything else, for
 // the last 180 days (the metric card compares each period with the one before).
@@ -32,7 +32,7 @@ function useVolumeSeries() {
       const key = dateKey(workout.startedAt);
       const parts = byDay.get(key) || [0, 0, 0];
       for (const entry of workout.entries || []) {
-        const muscle = index.get(entry.exerciseId)?.muscle || "other";
+        const muscle = muscleGroup(index.get(entry.exerciseId)?.muscle) || "other";
         const slot = UPPER.has(muscle) ? 0 : LOWER.has(muscle) ? 1 : 2;
         for (const set of workingSets(entry)) parts[slot] += (Number(set.weight) || 0) * (Number(set.reps) || 0);
       }

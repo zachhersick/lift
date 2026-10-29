@@ -433,20 +433,20 @@ export function fromDateKey(key) {
 }
 
 // Working sets per muscle group for workouts since `from`. With `indirect`,
-// each set also adds half a set to the muscles the exercise assists (see
-// indirectMuscles), the way the hypertrophy research counts volume.
+// each set also adds half a set to the groups the exercise assists (see
+// secondaryGroups), the way the hypertrophy research counts volume.
 export function muscleSets(workouts, exerciseIndex, from = 0, { indirect = false } = {}) {
   const counts = new Map();
   for (const workout of finished(workouts)) {
     if (workout.rest || (workout.startedAt || 0) < from) continue;
     for (const entry of workout.entries || []) {
       const exercise = exerciseIndex.get(entry.exerciseId);
-      const muscle = exercise?.muscle || "other";
+      const muscle = groupOf(exercise) || "other";
       if (muscle === "cardio" || trackOf(exercise) === "cardio") continue;
       const sets = workingSets(entry).length;
       if (!sets) continue;
       counts.set(muscle, (counts.get(muscle) || 0) + sets);
-      if (indirect) for (const other of indirectMuscles(exercise)) counts.set(other, (counts.get(other) || 0) + sets / 2);
+      if (indirect) for (const other of secondaryGroups(exercise)) counts.set(other, (counts.get(other) || 0) + sets / 2);
     }
   }
   return [...counts.entries()].map(([muscle, sets]) => ({ muscle, sets })).sort((a, b) => b.sets - a.sets || a.muscle.localeCompare(b.muscle));
@@ -871,6 +871,22 @@ export function coachingContext({ workouts = [], meals = [], bodyweights = [], s
 
 // ---------- training volume ----------
 
+// Specific muscles you can pick for an exercise, and the group each counts
+// toward. Weekly volume, the Coach and the split analyzer work in groups, the
+// level the volume research measures: lats and mid back are back, the delt
+// heads are shoulders, and the hip abductors (glute medius and minimus) are
+// glutes.
+export const MUSCLE_GROUP = { lats: "back", "mid back": "back", traps: "back", "lower back": "back", "front delts": "shoulders", "side delts": "shoulders", "rear delts": "shoulders", abductors: "glutes" };
+export const muscleGroup = (muscle) => MUSCLE_GROUP[muscle] || muscle;
+const groupOf = (exercise) => muscleGroup(exercise?.muscle);
+
+// The groups an exercise's secondary muscles add half a set to: one share per
+// group, and none for its own group (a row's lats don't double its back sets).
+export function secondaryGroups(exercise) {
+  const own = groupOf(exercise);
+  return [...new Set(indirectMuscles(exercise).map(muscleGroup))].filter((group) => group !== own);
+}
+
 // Secondary muscles: what an exercise trains besides its primary one. Each
 // set counts as half a set for these, the fractional counting that best fits
 // the hypertrophy data (Pelland et al., 2024). An exercise's own `secondary`
@@ -885,7 +901,7 @@ export function indirectMuscles(exercise) {
 // shoulders, rows and pulldowns biceps, squats and hinges glutes.
 export function inferredSecondary(exercise) {
   const name = String(exercise?.name || "").toLowerCase();
-  switch (exercise?.muscle) {
+  switch (groupOf(exercise)) {
     case "chest":
       return /press|push-up|pushup|dip/.test(name) ? ["triceps", "shoulders"] : [];
     case "shoulders":
@@ -924,16 +940,19 @@ export function splitWeeklySets(splitDays, exerciseIndex) {
       const exercise = exerciseIndex?.get(item.exerciseId);
       if (!exercise || exercise.muscle === "cardio" || trackOf(exercise) === "cardio") continue;
       const sets = Math.max(1, Number(item.targetSets) || 3) * scale;
-      out.set(exercise.muscle, (out.get(exercise.muscle) || 0) + sets);
-      for (const other of indirectMuscles(exercise)) out.set(other, (out.get(other) || 0) + sets / 2);
+      const muscle = groupOf(exercise);
+      out.set(muscle, (out.get(muscle) || 0) + sets);
+      for (const other of secondaryGroups(exercise)) out.set(other, (out.get(other) || 0) + sets / 2);
     }
   }
   return out;
 }
 
 const isPull = (exercise) =>
-  (exercise?.muscle === "back" && !/deadlift|rack pull|back extension|shrug/i.test(exercise.name)) || exercise?.muscle === "biceps" || /rear|face pull|reverse pec/i.test(exercise?.name || "");
-const isPush = (exercise) => ["chest", "triceps"].includes(exercise?.muscle) || (exercise?.muscle === "shoulders" && !isPull(exercise));
+  (groupOf(exercise) === "back" && !["traps", "lower back"].includes(exercise.muscle) && !/deadlift|rack pull|back extension|shrug/i.test(exercise.name)) ||
+  ["biceps", "rear delts"].includes(exercise?.muscle) ||
+  /rear|face pull|reverse pec/i.test(exercise?.name || "");
+const isPush = (exercise) => ["chest", "triceps"].includes(exercise?.muscle) || (groupOf(exercise) === "shoulders" && !isPull(exercise));
 const isCompound = (exercise) => trackOf(exercise) === "strength" && (indirectMuscles(exercise).length > 0 || /squat|deadlift|press|row/i.test(exercise?.name || ""));
 
 // Exercises to suggest when a muscle needs more sets.
@@ -1196,7 +1215,7 @@ export function insights({ workouts = [], meals = [], bodyweights = [], settings
       const used = new Map();
       for (const workout of sessions) for (const entry of workout.entries || []) {
         const exercise = exerciseIndex?.get(entry.exerciseId);
-        if (exercise && workingSets(entry).length) used.set(`${exercise.muscle}|${exercise.name}`, (used.get(`${exercise.muscle}|${exercise.name}`) || 0) + 1);
+        if (exercise && workingSets(entry).length) used.set(`${groupOf(exercise)}|${exercise.name}`, (used.get(`${groupOf(exercise)}|${exercise.name}`) || 0) + 1);
       }
       const pick = (muscle) => [...used.entries()].filter(([key]) => key.startsWith(`${muscle}|`)).sort((a, b) => b[1] - a[1])[0]?.[0].split("|")[1] || GO_TO[muscle] || null;
       const dayFor = (muscle) => {
@@ -1204,7 +1223,7 @@ export function insights({ workouts = [], meals = [], bodyweights = [], settings
         for (const day of orderedDays(splitDays).filter((d) => !d.rest)) {
           const score = (day.exercises || []).reduce((sum, item) => {
             const exercise = exerciseIndex?.get(item.exerciseId);
-            return sum + (exercise?.muscle === muscle ? 2 : indirectMuscles(exercise).includes(muscle) ? 1 : 0);
+            return sum + (groupOf(exercise) === muscle ? 2 : secondaryGroups(exercise).includes(muscle) ? 1 : 0);
           }, 0);
           if (score && (!best || score > best.score)) best = { name: day.name, score };
         }
@@ -1246,7 +1265,7 @@ export function insights({ workouts = [], meals = [], bodyweights = [], settings
   if (historyReady) {
     const daysByMuscle = new Map();
     for (const workout of recent) for (const entry of workout.entries || []) {
-      const muscle = exerciseIndex?.get(entry.exerciseId)?.muscle;
+      const muscle = groupOf(exerciseIndex?.get(entry.exerciseId));
       if (!muscle || !workingSets(entry).length) continue;
       if (!daysByMuscle.has(muscle)) daysByMuscle.set(muscle, new Set());
       daysByMuscle.get(muscle).add(dayOf(workout.startedAt));
@@ -1441,8 +1460,8 @@ function measureSplit(plan, exerciseIndex) {
       const exercise = exerciseIndex.get(item.exerciseId);
       if (!lifting(exercise)) continue;
       const sets = setsOf(item);
-      add(exercise.muscle, sets, sets);
-      for (const other of indirectMuscles(exercise)) add(other, 0, sets / 2);
+      add(groupOf(exercise), sets, sets);
+      for (const other of secondaryGroups(exercise)) add(other, 0, sets / 2);
       if (isPull(exercise)) pull += sets * scale;
       else if (isPush(exercise)) push += sets * scale;
     }
@@ -1482,7 +1501,7 @@ export function analyzeSplit({ splitDays = [], exerciseIndex = new Map(), workou
   const original = orderedDays(splitDays);
   const plan = original.map((day) => ({ ...day, exercises: (day.exercises || []).map((item, at) => ({ ...item, _k: key++, _at: at })) }));
   const training = plan.filter((day) => !day.rest);
-  const present = new Set(training.flatMap((day) => day.exercises).map((item) => exerciseIndex.get(item.exerciseId)?.muscle));
+  const present = new Set(training.flatMap((day) => day.exercises).map((item) => groupOf(exerciseIndex.get(item.exerciseId))));
   const muscles = [...MAIN_MUSCLES, ...(present.has("calves") ? ["calves"] : [])];
   const before = measureSplit(plan, exerciseIndex);
   const nameOf = (id) => exerciseIndex.get(id)?.name || "Exercise";
@@ -1499,7 +1518,7 @@ export function analyzeSplit({ splitDays = [], exerciseIndex = new Map(), workou
   for (const workout of finished(workouts)) for (const entry of workout.entries || []) if (workingSets(entry).length) logged.set(entry.exerciseId, (logged.get(entry.exerciseId) || 0) + 1);
   const pickExercise = (muscle, day, fits) => {
     const taken = new Set(day.exercises.map((item) => item.exerciseId));
-    const ok = (exercise) => exercise && !exercise.deleted && exercise.muscle === muscle && trackOf(exercise) === "strength" && !taken.has(exercise.id) && fits(exercise);
+    const ok = (exercise) => exercise && !exercise.deleted && groupOf(exercise) === muscle && trackOf(exercise) === "strength" && !taken.has(exercise.id) && fits(exercise);
     const mine = [...logged.entries()].filter(([id]) => ok(exerciseIndex.get(id))).sort((a, b) => b[1] - a[1])[0];
     if (mine) return exerciseIndex.get(mine[0]);
     const go = byName(ADD_PICK[muscle]);
@@ -1514,7 +1533,7 @@ export function analyzeSplit({ splitDays = [], exerciseIndex = new Map(), workou
   const related = (day, muscle) =>
     day.exercises.filter((item) => {
       const exercise = exerciseIndex.get(item.exerciseId);
-      return GROUPS[exercise?.muscle] === GROUPS[muscle] || indirectMuscles(exercise).includes(muscle);
+      return GROUPS[groupOf(exercise)] === GROUPS[muscle] || secondaryGroups(exercise).includes(muscle);
     }).length;
   // The best day to add a muscle's work to, with room left: one that trains
   // related muscles, preferably not this one yet (a second weekly session).
@@ -1547,7 +1566,7 @@ export function analyzeSplit({ splitDays = [], exerciseIndex = new Map(), workou
       if (day === avoid || direct(m, day, muscle) >= SESSION_CAP) continue;
       for (const item of day.exercises) {
         const exercise = exerciseIndex.get(item.exerciseId);
-        if (lifting(exercise) && exercise.muscle === muscle && trackOf(exercise) === "strength" && fits(exercise) && setsOf(item) < MAX_EXERCISE_SETS) options.push({ day, item });
+        if (lifting(exercise) && groupOf(exercise) === muscle && trackOf(exercise) === "strength" && fits(exercise) && setsOf(item) < MAX_EXERCISE_SETS) options.push({ day, item });
       }
     }
     options.sort((a, b) => direct(m, a.day, muscle) - direct(m, b.day, muscle) || setsOf(a.item) - setsOf(b.item));
@@ -1571,7 +1590,7 @@ export function analyzeSplit({ splitDays = [], exerciseIndex = new Map(), workou
     let left = count;
     for (const item of day.exercises) {
       const exercise = exerciseIndex.get(item.exerciseId);
-      if (exercise?.muscle !== muscle || trackOf(exercise) !== "strength") continue;
+      if (groupOf(exercise) !== muscle || trackOf(exercise) !== "strength") continue;
       while (left > 0 && setsOf(item) < MAX_EXERCISE_SETS) {
         item.targetSets = setsOf(item) + 1;
         left -= 1;
@@ -1587,7 +1606,7 @@ export function analyzeSplit({ splitDays = [], exerciseIndex = new Map(), workou
   // One set fewer, from the isolation exercise with the most sets first.
   const removeSet = (day, muscle, priority, why, source) => {
     const item = day.exercises
-      .filter((candidate) => exerciseIndex.get(candidate.exerciseId)?.muscle === muscle && setsOf(candidate) > 2)
+      .filter((candidate) => groupOf(exerciseIndex.get(candidate.exerciseId)) === muscle && setsOf(candidate) > 2)
       .sort((a, b) => Number(isCompound(exerciseIndex.get(a.exerciseId))) - Number(isCompound(exerciseIndex.get(b.exerciseId))) || setsOf(b) - setsOf(a))[0];
     if (!item) return false;
     item.targetSets = setsOf(item) - 1;
@@ -1603,7 +1622,7 @@ export function analyzeSplit({ splitDays = [], exerciseIndex = new Map(), workou
     for (let guard = 0; guard < 30; guard += 1) {
       const m = measureSplit(plan, exerciseIndex);
       if ((m.weekly.get(muscle) || 0) <= VOLUME_RANGE[1]) break;
-      const day = [...training].sort((a, b) => direct(m, b, muscle) - direct(m, a, muscle)).find((d) => d.exercises.some((item) => exerciseIndex.get(item.exerciseId)?.muscle === muscle && setsOf(item) > 2));
+      const day = [...training].sort((a, b) => direct(m, b, muscle) - direct(m, a, muscle)).find((d) => d.exercises.some((item) => groupOf(exerciseIndex.get(item.exerciseId)) === muscle && setsOf(item) > 2));
       if (!day || !removeSet(day, muscle, 5, why, "Baz-Valle et al., 2022; Pelland et al., 2024")) break;
     }
   }
@@ -1662,7 +1681,7 @@ export function analyzeSplit({ splitDays = [], exerciseIndex = new Map(), workou
 
   // 6. Exercise selection: swap toward lengthened-position exercises.
   for (const rule of LENGTHENED) {
-    const items = training.flatMap((day) => day.exercises.map((item) => ({ day, item, exercise: exerciseIndex.get(item.exerciseId) }))).filter(({ exercise }) => exercise?.muscle === rule.muscle);
+    const items = training.flatMap((day) => day.exercises.map((item) => ({ day, item, exercise: exerciseIndex.get(item.exerciseId) }))).filter(({ exercise }) => groupOf(exercise) === rule.muscle);
     if (!items.length || items.some(({ exercise }) => rule.strong.test(exercise.name))) continue;
     const pick = items.filter(({ exercise }) => rule.weak.test(exercise.name)).sort((a, b) => setsOf(a.item) - setsOf(b.item))[0];
     const target = pick && byName(rule.to(pick.exercise));
