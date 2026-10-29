@@ -328,10 +328,15 @@ export function plateBreakdown(target, { bar = 45, plates = PLATES.lb } = {}) {
   return { bar, perSide, loaded, leftover: round3(weight - loaded) };
 }
 
+// The bar under the plates: plate-loaded machines start at zero.
+export const barFor = (equipment, bar) => (equipment === "plate loaded" ? 0 : bar);
+
 // The nearest weight you can actually load: bar + pairs of the smallest plate
-// for barbells, otherwise a multiple of your weight jump.
+// for barbells and plate-loaded machines, otherwise a multiple of your weight
+// jump.
 export function roundLoadable(weight, { equipment, bar = 45, plates = PLATES.lb, step = 5 } = {}) {
-  if (equipment === "barbell") {
+  if (equipment === "barbell" || equipment === "plate loaded") {
+    bar = barFor(equipment, bar);
     const pair = 2 * Math.min(...plates);
     return Math.max(bar, round3(bar + Math.round((weight - bar) / pair) * pair));
   }

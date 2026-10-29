@@ -293,7 +293,7 @@ export function Settings() {
         </Card>
       </Section>
 
-      <Section footer="Used by the plate calculator and barbell warm-ups. Turn off plates your gym doesn't have." title="Barbell">
+      <Section footer="Used by the plate calculator and barbell warm-ups. Plate-loaded machines use the same plates with no bar. Turn off plates your gym doesn't have." title="Barbell">
         <Card className="flex flex-col gap-4 p-4">
           <div className="flex items-center justify-between gap-3">
             <span className="text-[15.5px] font-medium">Bar</span>

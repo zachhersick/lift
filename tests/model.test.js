@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   bodyweightId, cardioSeconds, dailyVolume, dateKey, defaultWeeklyGoal, e1rm, FIELDS, isComplete, setDistance, trackOf, exerciseHistory, isPersonalRecord, movingAverage, muscleSets, nextInSuperset,
-  nextSplitDay, personalRecords, placeholderFor, plateBreakdown, previousEntry, previousSession, restsAfter, roundLoadable,
+  barFor, nextSplitDay, personalRecords, placeholderFor, plateBreakdown, previousEntry, previousSession, restsAfter, roundLoadable,
   analyzeSplit, applySplitEdit, inferredSecondary, liftsThisWeek, REVIEW_MIN_LIFTS, coachingContext, exerciseInUse, stepProgress, workoutSteps, indirectMuscles, splitWeeklySets, dailyIntake, dateKeyIn, fromDateKey, insights, mealMicro, MICROS, microAverages, dayTotals, estimateMaintenance, nutritionTargets, rateStatus, shiftDateKey, weightRate,
   splitDiff, startOfWeek, suggestion, supersetLabels, trend, warmupSets, weekStreak, weekSummary, workoutFromDay, workoutVolume
 } from "../src/lib/model.js";
@@ -148,6 +148,10 @@ test('loadable rounding and warm-up ramps', () => {
   assert.deepEqual(warmupSets(95, { equipment: 'barbell' }), [{ weight: 45, reps: 10 }, { weight: 55, reps: 5 }, { weight: 75, reps: 3 }], 'duplicates of the bar are dropped');
   assert.deepEqual(warmupSets(10, { equipment: 'dumbbell', step: 5 }), [{ weight: 5, reps: 8 }], 'nothing at or above working weight');
   assert.deepEqual(warmupSets(0, {}), []);
+  assert.equal(roundLoadable(91, { equipment: 'plate loaded' }), 90, 'plates with no bar');
+  assert.equal(roundLoadable(3, { equipment: 'plate loaded' }), 5);
+  assert.deepEqual(warmupSets(180, { equipment: 'plate loaded' }), [{ weight: 70, reps: 8 }, { weight: 110, reps: 5 }, { weight: 145, reps: 3 }], 'no empty-bar set');
+  assert.deepEqual(plateBreakdown(180, { bar: barFor('plate loaded', 45) }).perSide, [45, 45]);
 });
 
 test('superset labels, rest and next exercise', () => {

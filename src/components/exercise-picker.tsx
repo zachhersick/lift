@@ -202,7 +202,7 @@ function ExerciseFields({ value, onChange, trackLocked, autoFocus, nameLocked }:
           <input aria-label="Exercise name" autoFocus={autoFocus} className="w-full bg-transparent text-[17px] outline-none placeholder:text-muted-foreground" onChange={(e) => set({ name: e.currentTarget.value })} placeholder="Name, e.g. Cable Y-Raise" value={value.name} />
         )}
       </Card>
-      <Section footer="Every set counts toward this muscle's weekly sets in the Coach and split analysis. Barbell lifts get plate math and a bar warm-up." title="Primary muscle">
+      <Section footer="Every set counts toward this muscle's weekly sets in the Coach and split analysis. Barbell and plate-loaded lifts get plate math." title="Primary muscle">
         <div className="flex flex-wrap gap-2">
           {MUSCLES.map((m: string) => (
             <Chip key={m} on={value.muscle === m} onClick={() => set({ muscle: m, secondary: value.secondary.filter((x) => x !== m) })}>

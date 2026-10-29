@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { closePad, currentValue, FIELD, locate, next, pad, press } from "@/lib/keypad.js";
-import { exerciseName, settings } from "@/lib/store.js";
+import { exerciseIndex, exerciseName, settings } from "@/lib/store.js";
 import { haptic } from "@/lib/haptics.js";
 import * as format from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
@@ -144,7 +144,7 @@ export function Keypad() {
           ) : null}
         </AnimatePresence>
       </div>
-      <PlatesSheet onClose={() => setPlates(false)} open={plates} weight={target ? currentValue(target) : 0} />
+      <PlatesSheet equipment={found ? exerciseIndex.value.get(found.entry.exerciseId)?.equipment : undefined} onClose={() => setPlates(false)} open={plates} weight={target ? currentValue(target) : 0} />
     </>,
     document.body
   );

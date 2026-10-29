@@ -2,7 +2,7 @@
 // not in the database; only exercises you create (or edit) are stored.
 
 export const MUSCLES = ["chest", "back", "shoulders", "biceps", "triceps", "forearms", "quads", "hamstrings", "glutes", "calves", "core", "full body", "cardio"];
-export const EQUIPMENT = ["barbell", "dumbbell", "machine", "cable", "bodyweight", "smith", "kettlebell", "band", "other"];
+export const EQUIPMENT = ["barbell", "dumbbell", "machine", "plate loaded", "cable", "bodyweight", "smith", "kettlebell", "band", "other"];
 
 const LIST = [
   // chest
