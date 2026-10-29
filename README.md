@@ -1,6 +1,6 @@
 # Lift
 
-A workout tracker for your gym split. Log the sets, weight and reps for every exercise on each day of a rotating split, see last time's numbers next to every set, and watch your progress chart over time. It runs at **lift.zachhersick.com** and installs on the iPhone home screen like an app. You don't need the Apple Developer Program, and nothing expires.
+A workout tracker for your gym split. Log the sets, weight and reps for every exercise on each day of a rotating split, see last time's numbers next to every set, and watch your progress chart over time. It runs on Vercel for the people you invite, and installs on the iPhone home screen like an app. You don't need the Apple Developer Program, and nothing expires.
 
 ## What it does
 
@@ -64,13 +64,31 @@ The look is dark-first and layered: glass surfaces, your accent color as soft gr
 - **History** has a calendar and every workout. A workout's summary compares volume, sets and time with your last session of the same day, and lists its PRs.
 - **Progress** has a training-volume card (upper body, lower body, core; 7/30/90 days) and lists each exercise with a sparkline and trend. The exercise page swipes between charts of estimated 1RM (Epley), heaviest set, volume and reps over 1M/3M/1Y/All, with PRs, best reps at each weight, every session and the exercise's note. Tap **Edit** on an exercise (or **Edit exercise** in a workout's ⋯ menu) to fix its name, muscle group or equipment, e.g. a custom exercise saved as chest that should be triceps. The change applies everywhere, past workouts included. Built-ins can be reset, and the tracking type locks once sets are logged. **Bodyweight** has its own chart with a 7-day average.
 - **Split**: start from a template or build your own. Drag days and exercises to reorder, add rest days, set each exercise's sets, rep range, rest and supersets, and pick from ~100 built-in exercises or your own.
-- **Settings**: sync, theme and accent color, weekly goal, nutrition goal and targets, the ChatGPT connector, lb/kg and weight jump, bar weight and available plates, default rest and sound, and JSON **Export/Import** backups.
+- **Settings**: your account (and, for admins, **People**: the invite list and VIPs), theme and accent color, weekly goal, nutrition goal and targets, the ChatGPT connector, lb/kg and weight jump, bar weight and available plates, default rest and sound, and JSON **Export/Import** backups.
 
 ## How data is stored
 
 The phone is the source of truth while you train. Every tap is saved right away to IndexedDB on the device, so the app works with no signal at the gym. When you're signed in, changes sync to Postgres two seconds after you make them, plus on open, when you reconnect, and every minute. Each record (exercise, split day, workout, bodyweight, meal, settings) merges on its own, and the newest edit wins. A device that finds the server database empty sends everything it has again.
 
 Without signing in, the app still works fully, but only on that device.
+
+### Accounts
+
+An account is a verified email address. People sign in with **Google** or **GitHub**, and both reach the same account when the email matches.
+
+**Who can sign in:**
+- Admins, listed in `ADMIN_EMAILS`. They manage **People** in Settings.
+- Anyone an admin adds to the invite list. Lift doesn't send emails, so send them the link.
+- Anyone at all, if `OPEN_SIGNUP=1` is set.
+
+**What accounts control:**
+- **VIP**, toggled per person, adds the weekly AI review. It's written once they've logged 3 lifting sessions in the last 7 days.
+- **Removing someone** signs them out at once. Their data is kept, so adding them back restores it.
+
+**How data is kept apart:**
+- On the server, each account's records are separate.
+- On a shared device, each account keeps its own on-device database, so people never see each other's data.
+- Signing out shows an empty guest view and keeps your data on the device for when you sign back in.
 
 ## Run it locally
 
@@ -81,26 +99,37 @@ npm test
 npm run build      # production build in dist/; npm run preview serves it
 ```
 
-Locally it uses an in-memory database, **Sign in** skips GitHub, and the service worker is off so every reload gets the latest code (add `?sw` to the URL to test offline mode).
+Locally it uses an in-memory database, and **Sign in** skips Google and GitHub: you're the admin `dev@lift.test`. Use `/api/auth/login?provider=dev&as=friend@example.com` to try an invited account. The service worker is off so every reload gets the latest code (add `?sw` to the URL to test offline mode).
 
-## Put it on lift.zachhersick.com (one-time)
+## Deploy (one-time)
 
-Same setup as Jarvis: a Vercel project with Neon Postgres and GitHub sign-in for one account.
+A Vercel project with Neon Postgres, with sign-in through Google and/or GitHub. The examples use `https://lift.example.com`; use your own domain.
 
-1. Push this folder to a private GitHub repo (for example `zachhersick/lift`).
-2. In Vercel, **Add New → Project** and import the repo (framework preset **Other**; the build settings come from `vercel.json`). Under **Settings → Domains** add `lift.zachhersick.com`.
-3. **Storage → Marketplace → Neon** on that project. This sets `DATABASE_URL`, and the table is created on first use.
-4. Create a GitHub OAuth app (GitHub **Settings → Developer settings → OAuth Apps → New**):
-   - Homepage URL: `https://lift.zachhersick.com`
-   - Callback URL: `https://lift.zachhersick.com/api/auth/callback`
+1. Push this folder to a private GitHub repo.
+2. In Vercel, **Add New → Project** and import the repo. Choose the framework preset **Other**; the build settings come from `vercel.json`. Under **Settings → Domains** add your domain.
+3. **Storage → Marketplace → Neon** on that project. This sets `DATABASE_URL`. The tables are created on first use.
+4. Set up at least one sign-in provider:
+   - **Google:** in Google Cloud Console, go to **APIs & Services → Credentials → Create credentials → OAuth client ID** and choose **Web application**.
+     - Authorized redirect URI: `https://lift.example.com/api/auth/google/callback`.
+     - First set up the OAuth consent screen. While it's in **Testing**, add each person as a test user, or publish it. The `email` and `profile` scopes need no Google review.
+   - **GitHub:** in GitHub, go to **Settings → Developer settings → OAuth Apps → New**.
+     - Homepage URL: `https://lift.example.com`.
+     - Callback URL: `https://lift.example.com/api/auth/callback`.
 5. In Vercel **Settings → Environment Variables**, add these, then **Redeploy**:
 
 | Variable | Value |
 | --- | --- |
-| `APP_URL` | `https://lift.zachhersick.com` |
-| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | from the OAuth app |
-| `ALLOWED_GITHUB_ID` | your numeric GitHub id (`gh api user --jq .id`) |
-| `SESSION_SECRET` | 32+ random characters (`node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`) |
+| `APP_URL` | `https://lift.example.com` |
+| `ADMIN_EMAILS` | Comma-separated admin emails. The first one owns any data from before accounts existed. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | From the Google OAuth client. |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | From the GitHub OAuth app. |
+| `SESSION_SECRET` | 32+ random characters (`node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`). |
+
+**Upgrading from the single-user version:**
+1. Set `ADMIN_EMAILS` with your own email first. Use the primary verified email on your GitHub account, or your Google email.
+2. Remove `ALLOWED_GITHUB_ID`.
+
+On first use, existing records move to that first admin. Everyone signs in once, and ChatGPT needs reconnecting once.
 
 Optional:
 
@@ -108,7 +137,8 @@ Optional:
 | --- | --- |
 | `MCP_TOKEN_VERSION` | Change it (e.g. `1` → `2`) to disconnect ChatGPT immediately. |
 | `OAUTH_REDIRECT_HOSTS` | Comma-separated hosts the connector may redirect to. Defaults to `chatgpt.com,chat.openai.com`. |
-| `ANTHROPIC_API_KEY` | Turns on the weekly AI review: one Claude call a week, a few cents. Without it, the rule-based Coach still works. |
+| `ANTHROPIC_API_KEY` | Turns on the weekly AI review for VIPs: one Claude call a week each, a few cents. Without it, the rule-based Coach still works. |
+| `OPEN_SIGNUP` | `1` lets anyone with a Google or GitHub account sign in, not just invitees. |
 
 Sessions last 30 days. Every write from the app needs the session cookie, a JSON body and an `Origin` header that matches `APP_URL`.
 
@@ -119,9 +149,9 @@ Lift is a ChatGPT **connector** (an MCP server at `/api/mcp`). Once it's connect
 1. In ChatGPT open **Settings → Apps & Connectors → Advanced settings** and turn on **Developer mode**. It needs a plan that offers it, and the menu names may shift.
 2. **Create** a connector:
    - Name: Lift.
-   - URL: `https://lift.zachhersick.com/api/mcp` (also shown in Lift's Settings, with a Copy button).
+   - URL: `https://lift.example.com/api/mcp` (also shown in Lift's Settings, with a Copy button).
    - Authentication: **OAuth**.
-3. ChatGPT opens Lift's approval page. Sign in with GitHub if asked, then tap **Allow**. Only the account in `ALLOWED_GITHUB_ID` can approve.
+3. ChatGPT opens Lift's approval page. Sign in if asked, then tap **Allow**. The connector reads and writes only the account that approved it. Anyone with a Lift account can connect their own ChatGPT.
 4. In your **Health** project, add an instruction along these lines:
 
    > When I confirm what I ate, log it to Lift with `log_meal` (best-estimate calories, protein, carbs, fat, fiber, the items, and in `micros` any micronutrients you can estimate reliably, such as sodium, potassium, calcium, iron, magnesium and vitamins; pass a unique `ref`). Never log planned meals. Before suggesting what to eat, check `get_day`. For training or diet advice, read `get_coaching_context` first.
@@ -141,12 +171,13 @@ Meals are dated in your time zone (the app tells the server which one) and reach
 How the connection is secured:
 
 - ChatGPT gets a one-hour access token and a 60-day refresh token.
-- Both are signed with `SESSION_SECRET`, and every code and refresh token works only once.
+- Both are signed with `SESSION_SECRET` and bound to your account, and every code and refresh token works only once.
+- Removing someone from the invite list cuts off their connector too.
 - The connector can read and change meals and read summaries, but it can't touch your workouts.
 
 ## Install on the iPhone
 
-Open **lift.zachhersick.com** in Safari, sign in with GitHub, then **Share → Add to Home Screen**. It opens full screen with its own icon and keeps working offline. New deploys update it automatically the next time you open it twice.
+Open your Lift address in Safari, sign in from Settings, then **Share → Add to Home Screen**. It opens full screen with its own icon and keeps working offline. New deploys update it automatically the next time you open it twice.
 
 The one iOS limit: a home-screen web app can't play a sound while it's in the background. The rest timer beeps if Lift is on screen, and since the screen stays on during a workout, that's normally the case.
 
@@ -154,7 +185,7 @@ The one iOS limit: a home-screen web app can't play a sound while it's in the ba
 
 ```
 api/index.js                Vercel function; every /api/* and /.well-known/* request lands here
-server/                     auth (GitHub OAuth, signed cookie), sync API, Neon/memory store,
+server/                     auth (Google/GitHub OAuth, signed cookie), accounts and invites, sync API, Neon/memory store,
                             oauth.js + mcp.js (the ChatGPT connector), coach.js (weekly AI review)
 index.html, vite.config.ts  Vite entry; the config also mounts the API for dev/preview and builds the service worker
 src/lib/                    model.js (pure, tested logic), store/db/sync (IndexedDB + signals + sync), keypad, timer, theme

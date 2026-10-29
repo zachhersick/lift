@@ -1,8 +1,9 @@
 // OAuth 2.1 for the ChatGPT connector. Lift is its own small authorization
-// server: ChatGPT registers itself, you approve once while signed in with
-// GitHub, and ChatGPT gets short-lived bearer tokens for /api/mcp. Client
-// ids, codes and tokens are all signed with SESSION_SECRET; the only thing
-// stored is which one-time codes and refresh tokens were already used.
+// server: ChatGPT registers itself, you approve once while signed in to
+// Lift, and ChatGPT gets short-lived bearer tokens for /api/mcp, bound to
+// your account (email). Client ids, codes and tokens are all signed with
+// SESSION_SECRET; the only thing stored is which one-time codes and refresh
+// tokens were already used.
 import { createHash, randomBytes } from "node:crypto";
 import { safeEqual, sign } from "./auth.js";
 import { httpError } from "./http.js";
@@ -138,37 +139,48 @@ function tokenPair(sub, clientHash, config, oauth, now) {
 const grantError = (error, description) => Object.assign(httpError(400, description || error), { oauth: error });
 
 // The token endpoint: trade a code (with its PKCE verifier) or a refresh
-// token for a new access token and refresh token. Both are single use.
-export async function exchangeToken(body, { config, oauth, store, now = Date.now() }) {
+// token for a new access token and refresh token. Both are single use, and
+// only for an account that may still sign in (`allowed`).
+export async function exchangeToken(body, { config, oauth, store, allowed, now = Date.now() }) {
   const clientHash = body.client_id ? sha256(String(body.client_id)) : null;
   if (body.grant_type === "authorization_code") {
     const code = unseal("code", body.code, config.sessionSecret, now);
     if (!code) throw grantError("invalid_grant", "The code is invalid or expired.");
     if ((clientHash && code.c !== clientHash) || code.r !== String(body.redirect_uri || code.r)) throw grantError("invalid_grant", "The code was issued to another client.");
     if (!body.code_verifier || !safeEqual(sha256(String(body.code_verifier)), code.ch)) throw grantError("invalid_grant", "PKCE verification failed.");
-    if (code.sub !== config.allowedGithubId) throw grantError("invalid_grant", "That account isn't allowed.");
+    if (!(await allowed(code.sub))) throw grantError("invalid_grant", "That account isn't allowed.");
     if (!(await store.claim(`code:${code.j}`, code.exp, now))) throw grantError("invalid_grant", "The code was already used.");
     return tokenPair(code.sub, code.c, config, oauth, now);
   }
   if (body.grant_type === "refresh_token") {
     const token = unseal("refresh", body.refresh_token, config.sessionSecret, now);
-    if (!token || token.v !== oauth.tokenVersion || token.sub !== config.allowedGithubId || (clientHash && token.c !== clientHash)) throw grantError("invalid_grant", "Sign in again.");
+    if (!token || token.v !== oauth.tokenVersion || (clientHash && token.c !== clientHash) || !(await allowed(token.sub))) throw grantError("invalid_grant", "Sign in again.");
     if (!(await store.claim(`refresh:${token.j}`, token.exp, now))) throw grantError("invalid_grant", "That refresh token was already used.");
     return tokenPair(token.sub, token.c, config, oauth, now);
   }
   throw grantError("unsupported_grant_type");
 }
 
-// The user behind a bearer token on /api/mcp, or null.
+// The token behind a bearer header on /api/mcp, or null. `token.sub` is the
+// account; app.js checks it may still sign in.
 export function readBearer(header, { config, oauth, now = Date.now() }) {
   const match = /^Bearer\s+(\S+)$/i.exec(String(header || ""));
   if (!match) return null;
   const token = unseal("access", match[1], config.sessionSecret, now);
-  if (!token || token.v !== oauth.tokenVersion || token.sub !== config.allowedGithubId) return null;
+  if (!token || token.v !== oauth.tokenVersion) return null;
   return token;
 }
 
 const escape = (text) => String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+const PROVIDER_NAMES = { google: "Google", github: "GitHub", dev: "Dev account" };
+
+// The sign-in choice when connecting from ChatGPT: one link per provider,
+// coming back to the approval page afterwards.
+export function signInPage({ providers, next }) {
+  const links = providers.map((provider) => `<a class="button" href="/api/auth/login?${escape(new URLSearchParams({ provider, next }).toString())}">Continue with ${PROVIDER_NAMES[provider] || provider}</a>`).join("");
+  return shell("Sign in", `<h1>Sign in to Lift</h1><p>Sign in to connect ChatGPT to your Lift account.</p><div class="stack">${links}</div>`);
+}
 
 // The approval page. No scripts: two buttons in a same-origin form.
 export function consentPage({ request, login, error }) {
@@ -188,14 +200,19 @@ export function consentPage({ request, login, error }) {
 <p class="muted">It can't see or change your workouts. Disconnect any time in ChatGPT's settings.</p>
 <form method="post" action="/api/oauth/authorize">${hidden}<input type="hidden" name="response_type" value="code">
 <button name="decision" value="allow">Allow</button><button name="decision" value="deny" class="secondary">Cancel</button></form>`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lift · Connect</title>
+  return shell("Connect", body);
+}
+
+function shell(title, body) {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lift · ${title}</title>
 <style>
 :root{color-scheme:light dark;--bg:#f5f6f8;--card:#fff;--fg:#0b0c0e;--muted:#6b7079;--tint:#3b82f6;--line:rgba(15,17,22,.08)}
 @media (prefers-color-scheme:dark){:root{--bg:#07080a;--card:#111215;--fg:#f4f5f7;--muted:#8b909a;--line:rgba(255,255,255,.08)}}
 *{box-sizing:border-box}body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:16px;background:var(--bg);color:var(--fg);font:16px/1.45 -apple-system,system-ui,"Segoe UI",sans-serif}
 main{width:100%;max-width:420px;background:var(--card);border:1px solid var(--line);border-radius:28px;padding:28px 24px}
 h1{font-size:24px;line-height:1.2;letter-spacing:-.02em;margin:0 0 12px}ul{padding-left:20px;margin:8px 0 12px}li{margin:4px 0}.muted{color:var(--muted);font-size:14px}
-form{display:flex;flex-direction:column;gap:10px;margin-top:20px}button{height:50px;border:0;border-radius:16px;font:600 16px/1 inherit;background:var(--tint);color:#fff}
+form,.stack{display:flex;flex-direction:column;gap:10px;margin-top:20px}button,.button{height:50px;border:0;border-radius:16px;font:600 16px/1 inherit;background:var(--tint);color:#fff}
+.button{display:grid;place-items:center;text-decoration:none}
 button.secondary{background:transparent;color:var(--tint)}
 </style></head><body><main>${body}</main></body></html>`;
 }

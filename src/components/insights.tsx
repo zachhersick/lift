@@ -7,8 +7,8 @@ import { motion } from "motion/react";
 import { type ComponentType, useEffect, useRef, useState } from "react";
 import { Card, FadeIn, Section } from "@/components/kit";
 import { Button } from "@/components/ui/button";
-import { fromDateKey, VOLUME_RANGE } from "@/lib/model.js";
-import { applyRemote, coach, coachReviews } from "@/lib/store.js";
+import { fromDateKey, liftsThisWeek, REVIEW_MIN_LIFTS, VOLUME_RANGE } from "@/lib/model.js";
+import { applyRemote, coach, coachReviews, sessions } from "@/lib/store.js";
 import { sync } from "@/lib/sync.js";
 import * as format from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
@@ -97,6 +97,8 @@ export function WeeklyReview() {
   const state = useValue(sync) as any;
   const reviews = useValue(coachReviews) as any[];
   const { headline } = useValue(coach) as { headline: Insight | null };
+  const lifts = liftsThisWeek(useValue(sessions) as any[]);
+  const enough = lifts >= REVIEW_MIN_LIFTS;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const latest = reviews[0];
@@ -117,13 +119,14 @@ export function WeeklyReview() {
     }
   };
 
-  // A fresh review once a week, written when you open Fuel.
+  // A fresh review once a week, written when you open the Coach, for VIPs
+  // with enough lifting logged that week to review.
   const stale = !latest || Date.now() - fromDateKey(latest.date) >= WEEK;
   useEffect(() => {
-    if (tried.current || !state.coach || !state.user || !stale || !headline || navigator.onLine === false) return;
+    if (tried.current || !state.coach || !state.user || !stale || !enough || !headline || navigator.onLine === false) return;
     tried.current = true;
     write();
-  }, [state.coach, state.user, stale, headline]);
+  }, [state.coach, state.user, stale, enough, headline]);
 
   if (!state.coach && !latest) return null;
   return (
@@ -139,8 +142,13 @@ export function WeeklyReview() {
         {busy && !latest ? <p className="text-[14.5px] text-muted-foreground">Reading your last six weeks…</p> : null}
         {latest ? <ReviewText text={latest.text} /> : !busy ? <p className="text-[14.5px] text-muted-foreground">Claude reads your training, meals and weigh-ins and writes what to change this week.</p> : null}
         {error ? <p className="text-[13.5px] text-destructive">{error}</p> : null}
+        {state.coach && !enough ? (
+          <p className="text-[13.5px] text-muted-foreground">
+            Log {REVIEW_MIN_LIFTS} lifts this week for {latest ? "a new" : "your"} review ({lifts}/{REVIEW_MIN_LIFTS}).
+          </p>
+        ) : null}
         {state.coach ? (
-          <Button disabled={busy || !state.user} onClick={write} size="sm" variant="tinted">
+          <Button disabled={busy || !state.user || !enough} onClick={write} size="sm" variant="tinted">
             <RefreshCw className={cn("size-4", busy && "animate-spin")} /> {busy ? "Writing…" : latest ? "Write a new review" : "Write this week's review"}
           </Button>
         ) : null}

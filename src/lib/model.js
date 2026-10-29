@@ -793,6 +793,14 @@ export function liftProgress(workouts, exerciseIndex = null, { now = Date.now(),
   return rows;
 }
 
+// Lifting sessions in the last 7 days: finished, not a rest day, with at
+// least one completed working set. The weekly AI review waits for
+// REVIEW_MIN_LIFTS of them, so there's a week of training to review.
+export const REVIEW_MIN_LIFTS = 3;
+export function liftsThisWeek(workouts, now = Date.now()) {
+  return finished(workouts).filter((workout) => !workout.rest && workout.startedAt > now - 7 * DAY_MS && workout.startedAt <= now && (workout.entries || []).some((entry) => workingSets(entry).length)).length;
+}
+
 // ---------- coaching context ----------
 
 // A compact picture of the last few weeks of eating and training: what the

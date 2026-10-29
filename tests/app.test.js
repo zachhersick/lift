@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { cleanChanges, createApp } from "../server/app.js";
-import { MemoryStore } from "../server/store.js";
+import { MemoryStore, NeonStore } from "../server/store.js";
 import { createSession, SESSION_COOKIE } from "../server/auth.js";
 
 const SECRET = "test-secret-that-is-at-least-32-chars-long";
 const ORIGIN = "https://lift.example.com";
-const env = { APP_URL: ORIGIN, SESSION_SECRET: SECRET, ALLOWED_GITHUB_ID: "42", GITHUB_CLIENT_ID: "id", GITHUB_CLIENT_SECRET: "secret" };
+const env = { APP_URL: ORIGIN, SESSION_SECRET: SECRET, ADMIN_EMAILS: "zach@example.com", GITHUB_CLIENT_ID: "id", GITHUB_CLIENT_SECRET: "secret" };
 
 function request(app, { method = "GET", path, body, cookie, origin = ORIGIN, form, headers = {} }) {
   const raw = form ? new URLSearchParams(form).toString() : body === undefined ? null : JSON.stringify(body);
@@ -38,14 +38,15 @@ function request(app, { method = "GET", path, body, cookie, origin = ORIGIN, for
   });
 }
 
-const signedIn = `${SESSION_COOKIE}=${encodeURIComponent(createSession({ id: 42, login: "zach" }, SECRET))}`;
+const sessionFor = (email) => `${SESSION_COOKIE}=${encodeURIComponent(createSession({ email, name: "" }, SECRET))}`;
+const signedIn = sessionFor("zach@example.com");
 const record = (id, updatedAt, extra = {}) => ({ id, kind: "workout", updatedAt, name: id, ...extra });
 
 test("sync needs a session and a same-origin request", async () => {
   const app = createApp({ store: new MemoryStore(), env });
   assert.equal((await request(app, { method: "POST", path: "/api/sync", body: {} })).status, 401);
   assert.equal((await request(app, { method: "POST", path: "/api/sync", body: {}, cookie: signedIn, origin: "https://evil.example" })).status, 403);
-  assert.equal((await request(app, { path: "/api/session", cookie: signedIn })).body.user.login, "zach");
+  assert.deepEqual((await request(app, { path: "/api/session", cookie: signedIn })).body.user, { email: "zach@example.com", name: "", admin: true, vip: true });
 });
 
 test("a second device pulls what the first pushed, and newest edit wins", async () => {
@@ -91,21 +92,127 @@ test("bad records are dropped and duplicate ids keep the newest", () => {
   assert.deepEqual(cleanChanges("nope"), []);
 });
 
-test("sign-in only lets the allowed GitHub account in", async () => {
-  const app = createApp({ store: new MemoryStore(), env: { ...env, LIFT_DEV_LOGIN: "1", ALLOWED_GITHUB_ID: "1" } });
-  const login = await request(app, { path: "/api/auth/login" });
-  assert.equal(login.status, 302);
-  assert.match(login.headers.location, /dev=1/);
-  const callback = await request(app, { path: "/api/auth/callback?dev=1" });
-  assert.equal(callback.headers.location, "/");
-  assert.ok(String(callback.headers["set-cookie"]).includes(SESSION_COOKIE));
+// A fake Google and GitHub: tokens for any code, and this profile.
+const providers = (profile) => async (url) => ({
+  ok: true,
+  json: async () => {
+    const at = String(url);
+    if (at.includes("access_token") || at.includes("oauth2.googleapis.com/token")) return { access_token: "t" };
+    if (at.endsWith("/user/emails")) return [{ email: "old@example.com", primary: false, verified: true }, { email: profile.email, primary: true, verified: profile.verified !== false }];
+    if (at.includes("api.github.com/user")) return { id: 7, login: "someone", name: profile.name };
+    return { email: profile.email, email_verified: profile.verified !== false, name: profile.name };
+  }
+});
+const googleEnv = { ...env, GOOGLE_CLIENT_ID: "gid", GOOGLE_CLIENT_SECRET: "gsecret" };
+const cookieFrom = (response, name) => [].concat(response.headers["set-cookie"] || []).find((c) => c.startsWith(`${name}=`))?.split(";")[0];
 
-  const real = createApp({ store: new MemoryStore(), env, fetchImpl: async (url) => ({
-    ok: true,
-    json: async () => (String(url).includes("access_token") ? { access_token: "t" } : { id: 7, login: "someone-else" })
-  }) });
-  const denied = await request(real, { path: "/api/auth/callback?code=x&state=bad" });
-  assert.match(denied.headers.location, /signin=expired/);
+// Starts sign-in with a provider and comes back from it with a code.
+async function signInWith(app, provider) {
+  const start = await request(app, { path: `/api/auth/login?provider=${provider}` });
+  const state = new URL(start.headers.location).searchParams.get("state");
+  const back = provider === "google" ? "/api/auth/google/callback" : "/api/auth/callback";
+  return request(app, { path: `${back}?code=c&state=${state}`, cookie: cookieFrom(start, "lift_oauth_state") });
+}
+
+test("Google and GitHub sign in by verified email, for admins and invitees only", async () => {
+  const store = new MemoryStore();
+  const as = (profile) => createApp({ store, env: googleEnv, fetchImpl: providers(profile) });
+
+  const google = await signInWith(as({ email: "Zach@Example.com", name: "Zach" }), "google");
+  assert.equal(google.headers.location, "/");
+  const session = cookieFrom(google, SESSION_COOKIE);
+  assert.equal((await request(as({}), { path: "/api/session", cookie: session })).body.user.email, "zach@example.com", "emails are lowercased");
+  const start = await request(as({}), { path: "/api/auth/login?provider=google" });
+  assert.match(start.headers.location, /^https:\/\/accounts\.google\.com\/.*scope=openid\+email\+profile/);
+  const github = await request(as({}), { path: "/api/auth/login?provider=github" });
+  assert.match(github.headers.location, /scope=user%3Aemail/);
+
+  const stranger = await signInWith(as({ email: "stranger@example.com" }), "github");
+  assert.match(stranger.headers.location, /signin=denied/);
+  const unverified = await signInWith(as({ email: "zach@example.com", verified: false }), "google");
+  assert.match(unverified.headers.location, /signin=failed/);
+  assert.match((await request(as({}), { path: "/api/auth/callback?code=x&state=bad" })).headers.location, /signin=expired/);
+
+  await store.putUser({ email: "friend@example.com", vip: false, createdAt: 1 });
+  const friend = await signInWith(as({ email: "friend@example.com", name: "Friend" }), "github");
+  assert.equal(friend.headers.location, "/", "an invitee signs in with GitHub's primary verified email");
+  assert.equal((await store.getUser("friend@example.com")).name, "Friend");
+  assert.ok((await store.getUser("friend@example.com")).lastSeenAt);
+
+  const open = createApp({ store, env: { ...googleEnv, OPEN_SIGNUP: "1" }, fetchImpl: providers({ email: "anyone@example.com" }) });
+  assert.equal((await signInWith(open, "google")).headers.location, "/", "open sign-up lets anyone in");
+
+  const choose = await request(as({}), { path: "/api/auth/login" });
+  assert.equal(choose.status, 200, "with two providers, the login page lets you choose");
+  assert.match(choose.body, /Continue with Google/);
+  assert.match(choose.body, /Continue with GitHub/);
+  assert.deepEqual((await request(as({}), { path: "/api/session" })).body.providers, ["google", "github"]);
+});
+
+test("old GitHub-id sessions are refused", async () => {
+  const app = createApp({ store: new MemoryStore(), env });
+  const payload = Buffer.from(JSON.stringify({ sub: "42", login: "zach", exp: Date.now() + 60_000 })).toString("base64url");
+  const { sign } = await import("../server/auth.js");
+  const old = `${SESSION_COOKIE}=${encodeURIComponent(`${payload}.${sign(payload, SECRET)}`)}`;
+  assert.equal((await request(app, { path: "/api/session", cookie: old })).body.signedIn, false);
+});
+
+test("each account has its own records, even with the same ids", async () => {
+  const store = new MemoryStore();
+  await store.putUser({ email: "friend@example.com", vip: false, createdAt: 1 });
+  const app = createApp({ store, env });
+  const friend = sessionFor("friend@example.com");
+  const settings = (goal) => ({ id: "settings", kind: "settings", updatedAt: 5, goal });
+  await request(app, { method: "POST", path: "/api/sync", cookie: signedIn, body: { since: 0, changes: [settings("cut"), record("w1", 100)] } });
+  const theirs = await request(app, { method: "POST", path: "/api/sync", cookie: friend, body: { since: 0, changes: [settings("leanBulk")] } });
+  assert.equal(theirs.body.accepted, 1, "the same id is a different record for another account");
+  assert.deepEqual(theirs.body.records.map((r) => [r.id, r.goal]), [["settings", "leanBulk"]], "only your own records come back");
+  const mine = await request(app, { method: "POST", path: "/api/sync", cookie: signedIn, body: { since: 0, changes: [] } });
+  assert.deepEqual(mine.body.records.map((r) => r.id).sort(), ["settings", "w1"]);
+  assert.equal(mine.body.records.find((r) => r.id === "settings").goal, "cut");
+
+  await store.removeUser("friend@example.com");
+  assert.equal((await request(app, { method: "POST", path: "/api/sync", cookie: friend, body: { since: 0, changes: [] } })).status, 401, "removing someone ends their session");
+});
+
+test("only admins manage the invite list and VIPs", async () => {
+  const store = new MemoryStore();
+  const app = createApp({ store, env });
+  const invite = (cookie, body, extra = {}) => request(app, { method: "POST", path: "/api/admin/users", cookie, body, ...extra });
+  const added = await invite(signedIn, { email: " Friend@Example.com ", vip: true });
+  assert.equal(added.status, 200);
+  const friend = added.body.users.find((u) => u.email === "friend@example.com");
+  assert.equal(friend.vip, true);
+  assert.equal(friend.invitedBy, "zach@example.com");
+  assert.ok(added.body.users.find((u) => u.email === "zach@example.com").admin, "admins are listed");
+
+  const friendCookie = sessionFor("friend@example.com");
+  assert.equal((await request(app, { path: "/api/admin/users", cookie: friendCookie })).status, 403);
+  assert.equal((await invite(friendCookie, { email: "x@example.com" })).status, 403);
+  assert.equal((await invite(signedIn, { email: "x@example.com" }, { origin: "https://evil.example" })).status, 403);
+  assert.equal((await invite(signedIn, { email: "not an email" })).status, 400);
+  assert.deepEqual((await request(app, { path: "/api/session", cookie: friendCookie })).body.user, { email: "friend@example.com", name: "", admin: false, vip: true });
+
+  const lowered = await invite(signedIn, { email: "friend@example.com", vip: false });
+  assert.equal(lowered.body.users.find((u) => u.email === "friend@example.com").vip, false);
+  assert.equal((await store.getUser("friend@example.com")).createdAt, friend.createdAt, "updating keeps when they were invited");
+  assert.equal((await request(app, { method: "POST", path: "/api/admin/users/remove", cookie: signedIn, body: { email: "zach@example.com" } })).status, 400, "admins can't be removed");
+  const removed = await request(app, { method: "POST", path: "/api/admin/users/remove", cookie: signedIn, body: { email: "friend@example.com" } });
+  assert.ok(!removed.body.users.some((u) => u.email === "friend@example.com"));
+});
+
+test("the Neon store moves pre-account records to the first admin", async () => {
+  const calls = [];
+  const fake = () => ({ query: async (text, params) => (calls.push({ text, params }), []) });
+  const store = new NeonStore("postgres://example", { neon: fake, legacyOwner: "zach@example.com" });
+  await store.forOwner("zach@example.com").listKind("meal");
+  const legacy = calls.find((c) => /set owner = \$1 where owner is null/.test(c.text));
+  assert.deepEqual(legacy.params, ["zach@example.com"]);
+  assert.ok(calls.findIndex((c) => c === legacy) < calls.findIndex((c) => /add primary key \(owner, id\)/.test(c.text)), "owners are filled in before the key changes");
+  assert.deepEqual(calls.at(-1).params, ["zach@example.com", "meal"], "queries are scoped to the owner");
+  const none = [];
+  await new NeonStore("postgres://example", { neon: () => ({ query: async (text, params) => (none.push(text), []) }) }).init();
+  assert.ok(!none.some((text) => /where owner is null/.test(text) && /update/.test(text)), "no legacy owner, no update");
 });
 
 test("dev sign-in is refused on Vercel", () => {
@@ -117,7 +224,8 @@ test("missing configuration is reported instead of half-working", async () => {
   const app = createApp({ store: new MemoryStore(), env: {} });
   const response = await request(app, { path: "/api/session" });
   assert.equal(response.status, 503);
-  assert.match(response.body.error, /APP_URL|appUrl/);
+  assert.match(response.body.error, /APP_URL/);
+  assert.match(response.body.error, /ADMIN_EMAILS/);
 });
 
 // ---------- ChatGPT connector ----------
@@ -172,20 +280,24 @@ test("only ChatGPT redirect addresses can register, and PKCE is required", async
   assert.equal(forged.status, 400);
 });
 
-test("approving goes through GitHub sign-in first, then a consent page", async () => {
-  const app = createApp({ store: new MemoryStore(), env: { ...env, LIFT_DEV_LOGIN: "1", ALLOWED_GITHUB_ID: "1" } });
+test("approving goes through sign-in first, then a consent page", async () => {
+  const app = createApp({ store: new MemoryStore(), env: { ...env, LIFT_DEV_LOGIN: "1" } });
   const client = (await register(app)).body.client_id;
   const anonymous = await request(app, { path: authorizePath(client) });
   assert.match(anonymous.headers.location, /^\/api\/auth\/login\?next=/);
-  const login = await request(app, { path: anonymous.headers.location });
+  const choose = await request(app, { path: anonymous.headers.location });
+  assert.match(choose.body, /Continue with GitHub/);
+  const devLink = /href="([^"]*provider=dev[^"]*)"/.exec(choose.body)[1].replace(/&amp;/g, "&");
+  const login = await request(app, { path: devLink });
   const nextCookie = [].concat(login.headers["set-cookie"])[0].split(";")[0];
-  const callback = await request(app, { path: "/api/auth/callback?dev=1", cookie: nextCookie });
+  const callback = await request(app, { path: new URL(login.headers.location, ORIGIN).pathname + new URL(login.headers.location, ORIGIN).search, cookie: nextCookie });
   assert.equal(callback.headers.location, authorizePath(client), "back to the approval page after sign-in");
 
   const session = [].concat(callback.headers["set-cookie"]).find((c) => c.startsWith(SESSION_COOKIE)).split(";")[0];
   const page = await request(app, { path: authorizePath(client), cookie: session });
   assert.equal(page.status, 200);
   assert.match(page.body, /Connect ChatGPT to Lift\?/);
+  assert.match(page.body, /zach@example\.com/, "the first admin, signed in by dev login");
   const crossSite = await request(app, { method: "POST", path: "/api/oauth/authorize", cookie: session, origin: "https://evil.example", form: approval(client) });
   assert.equal(crossSite.status, 403);
   const denied = await request(app, { method: "POST", path: "/api/oauth/authorize", cookie: session, form: approval(client, "deny") });
@@ -212,7 +324,7 @@ test("codes need the PKCE verifier and work once; refresh tokens rotate", async 
   assert.equal(reused.body.error, "invalid_grant", "a refresh token works once");
 });
 
-test("the MCP endpoint needs a valid token, and bumping the version or allowed account revokes it", async () => {
+test("the MCP endpoint needs a valid token, and bumping the version or removing the account revokes it", async () => {
   const store = new MemoryStore();
   const app = createApp({ store, env });
   const none = await rpc(app, null, "tools/list");
@@ -223,7 +335,7 @@ test("the MCP endpoint needs a valid token, and bumping the version or allowed a
   assert.equal((await rpc(app, "nope", "tools/list")).status, 401);
   const bumped = createApp({ store, env: { ...env, MCP_TOKEN_VERSION: "2" } });
   assert.equal((await rpc(bumped, tokens.access_token, "tools/list")).status, 401);
-  const otherAccount = createApp({ store, env: { ...env, ALLOWED_GITHUB_ID: "99" } });
+  const otherAccount = createApp({ store, env: { ...env, ADMIN_EMAILS: "someone@example.com" } });
   assert.equal((await rpc(otherAccount, tokens.access_token, "tools/list")).status, 401);
 });
 
@@ -273,6 +385,18 @@ test("ChatGPT logs meals that the phone then pulls, and retries don't double up"
   assert.equal(context.structuredContent.targets.calories, 2500);
 });
 
+test("ChatGPT reads and writes only the connected account's meals", async () => {
+  const store = new MemoryStore();
+  await store.putUser({ email: "friend@example.com", vip: false, createdAt: 1 });
+  const app = createApp({ store, env });
+  const { tokens } = await connect(app);
+  await callTool(app, tokens.access_token, "log_meal", { name: "Oats", calories: 400, protein: 20, carbs: 60, fat: 8, date: "2026-10-20" });
+  const friend = await request(app, { method: "POST", path: "/api/sync", cookie: sessionFor("friend@example.com"), body: { since: 0, changes: [] } });
+  assert.equal(friend.body.records.length, 0);
+  const mine = await request(app, { method: "POST", path: "/api/sync", cookie: signedIn, body: { since: 0, changes: [] } });
+  assert.equal(mine.body.records.filter((r) => r.kind === "meal").length, 1);
+});
+
 test("MCP notifications get no reply and unknown methods an error", async () => {
   const app = createApp({ store: new MemoryStore(), env });
   const { tokens } = await connect(app);
@@ -296,9 +420,20 @@ test("the weekly review asks Claude with fallbacks on and saves a synced record"
 
   const app = createApp({ store, env, anthropic });
   assert.equal((await request(app, { method: "POST", path: "/api/coach/review", cookie: signedIn, body: {}, origin: "https://evil.example" })).status, 403);
-  assert.equal((await request(app, { method: "POST", path: "/api/coach/review", cookie: signedIn, body: {} })).status, 409, "nothing logged yet");
+  const early = await request(app, { method: "POST", path: "/api/coach/review", cookie: signedIn, body: {} });
+  assert.equal(early.status, 409, "nothing logged yet");
+  assert.equal(early.body.error, "Log 3 lifts this week to get your review (0 so far).");
   const meal = { id: "m1", kind: "meal", updatedAt: 1, date: "2026-10-20", name: "Oats", calories: 600, protein: 40, carbs: 80, fat: 10 };
-  await request(app, { method: "POST", path: "/api/sync", cookie: signedIn, body: { since: 0, changes: [meal] } });
+  const lift = (i) => ({ id: `w${i}`, kind: "workout", updatedAt: 1, startedAt: Date.now() - (i + 1) * 86_400_000, finishedAt: Date.now() - i * 86_400_000, entries: [{ id: `e${i}`, exerciseId: "b_bench-press", sets: [{ id: `s${i}`, weight: 100, reps: 5, type: "working", done: true }] }] });
+  await request(app, { method: "POST", path: "/api/sync", cookie: signedIn, body: { since: 0, changes: [meal, lift(0), lift(1)] } });
+  assert.match((await request(app, { method: "POST", path: "/api/coach/review", cookie: signedIn, body: {} })).body.error, /\(2 so far\)/);
+  await request(app, { method: "POST", path: "/api/sync", cookie: signedIn, body: { since: 0, changes: [lift(2)] } });
+
+  await store.putUser({ email: "friend@example.com", vip: false, createdAt: 1 });
+  const friend = sessionFor("friend@example.com");
+  assert.equal((await request(app, { path: "/api/session", cookie: friend })).body.coach, false, "not a VIP");
+  assert.equal((await request(app, { method: "POST", path: "/api/coach/review", cookie: friend, body: {} })).status, 403);
+  assert.equal((await request(app, { path: "/api/session", cookie: signedIn })).body.coach, true);
 
   const response = await request(app, { method: "POST", path: "/api/coach/review", cookie: signedIn, body: {} });
   assert.equal(response.status, 200);

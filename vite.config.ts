@@ -5,20 +5,22 @@ import { VitePWA } from "vite-plugin-pwa";
 import { fileURLToPath, URL } from "node:url";
 
 // In development the API runs inside the Vite server: same code as the
-// Vercel function, an in-memory store and a "Sign in" that skips GitHub.
+// Vercel function, an in-memory store and a "Sign in" that skips Google and
+// GitHub: you're the admin dev@lift.test, and /api/auth/login?provider=dev&as=
+// someone@example.com signs in as an invited test account.
 function liftApi(): Plugin {
   const mount = async (middlewares: { use: (fn: (req: any, res: any, next: () => void) => void) => void }, port: number) => {
-    const { createApp } = await import("./server/app.js");
+    const { appConfig, createApp } = await import("./server/app.js");
     const { MemoryStore, NeonStore } = await import("./server/store.js");
     const env: Record<string, string | undefined> = {
       APP_URL: `http://localhost:${port}`,
       SESSION_SECRET: "local-development-secret-not-for-production",
-      ALLOWED_GITHUB_ID: "1",
+      ADMIN_EMAILS: "dev@lift.test",
       LIFT_DEV_LOGIN: "1",
       ...process.env
     };
     delete env.VERCEL;
-    const store = env.DATABASE_URL ? new NeonStore(env.DATABASE_URL) : new MemoryStore();
+    const store = env.DATABASE_URL ? new NeonStore(env.DATABASE_URL, { legacyOwner: appConfig(env).admins[0] }) : new MemoryStore();
     const app = createApp({ store, env });
     middlewares.use((req, res, next) => (req.url?.startsWith("/api/") || req.url?.startsWith("/.well-known/oauth-") ? app.handle(req, res) : next()));
   };
