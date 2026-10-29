@@ -3,6 +3,7 @@
 import { CalendarDays, ChevronUp, Dumbbell, GraduationCap, ListOrdered, Settings2, TrendingUp } from "lucide-react";
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { type ReactNode, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { AlertHost } from "@/components/alert-host";
 import { Islands } from "@/components/islands";
 import { Keypad } from "@/components/keypad";
@@ -49,7 +50,7 @@ function pageFor(page: string, id: string | null): ReactNode {
 function TabBar() {
   const { page } = useValue(route) as { page: string };
   return (
-    <nav aria-label="Main" className="pb-safe pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4">
+    <nav aria-label="Main" className="pb-safe pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 [transform:translateZ(0)]">
       <div className="glass pointer-events-auto mb-3 flex w-full max-w-md items-center justify-between rounded-full p-1.5 shadow-[0_16px_40px_-16px_rgba(0,0,0,0.55)]">
         {TABS.map((tab) => {
           const on = tab.match.includes(page);
@@ -125,12 +126,21 @@ export default function App() {
         </motion.main>
       </AnimatePresence>
 
-      {!inWorkout && r.page !== "today" ? (
-        <div className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+84px)] z-30 px-4">
-          <MiniPlayer />
-        </div>
-      ) : null}
-      {inWorkout ? <Keypad /> : <TabBar />}
+      {/* Portaled to <body> with static fixed shells, like the keypad: on iOS
+          a fixed bar under a transformed ancestor, or one whose content
+          animates, can end up scrolling with the page. */}
+      {createPortal(
+        <>
+          {!inWorkout && r.page !== "today" ? (
+            <div className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+84px)] z-30 px-4 [transform:translateZ(0)]">
+              <MiniPlayer />
+            </div>
+          ) : null}
+          {inWorkout ? null : <TabBar />}
+        </>,
+        document.body
+      )}
+      {inWorkout ? <Keypad /> : null}
       <Islands />
       <AlertHost />
     </MotionConfig>
