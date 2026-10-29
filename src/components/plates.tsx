@@ -1,6 +1,6 @@
 // The plate calculator: one sleeve of the bar with the plates sliding on.
 import { motion } from "motion/react";
-import { plateBreakdown } from "@/lib/model.js";
+import { barFor, plateBreakdown } from "@/lib/model.js";
 import { settings } from "@/lib/store.js";
 import * as format from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
@@ -45,17 +45,21 @@ export function Barbell({ perSide, plates }: { perSide: number[]; plates: number
   );
 }
 
-export function PlatesSheet({ open, onClose, weight }: { open: boolean; onClose: () => void; weight: number }) {
+// Plate-loaded machines use the same plates with no bar, so they start at 0.
+export function PlatesSheet({ open, onClose, weight, equipment }: { open: boolean; onClose: () => void; weight: number; equipment?: string }) {
   const s = useValue(settings);
-  const result = plateBreakdown(weight, { bar: s.barWeight, plates: s.plates });
+  const bar = barFor(equipment, s.barWeight);
+  const result = plateBreakdown(weight, { bar, plates: s.plates });
   const counts = new Map<number, number>();
   for (const plate of result.perSide) counts.set(plate, (counts.get(plate) || 0) + 1);
   const footer =
     result.leftover > 0
       ? `${format.weight(weight)} can't be loaded exactly with your plates. This loads ${format.weight(result.loaded)} ${s.unit}, ${format.weight(result.leftover)} ${s.unit} short.`
       : result.leftover < 0
-        ? `That's less than the ${format.weight(s.barWeight)} ${s.unit} bar.`
-        : `On a ${format.weight(s.barWeight)} ${s.unit} bar. Change the bar and plates in Settings.`;
+        ? `That's less than the ${format.weight(bar)} ${s.unit} bar.`
+        : bar
+          ? `On a ${format.weight(bar)} ${s.unit} bar. Change the bar and plates in Settings.`
+          : "Plate loaded, so no bar: the weight is just the plates. Change your plates in Settings.";
   return (
     <Sheet onClose={onClose} open={open} title={`${format.weight(weight)} ${s.unit}`}>
       <Card className="px-3 py-4">
@@ -63,7 +67,7 @@ export function PlatesSheet({ open, onClose, weight }: { open: boolean; onClose:
       </Card>
       <Section footer={footer} title="Each side">
         <Card className="divide-y divide-border">
-          {result.perSide.length ? [...counts.entries()].map(([plate, count]) => <Row key={plate} title={`${format.weight(plate)} ${s.unit}`} value={`× ${count}`} />) : <Row title="Just the bar" />}
+          {result.perSide.length ? [...counts.entries()].map(([plate, count]) => <Row key={plate} title={`${format.weight(plate)} ${s.unit}`} value={`× ${count}`} />) : <Row title={bar ? "Just the bar" : "No plates"} />}
         </Card>
       </Section>
     </Sheet>
