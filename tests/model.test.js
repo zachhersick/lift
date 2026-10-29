@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   bodyweightId, cardioSeconds, dailyVolume, dateKey, defaultWeeklyGoal, e1rm, FIELDS, isComplete, setDistance, trackOf, exerciseHistory, isPersonalRecord, movingAverage, muscleSets, nextInSuperset,
   nextSplitDay, personalRecords, placeholderFor, plateBreakdown, previousEntry, previousSession, restsAfter, roundLoadable,
-  analyzeSplit, applySplitEdit, coachingContext, exerciseInUse, stepProgress, workoutSteps, indirectMuscles, splitWeeklySets, dailyIntake, dateKeyIn, fromDateKey, insights, mealMicro, MICROS, microAverages, dayTotals, estimateMaintenance, nutritionTargets, rateStatus, shiftDateKey, weightRate,
+  analyzeSplit, applySplitEdit, liftsThisWeek, REVIEW_MIN_LIFTS, coachingContext, exerciseInUse, stepProgress, workoutSteps, indirectMuscles, splitWeeklySets, dailyIntake, dateKeyIn, fromDateKey, insights, mealMicro, MICROS, microAverages, dayTotals, estimateMaintenance, nutritionTargets, rateStatus, shiftDateKey, weightRate,
   splitDiff, startOfWeek, suggestion, supersetLabels, trend, warmupSets, weekStreak, weekSummary, workoutFromDay, workoutVolume
 } from "../src/lib/model.js";
 import { BUILT_IN, slug, TEMPLATES } from "../src/lib/exercises.js";
@@ -815,4 +815,21 @@ test("an empty split isn't ready and has nothing to suggest", () => {
   const result = analyze([day("rest", 0, { rest: true })]);
   assert.equal(result.ready, false);
   assert.deepEqual(result.suggestions, []);
+});
+
+test("lifts this week count finished lifting sessions with a completed working set", () => {
+  const day = 86_400_000;
+  const lifted = (id, ago, extra = {}) => workout(id, NOW - ago * day, "push", [entry("bench", [set(100, 5)])], extra);
+  const workouts = [
+    lifted("a", 1),
+    lifted("b", 3),
+    lifted("old", 8),
+    lifted("rest", 2, { rest: true }),
+    workout("empty", NOW - 2 * day, "push", [entry("bench", [{ ...set(100, 5), done: false }])]),
+    workout("warmup", NOW - 2 * day, "push", [entry("bench", [set(45, 10, { type: "warmup" })])]),
+    { ...lifted("open", 1), finishedAt: null },
+    lifted("gone", 1, { deleted: true })
+  ];
+  assert.equal(liftsThisWeek(workouts, NOW), 2);
+  assert.equal(REVIEW_MIN_LIFTS, 3);
 });

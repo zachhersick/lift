@@ -22,7 +22,7 @@ load().then(() => {
   if (zone && settings.value.timeZone !== zone) saveSettings({ timeZone: zone });
   const signin = new URLSearchParams(location.search).get("signin");
   if (signin) {
-    const text = ({ expired: "Sign-in timed out", failed: "GitHub sign-in failed", denied: "That GitHub account isn't allowed" } as Record<string, string>)[signin] || "Sign-in didn't work";
+    const text = ({ expired: "Sign-in timed out", failed: "Sign-in failed. Try again.", denied: "That account hasn't been invited yet" } as Record<string, string>)[signin] || "Sign-in didn't work";
     notify(text, { status: "error" });
     history.replaceState(null, "", location.pathname + location.hash);
   }

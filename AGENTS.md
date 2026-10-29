@@ -35,10 +35,10 @@ Postgres storage.
 | `src/components/kit.tsx` | Shared page, card, row, sheet and motion primitives |
 | `src/components/ui/`, `src/components/kokonutui/` | Existing UI components styled for Lift |
 | `src/lib/model.js` | Pure training, progression, history, plate, statistics, nutrition and Coach logic (shared with the server) |
-| `src/lib/store.js`, `db.js`, `sync.js` | Signals, IndexedDB records/outbox and server synchronization |
+| `src/lib/store.js`, `db.js`, `sync.js`, `account.js` | Signals, IndexedDB records/outbox (one database per account), server synchronization |
 | `src/lib/actions.js`, `router.js` | Shared actions and hash navigation |
 | `src/styles.css`, `public/theme-init.js` | Theme tokens and appearance before first paint |
-| `server/app.js`, `auth.js`, `http.js`, `store.js` | API routing, auth, request validation and memory/Neon stores |
+| `server/app.js`, `auth.js`, `http.js`, `store.js` | API routing, accounts and invites, Google/GitHub sign-in, request validation and memory/Neon stores |
 | `server/oauth.js`, `mcp.js`, `coach.js` | ChatGPT connector (OAuth 2.1 + MCP tools) and the weekly Claude review |
 | `api/index.js` | Vercel entry point for every `/api/*` and `/.well-known/*` request |
 | `tests/model.test.js`, `tests/app.test.js` | Domain logic and API/auth/sync tests |
@@ -66,8 +66,9 @@ On Windows PowerShell use `npm.cmd`; elsewhere use `npm`.
 
 Development uses `http://localhost:4330` with a strict port. Stop the owned server
 before starting another on that port. Preview also defaults to port 4330.
-Both mount the API through Vite. By default, local sign-in bypasses GitHub and
-storage is in memory; a `DATABASE_URL` in the process environment selects Neon.
+Both mount the API through Vite. By default, local sign-in bypasses Google and
+GitHub (admin `dev@lift.test`; `/api/auth/login?provider=dev&as=<email>` for an
+invited test account) and storage is in memory; a `DATABASE_URL` in the process environment selects Neon.
 Do not point local testing at a real user database. No database or secrets are
 required for the default local workflow or tests.
 
@@ -97,18 +98,26 @@ Use a production build and preview with `?sw` when checking offline behavior.
 
 - IndexedDB holds records, pending changes in an outbox and sync metadata. Keep
   offline edits durable and preserve outbox acknowledgments for in-flight edits.
+- Every server record belongs to an account (its email). The primary key is `(owner, id)`. All record access goes through
+  `store.forOwner(email)`, so one account never reads or writes another's. The
+  device keeps one IndexedDB per account (`account.js`).
 - Records use stable IDs, a `kind`, `updatedAt` timestamps and deletion tombstones.
   Preserve newest-edit-wins merging and server sequence cursors. Do not replace
   tombstones with hard deletion or drop history references to deleted exercises.
 - When changing record types or formats, check the model, store, backup import/
   export, server `KINDS`/`cleanChanges`, both storage implementations and tests.
-- Preserve GitHub account restriction, OAuth state verification, signed sessions,
-  request body limits and same-origin checks on protected writes. Keep the
-  development login bypass disabled on Vercel.
+- An account is a verified email from Google or GitHub. Only admins (`ADMIN_EMAILS`),
+  invitees (`lift_users`) or anyone under `OPEN_SIGNUP=1` may sign in, checked on
+  every request. Admin APIs are admin-only. Preserve OAuth state verification,
+  signed sessions, request body limits and same-origin checks on protected
+  writes. Keep the development login bypass disabled on Vercel.
 - The ChatGPT connector authenticates with bearer tokens only, never cookies.
   Keep its redirect-host allowlist, required PKCE S256, single-use codes and
-  refresh tokens (`lift_once`), token binding to `ALLOWED_GITHUB_ID` and
-  `MCP_TOKEN_VERSION`, and the CSP `form-action` entries for ChatGPT's hosts.
+  refresh tokens (`lift_once`), token binding to an allowed account and
+  `MCP_TOKEN_VERSION`, owner-scoped MCP storage, and the CSP `form-action`
+  entries for ChatGPT's hosts.
+- The weekly AI review is for VIPs only, after `REVIEW_MIN_LIFTS` lifting sessions
+  in the last 7 days (`liftsThisWeek` in `model.js`, checked on server and app).
 - Meals written by the server keep the record format the app syncs (`kind:
   "meal"`, `date` in the user's `settings.timeZone`), so the phone pulls them.
   Fiber sits on the meal with the macros; other micronutrients go in
@@ -149,11 +158,13 @@ device validation from a local build.
 weekly review calls Claude). No GitHub Actions
 workflow is currently checked into this repository.
 
-Production requires `DATABASE_URL`, `APP_URL`, `GITHUB_CLIENT_ID`,
-`GITHUB_CLIENT_SECRET`, `ALLOWED_GITHUB_ID` and a `SESSION_SECRET` of at least 32
-characters. Optional: `ANTHROPIC_API_KEY` (weekly review), `MCP_TOKEN_VERSION` (bump
-to disconnect ChatGPT) and `OAUTH_REDIRECT_HOSTS`. The Neon store initializes its
-schema on first use. Follow the
+Production requires `DATABASE_URL`, `APP_URL`, `ADMIN_EMAILS`, a `SESSION_SECRET` of
+at least 32 characters, and Google (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`)
+and/or GitHub (`GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`) OAuth. Optional:
+`ANTHROPIC_API_KEY` (weekly review), `OPEN_SIGNUP`, `MCP_TOKEN_VERSION` (bump to
+disconnect ChatGPT) and `OAUTH_REDIRECT_HOSTS`. The Neon store initializes and
+migrates its schema on first use; records from before accounts go to the first
+admin. Follow the
 deployment and OAuth setup in `README.md`; keep values out of source control.
 Without `DATABASE_URL`, the API falls back to non-durable memory storage.
 

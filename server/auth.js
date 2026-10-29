@@ -1,5 +1,6 @@
-// Sign-in for Lift: GitHub OAuth limited to one GitHub account and a signed
-// session cookie. Copied from Jarvis (server/cloud/auth.js).
+// Sign-in for Lift: Google or GitHub OAuth, both resolving to a verified
+// email (the account), and a signed session cookie. Who may sign in is
+// decided in app.js.
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 export const SESSION_COOKIE = "lift_session";
@@ -18,8 +19,18 @@ export function safeEqual(a, b) {
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
+// A lowercased email, or "" when it doesn't look like one.
+export function normalizeEmail(value) {
+  const email = String(value || "").trim().toLowerCase();
+  return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
+}
+
+// Version 2 sessions are keyed by email; older ones (a GitHub id) are
+// refused, so everyone signs in once after the switch to accounts.
+const SESSION_VERSION = 2;
+
 export function createSession(user, secret, now = Date.now()) {
-  const payload = b64url(JSON.stringify({ sub: String(user.id), login: user.login, exp: now + SESSION_DAYS * 86_400_000 }));
+  const payload = b64url(JSON.stringify({ v: SESSION_VERSION, sub: user.email, name: user.name || "", exp: now + SESSION_DAYS * 86_400_000 }));
   return `${payload}.${sign(payload, secret)}`;
 }
 
@@ -29,7 +40,7 @@ export function readSession(token, secret, now = Date.now()) {
   if (!payload || !signature || !safeEqual(signature, sign(payload, secret))) return null;
   try {
     const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-    return data.exp > now ? data : null;
+    return data.v === SESSION_VERSION && normalizeEmail(data.sub) && data.exp > now ? data : null;
   } catch {
     return null;
   }
@@ -72,12 +83,12 @@ export function checkOAuthState(cookieValue, returned, secret) {
 
 export function githubAuthorizeUrl({ clientId, redirectUri, state }) {
   const url = new URL("https://github.com/login/oauth/authorize");
-  url.search = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, state, allow_signup: "false" }).toString();
+  url.search = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, state, scope: "user:email", allow_signup: "false" }).toString();
   return url.toString();
 }
 
-// Exchanges the code and returns the GitHub user. The access token is used
-// once to read the profile and then dropped.
+// Exchanges the code and returns the GitHub user's name and primary verified
+// email. The access token is used once to read them and then dropped.
 export async function githubUser({ code, clientId, clientSecret, redirectUri, fetchImpl = fetch }) {
   const tokenResponse = await fetchImpl("https://github.com/login/oauth/access_token", {
     method: "POST",
@@ -91,6 +102,37 @@ export async function githubUser({ code, clientId, clientSecret, redirectUri, fe
   });
   if (!userResponse.ok) throw Object.assign(new Error("Couldn't read your GitHub profile."), { status: 401 });
   const user = await userResponse.json();
-  return { id: user.id, login: user.login, avatar: user.avatar_url || "" };
+  const emailResponse = await fetchImpl("https://api.github.com/user/emails", {
+    headers: { accept: "application/vnd.github+json", authorization: `Bearer ${token.access_token}`, "user-agent": "lift-web" }
+  });
+  const emails = emailResponse.ok ? await emailResponse.json() : [];
+  const primary = Array.isArray(emails) ? emails.find((entry) => entry.primary && entry.verified) : null;
+  const email = normalizeEmail(primary?.email);
+  if (!email) throw Object.assign(new Error("Your GitHub account needs a verified primary email."), { status: 401 });
+  return { email, name: user.name || user.login || "" };
+}
+
+export function googleAuthorizeUrl({ clientId, redirectUri, state }) {
+  const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+  url.search = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: "code", scope: "openid email profile", state, prompt: "select_account" }).toString();
+  return url.toString();
+}
+
+// Exchanges the code and returns the Google account's name and email, which
+// must be verified. The access token is used once and then dropped.
+export async function googleUser({ code, clientId, clientSecret, redirectUri, fetchImpl = fetch }) {
+  const tokenResponse = await fetchImpl("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ code: String(code || ""), client_id: clientId, client_secret: clientSecret, redirect_uri: redirectUri, grant_type: "authorization_code" }).toString()
+  });
+  const token = await tokenResponse.json();
+  if (!token.access_token) throw Object.assign(new Error("Google sign-in failed."), { status: 401 });
+  const infoResponse = await fetchImpl("https://openidconnect.googleapis.com/v1/userinfo", { headers: { authorization: `Bearer ${token.access_token}` } });
+  if (!infoResponse.ok) throw Object.assign(new Error("Couldn't read your Google profile."), { status: 401 });
+  const info = await infoResponse.json();
+  const email = info.email_verified === true ? normalizeEmail(info.email) : "";
+  if (!email) throw Object.assign(new Error("Your Google account's email isn't verified."), { status: 401 });
+  return { email, name: info.name || "" };
 }
 

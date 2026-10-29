@@ -1,7 +1,10 @@
 // On-device storage (IndexedDB). Every record lives in `records`; anything
 // changed on this device also goes in `outbox` until the server has it.
-// `meta` holds the sync cursor and similar small values.
-const NAME = "lift";
+// `meta` holds the sync cursor and similar small values. Each account has its
+// own database (see account.js).
+import { databaseName } from "./account.js";
+
+const NAME = databaseName();
 const VERSION = 1;
 
 let opening = null;

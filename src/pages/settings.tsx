@@ -1,8 +1,8 @@
 // Settings: sync, appearance, weekly goal, nutrition, the ChatGPT connector,
 // units, barbell and plates, rest timer, backups and installing on the phone.
-import { Check, Cloud, Copy, Download, LogIn, RefreshCw, Share, Sparkles, SquarePlus, Upload } from "lucide-react";
+import { Check, Cloud, Copy, Download, LogIn, RefreshCw, Share, Sparkles, SquarePlus, Trash2, Upload, UserPlus } from "lucide-react";
 import { motion } from "motion/react";
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, Chip, Page, Row, Section, Segmented, spring, Stepper, Toggle, TopBar } from "@/components/kit";
 import { ask } from "@/lib/dialogs";
 import { BARS, defaultWeeklyGoal, PLATES } from "@/lib/model.js";
@@ -23,6 +23,97 @@ const STATUS: Record<string, string> = {
   error: "Couldn't sync. Retrying soon."
 };
 const STEPS: Record<string, number[]> = { lb: [2.5, 5, 10], kg: [1, 2.5, 5] };
+
+const PROVIDERS: Record<string, string> = { google: "Google", github: "GitHub", dev: "a dev account" };
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Admins only: the invite list. Invited people sign in with Google or GitHub
+// using that email; VIPs also get the weekly AI review.
+function People() {
+  const me = (useValue(sync) as any).user;
+  const [users, setUsers] = useState<any[] | null>(null);
+  const [email, setEmail] = useState("");
+  const [vip, setVip] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const call = async (path: string, body?: object) => {
+    const response = await fetch(path, body ? { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : { credentials: "same-origin", cache: "no-store" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "That didn't work. Try again.");
+    setUsers(data.users);
+  };
+  const run = async (work: () => Promise<void>, done?: string) => {
+    setBusy(true);
+    try {
+      await work();
+      if (done) notify(done);
+    } catch (error: any) {
+      notify(error.message || "That didn't work. Try again.", { status: "error" });
+    } finally {
+      setBusy(false);
+    }
+  };
+  useEffect(() => {
+    run(() => call("/api/admin/users"));
+  }, []);
+
+  const invite = () =>
+    run(async () => {
+      await call("/api/admin/users", { email, vip });
+      setEmail("");
+      setVip(false);
+    }, `Added ${email.trim().toLowerCase()}`);
+  const remove = async (user: any) => {
+    if (!(await ask({ title: `Remove ${user.email}?`, message: "They're signed out and can't sign in again. Their data is kept, so adding them back restores it.", confirm: "Remove", danger: true }))) return;
+    run(() => call("/api/admin/users/remove", { email: user.email }), `Removed ${user.email}`);
+  };
+
+  return (
+    <Section footer={`Invited people sign in at ${location.host} with Google or GitHub using that email. Lift doesn't email them, so send them the link. VIPs also get the weekly AI review once they've logged 3 lifts that week.`} title="People">
+      <Card className="divide-y divide-border">
+        <Row title="Email">
+          <input
+            aria-label="Email to invite"
+            autoCapitalize="none"
+            autoComplete="off"
+            className="w-52 bg-transparent text-right text-[15.5px] text-muted-foreground outline-none"
+            inputMode="email"
+            onChange={(e) => setEmail(e.currentTarget.value)}
+            placeholder="friend@example.com"
+            type="email"
+            value={email}
+          />
+        </Row>
+        <Row subtitle="Weekly AI review" title="VIP">
+          <Toggle checked={vip} label="Invite as VIP" onChange={setVip} />
+        </Row>
+        <Row disabled={busy || !EMAIL.test(email.trim())} icon={UserPlus} onClick={invite} title="Add to invite list" tone="action" />
+      </Card>
+      {users ? (
+        <Card className="divide-y divide-border">
+          {users.map((user) => (
+            <Row
+              key={user.email}
+              subtitle={[user.name ? user.email : "", user.admin ? "Admin" : user.lastSeenAt ? `Last seen ${format.ago(user.lastSeenAt)}` : "Hasn't signed in yet"].filter(Boolean).join(" · ")}
+              title={`${user.name || user.email}${user.email === me?.email ? " (you)" : ""}`}
+            >
+              {user.admin ? (
+                <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[12px] font-semibold text-primary">VIP</span>
+              ) : (
+                <>
+                  <Toggle checked={user.vip} label={`VIP for ${user.email}`} onChange={(value) => run(() => call("/api/admin/users", { email: user.email, vip: value }))} />
+                  <button aria-label={`Remove ${user.email}`} className="grid size-9 place-items-center rounded-full text-destructive active:bg-accent" onClick={() => remove(user)} type="button">
+                    <Trash2 className="size-[18px]" />
+                  </button>
+                </>
+              )}
+            </Row>
+          ))}
+        </Card>
+      ) : null}
+    </Section>
+  );
+}
 
 export function Settings() {
   const s = useValue(settings) as any;
@@ -74,24 +165,32 @@ export function Settings() {
     <Page>
       <TopBar title="Settings" />
 
-      <Section footer={state.user ? "Workouts sync a couple of seconds after each change." : "Sign in to back up your workouts and use them on your computer too."} title="Sync">
+      <Section
+        footer={state.user ? "Workouts sync a couple of seconds after each change. Signing out keeps your data on this device for when you sign back in." : "Sign in with the email you were invited with to back up your workouts and use them on other devices."}
+        title="Account"
+      >
         <Card className="divide-y divide-border">
           <Row
             icon={Cloud}
             iconClass={state.status === "synced" ? "bg-success/15 text-success" : state.status === "error" ? "bg-destructive/15 text-destructive" : "bg-muted text-muted-foreground"}
             subtitle={`${STATUS[state.status] || ""}${state.status === "synced" && state.lastSync ? ` · ${format.ago(state.lastSync)}` : ""}${waiting ? ` · ${format.plural(waiting, "change")} waiting` : ""}`}
-            title={state.user ? state.user.login : "Not signed in"}
+            title={state.user ? state.user.email : "Not signed in"}
           />
           {state.user ? (
             <>
+              <Row title="Membership" value={state.user.admin ? "Admin" : state.user.vip ? "VIP" : "Member"} />
               <Row disabled={state.status === "syncing"} icon={RefreshCw} onClick={syncNow} title="Sync now" tone="action" />
               <Row onClick={signOut} title="Sign out" tone="danger" />
             </>
+          ) : state.providers?.length ? (
+            state.providers.map((provider: string) => <Row href={`/api/auth/login?provider=${provider}`} icon={LogIn} key={provider} title={`Continue with ${PROVIDERS[provider] || provider}`} tone="action" />)
           ) : (
-            <Row href="/api/auth/login" icon={LogIn} title="Sign in with GitHub" tone="action" />
+            <Row href="/api/auth/login" icon={LogIn} title="Sign in" tone="action" />
           )}
         </Card>
       </Section>
+
+      {state.user?.admin ? <People /> : null}
 
       <Section title="Appearance">
         <Card className="flex flex-col gap-5 p-4">
