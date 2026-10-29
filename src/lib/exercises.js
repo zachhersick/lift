@@ -1,7 +1,11 @@
 // The built-in exercise library and starter splits. Built-ins live in code,
 // not in the database; only exercises you create (or edit) are stored.
 
-export const MUSCLES = ["chest", "back", "shoulders", "biceps", "triceps", "forearms", "quads", "hamstrings", "glutes", "calves", "core", "full body", "cardio"];
+// Muscle groups, for filtering and weekly volume, and every muscle you can
+// give an exercise: each group followed by the specific muscles in it, which
+// count toward the group (MUSCLE_GROUP in model.js).
+export const MUSCLE_GROUPS = ["chest", "back", "shoulders", "biceps", "triceps", "forearms", "quads", "hamstrings", "glutes", "adductors", "calves", "core", "full body", "cardio"];
+export const MUSCLES = ["chest", "back", "lats", "mid back", "traps", "lower back", "shoulders", "front delts", "side delts", "rear delts", "biceps", "triceps", "forearms", "quads", "hamstrings", "glutes", "abductors", "adductors", "calves", "core", "full body", "cardio"];
 export const EQUIPMENT = ["barbell", "dumbbell", "machine", "plate loaded", "cable", "bodyweight", "smith", "kettlebell", "band", "other"];
 
 const LIST = [
@@ -23,38 +27,38 @@ const LIST = [
   ["Chest Dip", "chest", "bodyweight"],
   // back
   ["Deadlift", "back", "barbell"],
-  ["Barbell Row", "back", "barbell"],
-  ["Pendlay Row", "back", "barbell"],
-  ["T-Bar Row", "back", "barbell"],
+  ["Barbell Row", "mid back", "barbell"],
+  ["Pendlay Row", "mid back", "barbell"],
+  ["T-Bar Row", "mid back", "barbell"],
   ["Rack Pull", "back", "barbell"],
-  ["Pull-Up", "back", "bodyweight"],
-  ["Chin-Up", "back", "bodyweight"],
-  ["Assisted Pull-Up", "back", "machine"],
-  ["Lat Pulldown", "back", "cable"],
-  ["Close-Grip Lat Pulldown", "back", "cable"],
-  ["Single-Arm Lat Pulldown", "back", "cable"],
-  ["Seated Cable Row", "back", "cable"],
-  ["Straight-Arm Pulldown", "back", "cable"],
-  ["One-Arm Dumbbell Row", "back", "dumbbell"],
-  ["Chest-Supported Dumbbell Row", "back", "dumbbell"],
-  ["Chest-Supported Machine Row", "back", "machine"],
-  ["Machine Lat Pullover", "back", "machine"],
-  ["Back Extension", "back", "bodyweight"],
-  ["Barbell Shrug", "back", "barbell"],
-  ["Dumbbell Shrug", "back", "dumbbell"],
+  ["Pull-Up", "lats", "bodyweight"],
+  ["Chin-Up", "lats", "bodyweight"],
+  ["Assisted Pull-Up", "lats", "machine"],
+  ["Lat Pulldown", "lats", "cable"],
+  ["Close-Grip Lat Pulldown", "lats", "cable"],
+  ["Single-Arm Lat Pulldown", "lats", "cable"],
+  ["Seated Cable Row", "mid back", "cable"],
+  ["Straight-Arm Pulldown", "lats", "cable"],
+  ["One-Arm Dumbbell Row", "lats", "dumbbell"],
+  ["Chest-Supported Dumbbell Row", "mid back", "dumbbell"],
+  ["Chest-Supported Machine Row", "mid back", "machine"],
+  ["Machine Lat Pullover", "lats", "machine"],
+  ["Back Extension", "lower back", "bodyweight"],
+  ["Barbell Shrug", "traps", "barbell"],
+  ["Dumbbell Shrug", "traps", "dumbbell"],
   // shoulders
-  ["Overhead Press", "shoulders", "barbell"],
-  ["Seated Dumbbell Shoulder Press", "shoulders", "dumbbell"],
-  ["Arnold Press", "shoulders", "dumbbell"],
-  ["Machine Shoulder Press", "shoulders", "machine"],
-  ["Dumbbell Lateral Raise", "shoulders", "dumbbell"],
-  ["Cable Lateral Raise", "shoulders", "cable"],
-  ["Machine Lateral Raise", "shoulders", "machine"],
-  ["Dumbbell Front Raise", "shoulders", "dumbbell"],
-  ["Rear Delt Dumbbell Fly", "shoulders", "dumbbell"],
-  ["Reverse Pec Deck", "shoulders", "machine"],
-  ["Face Pull", "shoulders", "cable"],
-  ["Upright Row", "shoulders", "barbell"],
+  ["Overhead Press", "front delts", "barbell"],
+  ["Seated Dumbbell Shoulder Press", "front delts", "dumbbell"],
+  ["Arnold Press", "front delts", "dumbbell"],
+  ["Machine Shoulder Press", "front delts", "machine"],
+  ["Dumbbell Lateral Raise", "side delts", "dumbbell"],
+  ["Cable Lateral Raise", "side delts", "cable"],
+  ["Machine Lateral Raise", "side delts", "machine"],
+  ["Dumbbell Front Raise", "front delts", "dumbbell"],
+  ["Rear Delt Dumbbell Fly", "rear delts", "dumbbell"],
+  ["Reverse Pec Deck", "rear delts", "machine"],
+  ["Face Pull", "rear delts", "cable"],
+  ["Upright Row", "side delts", "barbell"],
   // biceps
   ["Barbell Curl", "biceps", "barbell"],
   ["EZ-Bar Curl", "biceps", "barbell"],
@@ -104,8 +108,8 @@ const LIST = [
   ["Machine Hip Thrust", "glutes", "machine"],
   ["Glute Bridge", "glutes", "bodyweight"],
   ["Cable Kickback", "glutes", "cable"],
-  ["Hip Abduction", "glutes", "machine"],
-  ["Hip Adduction", "glutes", "machine"],
+  ["Hip Abduction", "abductors", "machine"],
+  ["Hip Adduction", "adductors", "machine"],
   // calves
   ["Standing Calf Raise", "calves", "machine"],
   ["Seated Calf Raise", "calves", "machine"],

@@ -6,8 +6,8 @@ import { Plus, Search, X } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import { fuzzyMatch } from "@/components/kokonutui/action-search-bar";
-import { BUILT_IN, EQUIPMENT, MUSCLES } from "@/lib/exercises.js";
-import { byNewest, exerciseInUse, indirectMuscles, inferredSecondary, uid } from "@/lib/model.js";
+import { BUILT_IN, EQUIPMENT, MUSCLE_GROUPS, MUSCLES } from "@/lib/exercises.js";
+import { byNewest, exerciseInUse, indirectMuscles, inferredSecondary, muscleGroup, uid } from "@/lib/model.js";
 import { exerciseIndex, exercises, resetExercise, save, saveExercise, sessions, workouts } from "@/lib/store.js";
 import { ask } from "@/lib/dialogs";
 import { notify } from "@/lib/notify";
@@ -60,13 +60,13 @@ export function ExercisePicker({ open, onClose, onPick, title = "Add Exercise", 
 
   const skip = new Set(exclude);
   const q = query.trim();
-  const pool = all.filter((e) => !skip.has(e.id) && (!muscle || e.muscle === muscle));
+  const pool = all.filter((e) => !skip.has(e.id) && (!muscle || muscleGroup(e.muscle) === muscle));
   const ranked = q
     ? pool
         .map((e) => {
           // Name matches rank first and get highlighted; muscle/equipment matches still count.
           const onName = fuzzyMatch(e.name, q);
-          const other = onName ? null : fuzzyMatch(`${e.muscle} ${e.equipment}`, q);
+          const other = onName ? null : fuzzyMatch(`${e.muscle} ${muscleGroup(e.muscle)} ${e.equipment}`, q);
           return { e, m: onName ?? (other && { score: other.score - 50, matches: [] }) };
         })
         .filter((x) => x.m)
@@ -134,7 +134,7 @@ export function ExercisePicker({ open, onClose, onPick, title = "Add Exercise", 
           <Chip on={!muscle} onClick={() => setMuscle("")}>
             All
           </Chip>
-          {MUSCLES.map((name: string) => (
+          {MUSCLE_GROUPS.map((name: string) => (
             <Chip key={name} on={muscle === name} onClick={() => setMuscle(muscle === name ? "" : name)}>
               {capitalize(name)}
             </Chip>
@@ -202,7 +202,7 @@ function ExerciseFields({ value, onChange, trackLocked, autoFocus, nameLocked }:
           <input aria-label="Exercise name" autoFocus={autoFocus} className="w-full bg-transparent text-[17px] outline-none placeholder:text-muted-foreground" onChange={(e) => set({ name: e.currentTarget.value })} placeholder="Name, e.g. Cable Y-Raise" value={value.name} />
         )}
       </Card>
-      <Section footer="Every set counts toward this muscle's weekly sets in the Coach and split analysis. Barbell and plate-loaded lifts get plate math." title="Primary muscle">
+      <Section footer="Every set counts toward this muscle's weekly sets in the Coach and split analysis. Specific muscles count toward their group: lats, mid back, traps and lower back for back, the delt heads for shoulders, abductors for glutes. Barbell and plate-loaded lifts get plate math." title="Primary muscle">
         <div className="flex flex-wrap gap-2">
           {MUSCLES.map((m: string) => (
             <Chip key={m} on={value.muscle === m} onClick={() => set({ muscle: m, secondary: value.secondary.filter((x) => x !== m) })}>
@@ -212,7 +212,7 @@ function ExerciseFields({ value, onChange, trackLocked, autoFocus, nameLocked }:
         </div>
       </Section>
       {value.muscle !== "cardio" && value.track !== "cardio" ? (
-        <Section footer="Muscles it also works, like triceps on a bench press. Each set counts as half a set for them (Pelland et al., 2024)." title="Secondary muscles">
+        <Section footer="Muscles it also works, like triceps on a bench press. Each set counts as half a set for their group (Pelland et al., 2024), once per group and not for the primary muscle's own group." title="Secondary muscles">
           <div className="flex flex-wrap gap-2">
             {SECONDARY.filter((m: string) => m !== value.muscle).map((m: string) => (
               <Chip key={m} on={value.secondary.includes(m)} onClick={() => toggle(m)}>

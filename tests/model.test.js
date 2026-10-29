@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   bodyweightId, cardioSeconds, dailyVolume, dateKey, defaultWeeklyGoal, e1rm, FIELDS, isComplete, setDistance, trackOf, exerciseHistory, isPersonalRecord, movingAverage, muscleSets, nextInSuperset,
-  barFor, nextSplitDay, personalRecords, placeholderFor, plateBreakdown, previousEntry, previousSession, restsAfter, roundLoadable,
+  barFor, muscleGroup, secondaryGroups, nextSplitDay, personalRecords, placeholderFor, plateBreakdown, previousEntry, previousSession, restsAfter, roundLoadable,
   analyzeSplit, applySplitEdit, inferredSecondary, liftsThisWeek, REVIEW_MIN_LIFTS, coachingContext, exerciseInUse, stepProgress, workoutSteps, indirectMuscles, splitWeeklySets, dailyIntake, dateKeyIn, fromDateKey, insights, mealMicro, MICROS, microAverages, dayTotals, estimateMaintenance, nutritionTargets, rateStatus, shiftDateKey, weightRate,
   splitDiff, startOfWeek, suggestion, supersetLabels, trend, warmupSets, weekStreak, weekSummary, workoutFromDay, workoutVolume
 } from "../src/lib/model.js";
@@ -861,4 +861,30 @@ test("secondary muscles count half a set in weekly sets and the split analyzer",
   assert.equal(weekly.get("biceps"), undefined, "an empty list overrides the row's inferred biceps");
   const result = analyzeSplit({ splitDays: days, exerciseIndex: index, now: NOW });
   assert.equal(result.muscles.find((m) => m.muscle === "back").before, 8);
+});
+
+test("specific muscles count toward their group", () => {
+  assert.equal(muscleGroup("lats"), "back");
+  assert.equal(muscleGroup("side delts"), "shoulders");
+  assert.equal(muscleGroup("abductors"), "glutes");
+  assert.equal(muscleGroup("adductors"), "adductors", "adductors are their own group");
+  assert.equal(muscleGroup("chest"), "chest");
+  const pulldown = BUILT_IN.find((e) => e.name === "Lat Pulldown");
+  assert.equal(pulldown.muscle, "lats");
+  assert.deepEqual(indirectMuscles(pulldown), ["biceps"], "inferred by group");
+  assert.deepEqual(secondaryGroups({ name: "Seal Row", muscle: "mid back", secondary: ["lats", "biceps", "rear delts"] }), ["biceps", "shoulders"], "no half sets for its own group");
+  const index = new Map([
+    ["row", { id: "row", name: "Seal Row", muscle: "mid back", track: "strength", secondary: ["lats", "biceps"] }],
+    ["raise", { id: "raise", name: "Cable Lateral Raise", muscle: "side delts", track: "strength" }],
+    ["add", { id: "add", name: "Hip Adduction", muscle: "adductors", track: "strength" }]
+  ]);
+  const days = [{ id: "d", position: 0, exercises: [{ exerciseId: "row", targetSets: 4 }, { exerciseId: "raise", targetSets: 3 }, { exerciseId: "add", targetSets: 2 }] }, ...Array.from({ length: 6 }, (_, i) => ({ id: `r${i}`, position: i + 1, rest: true }))];
+  const weekly = splitWeeklySets(days, index);
+  assert.equal(weekly.get("back"), 4);
+  assert.equal(weekly.get("biceps"), 2);
+  assert.equal(weekly.get("shoulders"), 3);
+  assert.equal(weekly.get("adductors"), 2);
+  assert.equal(weekly.get("lats"), undefined);
+  const result = analyzeSplit({ splitDays: days, exerciseIndex: index, now: NOW });
+  assert.equal(result.muscles.find((m) => m.muscle === "back").before, 4);
 });
