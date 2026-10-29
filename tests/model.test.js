@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   bodyweightId, cardioSeconds, dailyVolume, dateKey, defaultWeeklyGoal, e1rm, FIELDS, isComplete, setDistance, trackOf, exerciseHistory, isPersonalRecord, movingAverage, muscleSets, nextInSuperset,
   nextSplitDay, personalRecords, placeholderFor, plateBreakdown, previousEntry, previousSession, restsAfter, roundLoadable,
-  analyzeSplit, applySplitEdit, liftsThisWeek, REVIEW_MIN_LIFTS, coachingContext, exerciseInUse, stepProgress, workoutSteps, indirectMuscles, splitWeeklySets, dailyIntake, dateKeyIn, fromDateKey, insights, mealMicro, MICROS, microAverages, dayTotals, estimateMaintenance, nutritionTargets, rateStatus, shiftDateKey, weightRate,
+  analyzeSplit, applySplitEdit, inferredSecondary, liftsThisWeek, REVIEW_MIN_LIFTS, coachingContext, exerciseInUse, stepProgress, workoutSteps, indirectMuscles, splitWeeklySets, dailyIntake, dateKeyIn, fromDateKey, insights, mealMicro, MICROS, microAverages, dayTotals, estimateMaintenance, nutritionTargets, rateStatus, shiftDateKey, weightRate,
   splitDiff, startOfWeek, suggestion, supersetLabels, trend, warmupSets, weekStreak, weekSummary, workoutFromDay, workoutVolume
 } from "../src/lib/model.js";
 import { BUILT_IN, slug, TEMPLATES } from "../src/lib/exercises.js";
@@ -832,4 +832,29 @@ test("lifts this week count finished lifting sessions with a completed working s
   ];
   assert.equal(liftsThisWeek(workouts, NOW), 2);
   assert.equal(REVIEW_MIN_LIFTS, 3);
+});
+
+test("an exercise's own secondary muscles replace the ones inferred from its name", () => {
+  const press = { name: "Incline Dumbbell Press", muscle: "chest" };
+  assert.deepEqual(indirectMuscles(press), ["triceps", "shoulders"], "inferred from the name");
+  assert.deepEqual(inferredSecondary(press), ["triceps", "shoulders"]);
+  assert.deepEqual(indirectMuscles({ ...press, secondary: ["shoulders"] }), ["shoulders"]);
+  assert.deepEqual(indirectMuscles({ ...press, secondary: [] }), [], "an empty list means none");
+  assert.deepEqual(indirectMuscles({ ...press, secondary: ["chest", "triceps", "triceps", "cardio", 5] }), ["triceps"], "not the primary, no repeats or junk");
+  const custom = { name: "Cable Y-Raise", muscle: "shoulders", secondary: ["back"] };
+  assert.deepEqual(indirectMuscles(custom), ["back"]);
+});
+
+test("secondary muscles count half a set in weekly sets and the split analyzer", () => {
+  // One day a week (7-day rotation) so sets per week equal target sets.
+  const index = new Map([
+    ["y", { id: "y", name: "Cable Y-Raise", muscle: "shoulders", track: "strength", secondary: ["back"] }],
+    ["row", { id: "row", name: "Seal Row", muscle: "back", track: "strength", secondary: [] }]
+  ]);
+  const days = [{ id: "d", position: 0, exercises: [{ exerciseId: "y", targetSets: 4 }, { exerciseId: "row", targetSets: 6 }] }, ...Array.from({ length: 6 }, (_, i) => ({ id: `r${i}`, position: i + 1, rest: true }))];
+  const weekly = splitWeeklySets(days, index);
+  assert.equal(weekly.get("back"), 6 + 4 / 2, "the Y-raise's sets count half for back");
+  assert.equal(weekly.get("biceps"), undefined, "an empty list overrides the row's inferred biceps");
+  const result = analyzeSplit({ splitDays: days, exerciseIndex: index, now: NOW });
+  assert.equal(result.muscles.find((m) => m.muscle === "back").before, 8);
 });

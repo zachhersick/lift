@@ -43,7 +43,7 @@ The look is dark-first and layered: glass surfaces, your accent color as soft gr
     It also reports a 0–100 split score, now and after the changes.
   - Fuel shows the nutrition cards, and **Split** shows how many weekly sets your rotation gives each muscle.
 
-  Training (presses, rows, squats and hinges count half a set for the muscles they assist, per Pelland et al., 2024):
+  Training. An exercise's secondary muscles count half a set each, per Pelland et al., 2024. You can set them when editing an exercise; otherwise presses, rows, squats and hinges get sensible defaults:
   - muscles under about 10 hard sets a week (Schoenfeld et al., 2017; Baz-Valle et al., 2022), with how many sets to add, an exercise and the split day. For example: "Triceps: add 4 sets a week, e.g. Rope Pushdown on Push." Very high volume is flagged too.
   - a muscle trained only one day a week (Schoenfeld et al., 2016; 2019);
   - under 90 seconds' rest on compound lifts (Schoenfeld et al., 2016; Singer et al., 2024);
@@ -63,7 +63,7 @@ The look is dark-first and layered: glass surfaces, your accent color as soft gr
 - **Weekly review.** With `ANTHROPIC_API_KEY` set, Claude (Opus 5.5) writes a short review from the same summary once a week. It ends in two or three concrete actions for the week, syncs like any record, and stays readable offline.
 - **History** has a calendar and every workout. A workout's summary compares volume, sets and time with your last session of the same day, and lists its PRs.
 - **Progress** has a training-volume card (upper body, lower body, core; 7/30/90 days) and lists each exercise with a sparkline and trend. The exercise page swipes between charts of estimated 1RM (Epley), heaviest set, volume and reps over 1M/3M/1Y/All, with PRs, best reps at each weight, every session and the exercise's note. Tap **Edit** on an exercise (or **Edit exercise** in a workout's ⋯ menu) to fix its name, muscle group or equipment, e.g. a custom exercise saved as chest that should be triceps. The change applies everywhere, past workouts included. Built-ins can be reset, and the tracking type locks once sets are logged. **Bodyweight** has its own chart with a 7-day average.
-- **Split**: start from a template or build your own. Drag days and exercises to reorder, add rest days, set each exercise's sets, rep range, rest and supersets, and pick from ~100 built-in exercises or your own.
+- **Split**: start from a template or build your own. Drag days and exercises to reorder, add rest days, set each exercise's sets, rep range, rest and supersets, and pick from ~100 built-in exercises or your own. **Edit exercise** (in an exercise's split settings, its chart page or the workout menu) sets its primary muscle, its secondary muscles, its equipment, and the name of an exercise you created.
 - **Settings**: your account (and, for admins, **People**: the invite list and VIPs), theme and accent color, weekly goal, nutrition goal and targets, the ChatGPT connector, lb/kg and weight jump, bar weight and available plates, default rest and sound, and JSON **Export/Import** backups.
 
 ## How data is stored

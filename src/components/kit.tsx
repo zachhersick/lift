@@ -322,7 +322,9 @@ export function Sheet({
           </div>
         </div>
         <DrawerDescription className="sr-only">{description || (typeof title === "string" ? title : "Sheet")}</DrawerDescription>
-        <div className={cn("flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain px-4 pt-1 pb-6", className)} data-vaul-no-drag>
+        {/* Children keep their height (*:shrink-0); otherwise a card with
+            overflow-hidden collapses when the sheet's content scrolls. */}
+        <div className={cn("flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain px-4 pt-1 pb-6 *:shrink-0", className)} data-vaul-no-drag>
           {children}
         </div>
       </DrawerContent>

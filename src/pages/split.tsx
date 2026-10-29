@@ -1,18 +1,18 @@
 // Split: the days in your rotation (drag to reorder) with the weekly sets it
 // gives each muscle, and the editor for one day's exercises with sets, rep
 // range, rest and supersets.
-import { GripVertical, ListOrdered, Moon, Plus, Trash2 } from "lucide-react";
+import { GripVertical, ListOrdered, Moon, Pencil, Plus, Trash2 } from "lucide-react";
 import { Reorder, useDragControls } from "motion/react";
 import { type ReactNode, useEffect, useState } from "react";
 import WheelPicker from "@/components/kokonutui/wheel-picker";
-import { ExercisePicker } from "@/components/exercise-picker";
+import { EditExerciseSheet, ExercisePicker } from "@/components/exercise-picker";
 import { MuscleBars } from "@/components/insights";
 import { Card, Chip, Empty, Page, Row, Section, Sheet, SheetAction, Stepper, Toggle, TopBar } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { addDay, applyTemplate } from "@/lib/actions.js";
 import { ask } from "@/lib/dialogs";
 import { TEMPLATES } from "@/lib/exercises.js";
-import { lastDoneAt, MAIN_MUSCLES, nextSplitDay, splitWeeklySets, supersetLabels, trackOf, uid, VOLUME_RANGE } from "@/lib/model.js";
+import { indirectMuscles, lastDoneAt, MAIN_MUSCLES, nextSplitDay, splitWeeklySets, supersetLabels, trackOf, uid, VOLUME_RANGE } from "@/lib/model.js";
 import { go } from "@/lib/router.js";
 import { exerciseIndex, exerciseName, finishedWorkouts, records, remove, saveMany, settings, splitDays, update } from "@/lib/store.js";
 import * as format from "@/lib/format.js";
@@ -121,6 +121,7 @@ export function DayEditor({ id }: { id: string }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState(day?.name || "");
   const [target, setTarget] = useState<number | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
   const items = day?.exercises || [];
   const [order, setOrder] = useState<any[]>(items.map((item: any, i: number) => ({ ...item, key: `${item.exerciseId}-${i}` })));
   useEffect(() => setName(day?.name || ""), [id]);
@@ -212,15 +213,31 @@ export function DayEditor({ id }: { id: string }) {
         }
         open={adding}
       />
-      <TargetSheet index={target} items={items} onClose={() => setTarget(null)} onSave={(next) => change((d) => (d.exercises = next))} open={target !== null} />
+      <TargetSheet
+        index={target}
+        items={items}
+        onClose={() => setTarget(null)}
+        onEdit={(exerciseId) => {
+          setTarget(null);
+          setEditing(exerciseId);
+        }}
+        onSave={(next) => change((d) => (d.exercises = next))}
+        open={target !== null}
+      />
+      {editing ? <EditExerciseSheet id={editing} onClose={() => setEditing(null)} open /> : null}
     </Page>
   );
 }
 
 const RESTS = [30, 45, 60, 90, 120, 150, 180, 240, 300];
+// "Chest · also triceps, shoulders"
+const musclesText = (exercise: any) => {
+  const also = indirectMuscles(exercise);
+  return `${format.capitalize(exercise?.muscle || "other")}${also.length ? ` · also ${also.join(", ")}` : ""}`;
+};
 const REPS = Array.from({ length: 30 }, (_, i) => ({ value: String(i + 1), label: String(i + 1) }));
 
-function TargetSheet({ open, index, items, onClose, onSave }: { open: boolean; index: number | null; items: any[]; onClose: () => void; onSave: (items: any[]) => void }) {
+function TargetSheet({ open, index, items, onClose, onSave, onEdit }: { open: boolean; index: number | null; items: any[]; onClose: () => void; onSave: (items: any[]) => void; onEdit: (exerciseId: string) => void }) {
   const s = useValue(settings) as any;
   const [draft, setDraft] = useState<any>(null);
   const [linked, setLinked] = useState(false);
@@ -256,10 +273,11 @@ function TargetSheet({ open, index, items, onClose, onSave }: { open: boolean; i
 
   return (
     <Sheet left={<SheetAction onClick={onClose}>Cancel</SheetAction>} onClose={onClose} open={open} right={<SheetAction bold onClick={saveIt}>Save</SheetAction>} title={exerciseName(draft.exerciseId)}>
-      <Card>
+      <Card className="divide-y divide-border">
         <Row title="Sets">
           <Stepper label="sets" max={12} min={1} onChange={(v) => setDraft({ ...draft, targetSets: v })} value={draft.targetSets || 3} />
         </Row>
+        <Row chevron icon={Pencil} onClick={() => onEdit(draft.exerciseId)} subtitle={musclesText(exerciseIndex.value.get(draft.exerciseId))} title="Edit exercise" tone="action" />
       </Card>
       {track === "strength" ? (
       <Section footer={`When every set reaches the top of the range, Lift suggests adding ${format.weight(s.step)} ${s.unit}.`} title="Rep range">

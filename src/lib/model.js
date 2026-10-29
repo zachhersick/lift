@@ -866,11 +866,19 @@ export function coachingContext({ workouts = [], meals = [], bodyweights = [], s
 
 // ---------- training volume ----------
 
-// Muscles an exercise trains besides its main one: presses work triceps and
-// shoulders, rows and pulldowns biceps, squats and hinges glutes. Each set
-// counts as half a set for these, the fractional counting that best fits the
-// hypertrophy data (Pelland et al., 2024).
+// Secondary muscles: what an exercise trains besides its primary one. Each
+// set counts as half a set for these, the fractional counting that best fits
+// the hypertrophy data (Pelland et al., 2024). An exercise's own `secondary`
+// list (set when editing it) wins; otherwise they're inferred from the name.
+const SECONDARY_SKIP = new Set(["cardio", "full body"]);
 export function indirectMuscles(exercise) {
+  if (Array.isArray(exercise?.secondary)) return [...new Set(exercise.secondary)].filter((muscle) => typeof muscle === "string" && muscle && muscle !== exercise.muscle && !SECONDARY_SKIP.has(muscle));
+  return inferredSecondary(exercise);
+}
+
+// The secondary muscles a lift's name implies: presses work triceps and
+// shoulders, rows and pulldowns biceps, squats and hinges glutes.
+export function inferredSecondary(exercise) {
   const name = String(exercise?.name || "").toLowerCase();
   switch (exercise?.muscle) {
     case "chest":

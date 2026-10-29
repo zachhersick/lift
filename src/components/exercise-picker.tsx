@@ -1,12 +1,13 @@
 // Choose an exercise: fuzzy search (Kokonut's matcher), filter by muscle,
 // recent ones first, then A–Z. Create a custom exercise when nothing fits,
-// and edit any exercise's name, muscle, equipment or tracking type.
+// and edit any exercise's primary and secondary muscles, equipment or
+// tracking type, and the name of one you made.
 import { Plus, Search, X } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import { fuzzyMatch } from "@/components/kokonutui/action-search-bar";
 import { BUILT_IN, EQUIPMENT, MUSCLES } from "@/lib/exercises.js";
-import { byNewest, exerciseInUse, uid } from "@/lib/model.js";
+import { byNewest, exerciseInUse, indirectMuscles, inferredSecondary, uid } from "@/lib/model.js";
 import { exerciseIndex, exercises, resetExercise, save, saveExercise, sessions, workouts } from "@/lib/store.js";
 import { ask } from "@/lib/dialogs";
 import { notify } from "@/lib/notify";
@@ -174,25 +175,53 @@ export function ExercisePicker({ open, onClose, onPick, title = "Add Exercise", 
   );
 }
 
-type Fields = { name: string; muscle: string; equipment: string; track: string };
+type Fields = { name: string; muscle: string; equipment: string; track: string; secondary: string[] };
 
-// Name, muscle group, tracking type and equipment, for creating or editing.
-function ExerciseFields({ value, onChange, trackLocked, autoFocus }: { value: Fields; onChange: (next: Fields) => void; trackLocked?: string; autoFocus?: boolean }) {
+// Muscles that can be secondary: anything but the primary one, cardio and
+// full body.
+const SECONDARY = MUSCLES.filter((m: string) => !["cardio", "full body"].includes(m));
+const sameMuscles = (a: string[], b: string[]) => [...a].sort().join() === [...b].sort().join();
+
+// What to store as an exercise's secondary muscles: nothing when they match
+// what its name implies (so they keep following the name), else the list.
+function secondaryToSave(fields: Fields) {
+  return sameMuscles(fields.secondary, inferredSecondary({ name: fields.name.trim(), muscle: fields.muscle })) ? undefined : fields.secondary;
+}
+
+// Name, primary and secondary muscles, tracking type and equipment, for
+// creating or editing.
+function ExerciseFields({ value, onChange, trackLocked, autoFocus, nameLocked }: { value: Fields; onChange: (next: Fields) => void; trackLocked?: string; autoFocus?: boolean; nameLocked?: boolean }) {
   const set = (change: Partial<Fields>) => onChange({ ...value, ...change });
+  const toggle = (muscle: string) => set({ secondary: value.secondary.includes(muscle) ? value.secondary.filter((m) => m !== muscle) : [...value.secondary, muscle] });
   return (
     <>
       <Card className="p-4">
-        <input aria-label="Exercise name" autoFocus={autoFocus} className="w-full bg-transparent text-[17px] outline-none placeholder:text-muted-foreground" onChange={(e) => set({ name: e.currentTarget.value })} placeholder="Name, e.g. Cable Y-Raise" value={value.name} />
+        {nameLocked ? (
+          <p className="text-[17px]">{value.name}</p>
+        ) : (
+          <input aria-label="Exercise name" autoFocus={autoFocus} className="w-full bg-transparent text-[17px] outline-none placeholder:text-muted-foreground" onChange={(e) => set({ name: e.currentTarget.value })} placeholder="Name, e.g. Cable Y-Raise" value={value.name} />
+        )}
       </Card>
-      <Section footer="The muscle group feeds your weekly sets and the Coach. Barbell lifts get plate math and a bar warm-up." title="Muscle group">
+      <Section footer="Every set counts toward this muscle's weekly sets in the Coach and split analysis. Barbell lifts get plate math and a bar warm-up." title="Primary muscle">
         <div className="flex flex-wrap gap-2">
           {MUSCLES.map((m: string) => (
-            <Chip key={m} on={value.muscle === m} onClick={() => set({ muscle: m })}>
+            <Chip key={m} on={value.muscle === m} onClick={() => set({ muscle: m, secondary: value.secondary.filter((x) => x !== m) })}>
               {capitalize(m)}
             </Chip>
           ))}
         </div>
       </Section>
+      {value.muscle !== "cardio" && value.track !== "cardio" ? (
+        <Section footer="Muscles it also works, like triceps on a bench press. Each set counts as half a set for them (Pelland et al., 2024)." title="Secondary muscles">
+          <div className="flex flex-wrap gap-2">
+            {SECONDARY.filter((m: string) => m !== value.muscle).map((m: string) => (
+              <Chip key={m} on={value.secondary.includes(m)} onClick={() => toggle(m)}>
+                {capitalize(m)}
+              </Chip>
+            ))}
+          </div>
+        </Section>
+      ) : null}
       <Section footer={trackLocked ? `Fixed once sets are logged: your past sets were recorded as ${trackLocked.toLowerCase()}. Make a new exercise to log it another way.` : TRACK_HELP[value.track]} title="Logged as">
         <div className="flex flex-wrap gap-2">
           {["strength", "cardio", "timed"].map((t) => (
@@ -216,10 +245,10 @@ function ExerciseFields({ value, onChange, trackLocked, autoFocus }: { value: Fi
 }
 
 function CreateExercise({ open, draft, onBack, onClose, onSaved }: { open: boolean; draft: { name: string; muscle: string; equipment: string }; onBack: () => void; onClose: () => void; onSaved: (e: Exercise) => void }) {
-  const [fields, setFields] = useState<Fields>({ ...draft, track: draft.muscle === "cardio" ? "cardio" : "strength" });
+  const [fields, setFields] = useState<Fields>({ ...draft, track: draft.muscle === "cardio" ? "cardio" : "strength", secondary: [] });
   const submit = async () => {
     if (!fields.name.trim()) return;
-    onSaved(await save({ id: uid("x"), kind: "exercise", ...fields, name: fields.name.trim() }));
+    onSaved(await save({ id: uid("x"), kind: "exercise", ...fields, name: fields.name.trim(), secondary: secondaryToSave(fields) }));
   };
   return (
     <Sheet left={<SheetAction onClick={onBack}>Back</SheetAction>} onClose={onClose} open={open} right={<SheetAction bold disabled={!fields.name.trim()} onClick={submit}>Add</SheetAction>} tall title="New Exercise">
@@ -228,30 +257,30 @@ function CreateExercise({ open, draft, onBack, onClose, onSaved }: { open: boole
   );
 }
 
-// Fix an exercise: rename it, or move it to the right muscle group (say,
-// triceps instead of chest). Past workouts follow the change; for built-ins
-// it's an override you can reset.
+// Fix an exercise: rename one you made, move it to the right muscle group
+// (say, triceps instead of chest) or set the muscles it also works. Past
+// workouts follow the change; for built-ins it's an override you can reset.
 export function EditExerciseSheet({ id, open, onClose }: { id: string; open: boolean; onClose: () => void }) {
   const index = useValue(exerciseIndex) as Map<string, any>;
   const list = useValue(workouts) as any[];
   const exercise = index.get(id);
-  const [fields, setFields] = useState<Fields>({ name: "", muscle: "chest", equipment: "barbell", track: "strength" });
+  const [fields, setFields] = useState<Fields>({ name: "", muscle: "chest", equipment: "barbell", track: "strength", secondary: [] });
   useEffect(() => {
-    if (open && exercise) setFields({ name: exercise.name || "", muscle: exercise.muscle || "chest", equipment: exercise.equipment || "other", track: exercise.track || "strength" });
+    if (open && exercise) setFields({ name: exercise.name || "", muscle: exercise.muscle || "chest", equipment: exercise.equipment || "other", track: exercise.track || "strength", secondary: indirectMuscles(exercise) });
   }, [open]);
   if (!exercise) return null;
   const inUse = exerciseInUse(list, id);
   const original = exercise.builtIn ? BUILT_IN.find((e: any) => e.id === id) : null;
-  const changed = original && (["name", "muscle", "equipment", "track"] as const).some((key) => (exercise[key] || "") !== (original[key] || ""));
+  const changed = original && ((["name", "muscle", "equipment", "track"] as const).some((key) => (exercise[key] || "") !== (original[key] || "")) || !sameMuscles(indirectMuscles(exercise), inferredSecondary(original)));
   const submit = async () => {
     if (!fields.name.trim()) return;
-    await saveExercise(id, { ...fields, name: fields.name.trim(), track: inUse ? exercise.track || "strength" : fields.track });
+    await saveExercise(id, { ...fields, name: exercise.builtIn ? exercise.name : fields.name.trim(), track: inUse ? exercise.track || "strength" : fields.track, secondary: secondaryToSave({ ...fields, name: exercise.name }) });
     notify(`${fields.name.trim()} updated`);
     onClose();
   };
   return (
     <Sheet left={<SheetAction onClick={onClose}>Cancel</SheetAction>} onClose={onClose} open={open} right={<SheetAction bold disabled={!fields.name.trim()} onClick={submit}>Save</SheetAction>} tall title="Edit Exercise">
-      <ExerciseFields onChange={setFields} trackLocked={inUse ? capitalize(exercise.track || "strength") : undefined} value={fields} />
+      <ExerciseFields nameLocked={exercise.builtIn} onChange={setFields} trackLocked={inUse ? capitalize(exercise.track || "strength") : undefined} value={fields} />
       <p className="px-1 text-[13px] text-muted-foreground">
         Changes apply everywhere, including past workouts, your split, charts and the Coach.{exercise.builtIn ? " This is a built-in exercise, so the change is saved as your own version." : ""}
       </p>
@@ -259,7 +288,7 @@ export function EditExerciseSheet({ id, open, onClose }: { id: string; open: boo
         <Card>
           <Row
             onClick={async () => {
-              if (await ask({ title: `Reset ${original.name}?`, message: "Goes back to the built-in name, muscle group, equipment and type. Your note stays.", confirm: "Reset" })) {
+              if (await ask({ title: `Reset ${original.name}?`, message: "Goes back to the built-in muscles, equipment and type. Your note stays.", confirm: "Reset" })) {
                 await resetExercise(id);
                 onClose();
               }
