@@ -10,6 +10,7 @@ import { Sparkline } from "@/components/chart";
 import { Card, FadeIn, Page, Row, Section, Sheet, TopBar } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { applyTemplate, logRest, startWorkout } from "@/lib/actions.js";
+import { native } from "@/lib/api.js";
 import { ramp } from "@/lib/color";
 import { TEMPLATES } from "@/lib/exercises.js";
 import {
@@ -54,7 +55,7 @@ export function Today() {
       {syncState.status === "signedOut" ? (
         <FadeIn>
           <Card>
-            <Row chevron href="/api/auth/login" icon={Cloud} subtitle="Sign in to sync your phone and computer" title="Back up your workouts" />
+            <Row chevron href={native ? "#/settings" : "/api/auth/login"} icon={Cloud} subtitle="Sign in to sync your phone and computer" title="Back up your workouts" />
           </Card>
         </FadeIn>
       ) : null}

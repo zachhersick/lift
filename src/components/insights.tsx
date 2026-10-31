@@ -9,6 +9,7 @@ import { type ComponentType, useEffect, useRef, useState } from "react";
 import { Card, FadeIn, Section } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { fromDateKey, liftsThisWeek, REVIEW_MIN_LIFTS, VOLUME_RANGE } from "@/lib/model.js";
+import { postJson } from "@/lib/api.js";
 import { applyRemote, coach, coachReviews, saveSettings, sessions, settings } from "@/lib/store.js";
 import { sync } from "@/lib/sync.js";
 import * as format from "@/lib/format.js";
@@ -110,7 +111,7 @@ export function WeeklyReview() {
     setBusy(true);
     setError("");
     try {
-      const response = await fetch("/api/coach/review", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ consent: true }) });
+      const response = await postJson("/api/coach/review", { consent: true });
       const body = await response.json().catch(() => ({}));
       if (!response.ok || !body.ok) throw new Error(body.error || "The review didn't come through.");
       await applyRemote([body.review]);

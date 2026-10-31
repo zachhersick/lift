@@ -680,3 +680,44 @@ test("Sign in with Apple posts back with a verified email, and deleting the acco
   const refused = await request(app, { method: "POST", path: "/api/auth/apple/callback", form: { code: "c", state: new URL(again.headers.location).searchParams.get("state") }, cookie: cookieFrom(again, "lift_oauth_state") });
   assert.match(refused.headers.location, /signin=failed/);
 });
+
+test("the iOS app signs in through the browser with PKCE and uses a bearer token", async () => {
+  const store = new MemoryStore();
+  await store.putUser({ email: "friend@example.com", vip: false, createdAt: 1 });
+  const app = createApp({ store, env, fetchImpl: providers({ email: "friend@example.com", name: "Friend" }) });
+  const NATIVE = "capacitor://localhost";
+  const verifier = "v".repeat(50);
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  assert.equal((await request(app, { path: "/api/auth/login?provider=github&client=ios&challenge=short" })).status, 400, "PKCE is required");
+
+  const start = await request(app, { path: `/api/auth/login?provider=github&client=ios&challenge=${challenge}` });
+  const state = new URL(start.headers.location).searchParams.get("state");
+  const cookies = [cookieFrom(start, "lift_oauth_state"), cookieFrom(start, "lift_native")].join("; ");
+  const back = await request(app, { path: `/api/auth/callback?code=c&state=${state}`, cookie: cookies });
+  assert.match(back.headers.location, /^lift:\/\/auth\?code=/, "the browser hands the code back to the app");
+  assert.equal(cookieFrom(back, SESSION_COOKIE), undefined, "no web session for an app sign-in");
+  const code = new URL(back.headers.location).searchParams.get("code");
+
+  const exchange = (body) => request(app, { method: "POST", path: "/api/auth/token", body, origin: NATIVE });
+  assert.equal((await exchange({ code, verifier: "w".repeat(50) })).status, 400, "the wrong verifier fails");
+  const traded = await exchange({ code, verifier });
+  assert.equal(traded.status, 200);
+  assert.equal(traded.headers["access-control-allow-origin"], NATIVE);
+  assert.equal((await exchange({ code, verifier })).status, 400, "a code works once");
+
+  const bearer = { authorization: `Bearer ${traded.body.token}` };
+  assert.equal((await request(app, { path: "/api/session", origin: NATIVE, headers: bearer })).body.user.email, "friend@example.com");
+  const synced = await request(app, { method: "POST", path: "/api/sync", origin: NATIVE, headers: bearer, body: { since: 0, changes: [record("w1", 100)] } });
+  assert.equal(synced.body.accepted, 1, "bearer writes need no origin check");
+  assert.equal((await request(app, { method: "POST", path: "/api/sync", origin: NATIVE, cookie: sessionFor("friend@example.com"), body: { since: 0, changes: [] } })).status, 403, "cookie writes still do");
+  assert.equal((await request(app, { path: "/api/session", headers: { authorization: "Bearer nonsense" } })).body.signedIn, false);
+
+  const preflight = await request(app, { method: "OPTIONS", path: "/api/sync", origin: NATIVE });
+  assert.equal(preflight.status, 204);
+  assert.match(preflight.headers["access-control-allow-headers"], /authorization/);
+  const other = await request(app, { path: "/api/session", origin: "https://evil.example", headers: bearer });
+  assert.equal(other.headers["access-control-allow-origin"], undefined, "only the app's origin gets CORS");
+
+  await request(app, { method: "POST", path: "/api/account/delete", origin: NATIVE, headers: bearer, body: {} });
+  assert.equal((await request(app, { path: "/api/session", origin: NATIVE, headers: bearer })).body.signedIn, false, "deleting the account ends the app's token too");
+});

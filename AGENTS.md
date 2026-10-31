@@ -44,6 +44,7 @@ for social features, AI-sharing consent and the legal pages.
 | `src/lib/exercises.js` | Built-in exercise library, starter split templates, `MUSCLE_GROUPS`, `MUSCLES` and `EQUIPMENT` |
 | `src/lib/timer.js`, `set-timer.js`, `format.js` | Rest and set timers, number and date formatting |
 | `src/lib/store.js`, `db.js`, `sync.js`, `account.js` | Signals, IndexedDB records/outbox (one database per account), server synchronization |
+| `src/lib/api.js` | Every API call: same-origin cookie fetch on the web, `VITE_API_URL` plus a bearer token in the iOS app, and native sign-in (PKCE, `lift://auth`) |
 | `src/lib/actions.js`, `router.js` | Shared actions and hash navigation |
 | `src/styles.css`, `public/theme-init.js` | Theme tokens and appearance before first paint |
 | `server/app.js`, `auth.js`, `http.js`, `store.js` | API routing, accounts, invites and deletion, Apple/Google/GitHub sign-in, request validation and memory/Neon stores |
@@ -127,6 +128,14 @@ Use a production build and preview with `?sw` when checking offline behavior.
   is a cross-site form post (`/api/auth/apple/callback`), so its state and next
   cookies are `SameSite=None`; it is the only sign-in step outside the
   same-origin check and still needs the signed state.
+- The iOS app (Capacitor, origin `capacitor://localhost`) signs in through the
+  system browser with `/api/auth/login?client=ios&challenge=<S256>`; the
+  callback redirects to `lift://auth?code=…`, a two-minute single-use code that
+  `/api/auth/token` trades for a session token only with the PKCE verifier. The
+  app sends it as `Authorization: Bearer`, which skips the same-origin check
+  (cookies never accompany it). CORS allows exactly `capacitor://localhost` on
+  `/api/*`. Make every client API call through `api()`/`postJson()` in
+  `api.js`, never a bare `fetch`.
 - Signing in creates the `lift_users` row. Sessions (`iat`) and ChatGPT tokens
   (`t`) only count while a non-admin's row exists and was created before they
   were issued (`member()` in `app.js`), so deleting an account

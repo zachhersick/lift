@@ -5,6 +5,7 @@ import { Check, Cloud, Copy, Download, FileText, Flag, LifeBuoy, LogIn, RefreshC
 import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { Card, Chip, Page, Row, Section, Segmented, spring, Stepper, Toggle, TopBar } from "@/components/kit";
+import { api, apiOrigin, postJson, signIn } from "@/lib/api.js";
 import { ask } from "@/lib/dialogs";
 import { BARS, defaultWeeklyGoal, PLATES } from "@/lib/model.js";
 import { notify } from "@/lib/notify";
@@ -30,7 +31,7 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const REASONS: Record<string, string> = { name: "Offensive name", harassment: "Harassment", spam: "Spam", other: "Something else" };
 
 async function adminCall(path: string, body?: object) {
-  const response = await fetch(path, body ? { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : { credentials: "same-origin", cache: "no-store" });
+  const response = await (body ? postJson(path, body) : api(path, { cache: "no-store" }));
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data.ok) throw new Error(data.error || "That didn't work. Try again.");
   return data;
@@ -163,7 +164,7 @@ export function Settings() {
   const t = useValue(targets) as any;
   const mealList = useValue(meals) as any[];
   const lastChat = mealList.filter((m) => m.source === "chatgpt").sort((a, b) => (b.loggedAt || b.updatedAt) - (a.loggedAt || a.updatedAt))[0];
-  const connectorUrl = `${location.origin}/api/mcp`;
+  const connectorUrl = `${apiOrigin}/api/mcp`;
 
   const remove = async () => {
     const confirmed = await ask({
@@ -236,9 +237,9 @@ export function Settings() {
               {state.user.admin ? null : <Row icon={Trash2} iconClass="bg-destructive/15 text-destructive" onClick={remove} title="Delete account" tone="danger" />}
             </>
           ) : state.providers?.length ? (
-            state.providers.map((provider: string) => <Row href={`/api/auth/login?provider=${provider}`} icon={LogIn} key={provider} title={`Continue with ${PROVIDERS[provider] || provider}`} tone="action" />)
+            state.providers.map((provider: string) => <Row icon={LogIn} key={provider} onClick={() => signIn(provider)} title={`Continue with ${PROVIDERS[provider] || provider}`} tone="action" />)
           ) : (
-            <Row href="/api/auth/login" icon={LogIn} title="Sign in" tone="action" />
+            <Row icon={LogIn} onClick={() => signIn()} title="Sign in" tone="action" />
           )}
         </Card>
       </Section>
