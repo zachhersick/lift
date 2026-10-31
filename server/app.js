@@ -141,9 +141,16 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
     return Boolean(bearerSession(req)) || (Boolean(config.appUrl) && req.headers.origin === config.appUrl);
   }
 
+  // A failed sign-in goes back to where it started: the web app, or the iOS
+  // app through lift://auth.
+  function signInFailed(req, res, reason) {
+    const native = Boolean(parseCookies(req.headers.cookie)[NATIVE_COOKIE]);
+    return redirect(res, native ? `${NATIVE_REDIRECT}?error=${reason}` : `/?signin=${reason}`, { "set-cookie": [clearCookie(STATE_COOKIE), clearCookie(NATIVE_COOKIE)] });
+  }
+
   async function finishSignIn(req, res, profile) {
     const user = await account(profile.email);
-    if (!user) return redirect(res, "/?signin=denied", { "set-cookie": clearCookie(STATE_COOKIE) });
+    if (!user) return signInFailed(req, res, "denied");
     const now = Date.now();
     const appleToken = profile.appleToken ? encryptText(profile.appleToken, config.sessionSecret) : user.row?.appleToken || "";
     await store.putUser({ ...user.row, email: user.email, name: user.name || profile.name || "", vip: Boolean(user.row?.vip), createdAt: user.row?.createdAt || now, lastSeenAt: now, appleToken });
@@ -162,12 +169,12 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
   // `params` are the callback's query, or Apple's posted form.
   async function oauthCallback(req, res, params, read) {
     const stateCookie = parseCookies(req.headers.cookie)[STATE_COOKIE];
-    if (!checkOAuthState(stateCookie, params.get("state"), config.sessionSecret)) return redirect(res, "/?signin=expired", { "set-cookie": clearCookie(STATE_COOKIE) });
+    if (!checkOAuthState(stateCookie, params.get("state"), config.sessionSecret)) return signInFailed(req, res, "expired");
     let profile;
     try {
       profile = await read(params.get("code"));
     } catch {
-      return redirect(res, "/?signin=failed", { "set-cookie": clearCookie(STATE_COOKIE) });
+      return signInFailed(req, res, "failed");
     }
     return finishSignIn(req, res, profile);
   }

@@ -720,4 +720,9 @@ test("the iOS app signs in through the browser with PKCE and uses a bearer token
 
   await request(app, { method: "POST", path: "/api/account/delete", origin: NATIVE, headers: bearer, body: {} });
   assert.equal((await request(app, { path: "/api/session", origin: NATIVE, headers: bearer })).body.signedIn, false, "deleting the account ends the app's token too");
+
+  const stranger = createApp({ store, env, fetchImpl: providers({ email: "stranger@example.com" }) });
+  const again = await request(stranger, { path: `/api/auth/login?provider=github&client=ios&challenge=${challenge}` });
+  const refused = await request(stranger, { path: `/api/auth/callback?code=c&state=${new URL(again.headers.location).searchParams.get("state")}`, cookie: [cookieFrom(again, "lift_oauth_state"), cookieFrom(again, "lift_native")].join("; ") });
+  assert.equal(refused.headers.location, "lift://auth?error=denied", "a refused sign-in goes back to the app");
 });
