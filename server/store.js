@@ -5,7 +5,9 @@
 // which devices use as their pull cursor. `forOwner(email)` gives the record
 // methods for one account. MemoryStore mirrors NeonStore for tests and local
 // runs. `lift_users` is the invite list; `lift_once` remembers one-time OAuth
-// codes and refresh tokens that were already used.
+// codes and refresh tokens that were already used; `lift_friends` holds
+// friendships (pending until the other person accepts), one row per pair
+// with the two emails in sorted order.
 
 // Run in order on first use. Before accounts, records had no owner: those
 // rows are given to `legacyOwner` (the first admin) and the primary key moves
@@ -50,7 +52,16 @@ export const SCHEMA = [
     invited_by text not null default '',
     created_at bigint not null,
     last_seen_at bigint
-  )`
+  )`,
+  `create table if not exists lift_friends (
+    a text not null,
+    b text not null,
+    status text not null,
+    requested_by text not null,
+    created_at bigint not null,
+    primary key (a, b)
+  )`,
+  "create index if not exists lift_friends_b on lift_friends (b)"
 ];
 
 export const PULL_LIMIT = 2000;
@@ -66,12 +77,20 @@ function scoped(store, owner) {
   };
 }
 
+// A friendship's key: the two emails in sorted order.
+export const friendPair = (x, y) => (x < y ? [x, y] : [y, x]);
+const friendRow = (row) => {
+  const [a, b] = friendPair(row.a, row.b);
+  return { a, b, status: row.status, requestedBy: row.requestedBy, createdAt: row.createdAt };
+};
+
 const userRow = (user) => ({ email: user.email, name: user.name || "", vip: Boolean(user.vip), invitedBy: user.invitedBy || "", createdAt: user.createdAt, lastSeenAt: user.lastSeenAt ?? null });
 
 export class MemoryStore {
   constructor() {
     this.rows = new Map();
     this.users = new Map();
+    this.friends = new Map();
     this.seq = 0;
   }
 
@@ -140,6 +159,24 @@ export class MemoryStore {
 
   async removeUser(email) {
     this.users.delete(email);
+  }
+
+  async listFriendships(email) {
+    return [...this.friends.values()].filter((row) => row.a === email || row.b === email).map((row) => ({ ...row }));
+  }
+
+  async getFriendship(x, y) {
+    const row = this.friends.get(friendPair(x, y).join("\n"));
+    return row ? { ...row } : null;
+  }
+
+  async putFriendship(row) {
+    const clean = friendRow(row);
+    this.friends.set(`${clean.a}\n${clean.b}`, clean);
+  }
+
+  async removeFriendship(x, y) {
+    this.friends.delete(friendPair(x, y).join("\n"));
   }
 }
 
@@ -250,6 +287,29 @@ export class NeonStore {
   async removeUser(email) {
     await this.query("delete from lift_users where email = $1", [email]);
   }
+
+  async listFriendships(email) {
+    return (await this.query("select * from lift_friends where a = $1 or b = $1", [email])).map(fromFriendRow);
+  }
+
+  async getFriendship(x, y) {
+    const rows = await this.query("select * from lift_friends where a = $1 and b = $2", friendPair(x, y));
+    return rows[0] ? fromFriendRow(rows[0]) : null;
+  }
+
+  async putFriendship(row) {
+    const clean = friendRow(row);
+    await this.query(
+      `insert into lift_friends (a, b, status, requested_by, created_at) values ($1, $2, $3, $4, $5)
+       on conflict (a, b) do update set status = excluded.status, requested_by = excluded.requested_by`,
+      [clean.a, clean.b, clean.status, clean.requestedBy, clean.createdAt]
+    );
+  }
+
+  async removeFriendship(x, y) {
+    await this.query("delete from lift_friends where a = $1 and b = $2", friendPair(x, y));
+  }
 }
 
+const fromFriendRow = (row) => ({ a: row.a, b: row.b, status: row.status, requestedBy: row.requested_by, createdAt: Number(row.created_at) });
 const fromUserRow = (row) => ({ email: row.email, name: row.name, vip: Boolean(row.vip), invitedBy: row.invited_by, createdAt: Number(row.created_at), lastSeenAt: row.last_seen_at == null ? null : Number(row.last_seen_at) });

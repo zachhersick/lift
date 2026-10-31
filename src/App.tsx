@@ -1,6 +1,6 @@
 // App shell: routes with page transitions, the floating tab bar, the bar that
 // returns you to a running workout, islands, the number pad and dialogs.
-import { CalendarDays, ChevronUp, Dumbbell, GraduationCap, ListOrdered, Settings2, TrendingUp } from "lucide-react";
+import { CalendarDays, ChevronUp, Dumbbell, GraduationCap, ListOrdered, TrendingUp, UserRound } from "lucide-react";
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { type ReactNode, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -24,6 +24,8 @@ import { NutritionPage } from "@/pages/nutrition";
 import { CoachPage } from "@/pages/coach";
 import { DayEditor, Split } from "@/pages/split";
 import { Settings } from "@/pages/settings";
+import { ProfilePage } from "@/pages/profile";
+import { FriendPage } from "@/pages/friend";
 
 const TABS = [
   { page: "today", label: "Today", icon: Dumbbell, match: ["today", "nutrition"] },
@@ -31,7 +33,7 @@ const TABS = [
   { page: "progress", label: "Progress", icon: TrendingUp, match: ["progress", "exercise", "bodyweight"] },
   { page: "split", label: "Split", icon: ListOrdered, match: ["split"] },
   { page: "coach", label: "Coach", icon: GraduationCap, match: ["coach"] },
-  { page: "settings", label: "Settings", icon: Settings2, match: ["settings"] }
+  { page: "profile", label: "Profile", icon: UserRound, match: ["profile", "settings", "friend"] }
 ];
 
 function pageFor(page: string, id: string | null): ReactNode {
@@ -44,6 +46,8 @@ function pageFor(page: string, id: string | null): ReactNode {
   if (page === "coach") return <CoachPage />;
   if (page === "split") return id ? <DayEditor id={id} /> : <Split />;
   if (page === "settings") return <Settings />;
+  if (page === "profile") return <ProfilePage />;
+  if (page === "friend" && id) return <FriendPage email={id} />;
   return <Today />;
 }
 

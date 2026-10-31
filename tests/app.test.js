@@ -477,3 +477,65 @@ test("ChatGPT can log micronutrients, and get_day reports them against Daily Val
   const schema = (await rpc(app, token, "tools/list")).body.result.tools.find((t) => t.name === "log_meal").inputSchema;
   assert.ok(schema.properties.micros.properties.magnesium);
 });
+
+test("friends request, accept and see each other's profile summaries", async () => {
+  const store = new MemoryStore();
+  for (const email of ["amy@example.com", "ben@example.com"]) await store.putUser({ email, name: email === "amy@example.com" ? "Amy" : "", vip: false, createdAt: 1 });
+  const app = createApp({ store, env });
+  const amy = sessionFor("amy@example.com");
+  const ben = sessionFor("ben@example.com");
+  const post = (cookie, path, body, extra = {}) => request(app, { method: "POST", path, cookie, body, ...extra });
+  const bench = { id: "w1", kind: "workout", updatedAt: 1, name: "Push", startedAt: Date.UTC(2026, 0, 5), finishedAt: Date.UTC(2026, 0, 5, 1), entries: [{ exerciseId: "b_bench-press", sets: [{ done: true, weight: 225, reps: 5 }] }], notes: "secret note" };
+  await post(amy, "/api/sync", { since: 0, changes: [bench, { id: "bw_2026-01-05", kind: "bodyweight", updatedAt: 1, date: "2026-01-05", weight: 150 }, { id: "m1", kind: "meal", updatedAt: 1, date: "2026-01-05", name: "Pizza" }] });
+
+  assert.equal((await request(app, { path: "/api/profile?email=amy%40example.com", cookie: ben })).status, 404, "not friends yet");
+  assert.equal((await post(ben, "/api/friends/request", { email: "ben@example.com" })).status, 400, "not yourself");
+  assert.equal((await post(ben, "/api/friends/request", { email: "nobody@example.com" })).status, 404, "only people on Lift");
+  assert.equal((await post(ben, "/api/friends/request", { email: "amy@example.com" }, { origin: "https://evil.example" })).status, 403);
+
+  const sent = await post(ben, "/api/friends/request", { email: "Amy@Example.com" });
+  assert.deepEqual(sent.body.outgoing.map((p) => [p.email, p.name]), [["amy@example.com", "Amy"]]);
+  assert.equal((await post(ben, "/api/friends/accept", { email: "amy@example.com" })).status, 404, "you can't accept your own request");
+  const waiting = await request(app, { path: "/api/friends", cookie: amy });
+  assert.deepEqual(waiting.body.incoming.map((p) => [p.email, p.name]), [["ben@example.com", "ben"]], "names fall back to the email");
+  assert.equal((await request(app, { path: "/api/profile?email=amy%40example.com", cookie: ben })).status, 404, "pending isn't friends");
+
+  const accepted = await post(amy, "/api/friends/accept", { email: "ben@example.com" });
+  assert.deepEqual(accepted.body.friends.map((p) => p.email), ["ben@example.com"]);
+  assert.deepEqual((await request(app, { path: "/api/friends", cookie: ben })).body.friends.map((p) => p.email), ["amy@example.com"]);
+
+  const seen = (await request(app, { path: "/api/profile?email=amy%40example.com", cookie: ben })).body.profile;
+  assert.equal(seen.name, "Amy");
+  assert.equal(seen.totalSessions, 1);
+  assert.ok(seen.badges.some((b) => b.id === "bench-2"), "225 lb earns the 2-plate bench");
+  assert.equal(seen.lifts[0].key, "b_bench-press");
+  assert.equal(seen.ratios["b_bench-press"], 1.75);
+  assert.equal(seen.recent[0].exercises[0].weight, 225);
+  const text = JSON.stringify(seen);
+  assert.ok(!text.includes("secret note") && !text.includes("Pizza") && !text.includes("150"), "no notes, meals or bodyweight");
+
+  await post(amy, "/api/sync", { since: 0, changes: [{ id: "settings", kind: "settings", updatedAt: 2, share: { lifts: false, workouts: false, ratios: false } }] });
+  const hidden = (await request(app, { path: "/api/profile?email=amy%40example.com", cookie: ben })).body.profile;
+  assert.equal(hidden.lifts, null);
+  assert.equal(hidden.recent, null);
+  assert.equal(hidden.ratios, null);
+  assert.equal(hidden.badges.length, seen.badges.length, "badges are always shared");
+
+  await store.removeUser("amy@example.com");
+  assert.deepEqual((await request(app, { path: "/api/friends", cookie: ben })).body.friends, [], "removed people drop off");
+  assert.equal((await request(app, { path: "/api/profile?email=amy%40example.com", cookie: ben })).status, 404);
+});
+
+test("asking someone who already asked you makes you friends, and either side can remove it", async () => {
+  const store = new MemoryStore();
+  await store.putUser({ email: "amy@example.com", vip: false, createdAt: 1 });
+  const app = createApp({ store, env });
+  const amy = sessionFor("amy@example.com");
+  await request(app, { method: "POST", path: "/api/friends/request", cookie: amy, body: { email: "zach@example.com" } });
+  const both = await request(app, { method: "POST", path: "/api/friends/request", cookie: signedIn, body: { email: "amy@example.com" } });
+  assert.deepEqual(both.body.friends.map((p) => p.email), ["amy@example.com"]);
+  assert.equal((await request(app, { path: "/api/profile?email=zach%40example.com", cookie: amy })).status, 200);
+  await request(app, { method: "POST", path: "/api/friends/remove", cookie: amy, body: { email: "zach@example.com" } });
+  assert.deepEqual((await request(app, { path: "/api/friends", cookie: signedIn })).body, { ok: true, friends: [], incoming: [], outgoing: [] });
+  assert.equal((await request(app, { path: "/api/profile", cookie: amy })).body.profile.email, "amy@example.com", "your own profile needs no friendship");
+});

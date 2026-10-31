@@ -24,7 +24,7 @@ import {
 } from "@/lib/model.js";
 import { notify } from "@/lib/notify";
 import { back, go } from "@/lib/router.js";
-import { exerciseIndex, exerciseName, records, remove, save, saveExerciseNote, sessions, settings, splitDays, update } from "@/lib/store.js";
+import { badgeList, exerciseIndex, exerciseName, records, remove, save, saveExerciseNote, sessions, settings, splitDays, update } from "@/lib/store.js";
 import { keepAwake, now, startRest, stopRest, unlockAudio } from "@/lib/timer.js";
 import * as format from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
@@ -158,10 +158,14 @@ export function WorkoutPage({ id }: { id: string }) {
     // Compare the plan with the workout before unchecked sets are dropped, so
     // skipping an exercise today doesn't read as removing it from the plan.
     const asPlanned = structuredClone(workout);
+    const had = new Set(badgeList.value.filter((badge: any) => badge.earnedAt).map((badge: any) => badge.id));
     await change((draft) => {
       draft.entries = draft.entries.map((entry: any) => ({ ...entry, sets: entry.sets.filter((set: any) => set.done) })).filter((entry: any) => entry.sets.length);
       draft.finishedAt = Date.now();
     });
+    const earned = badgeList.value.filter((badge: any) => badge.earnedAt && !had.has(badge.id));
+    if (earned.length === 1) notify(`Badge earned: ${earned[0].title}`, { detail: earned[0].detail });
+    else if (earned.length) notify(`${earned.length} badges earned`, { detail: earned.map((badge: any) => badge.title).join(", ") });
     writeFocus(id, null);
     await offerSplitUpdate(asPlanned);
     go(`history/${id}?done=1`, { replace: true });

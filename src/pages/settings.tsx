@@ -163,7 +163,7 @@ export function Settings() {
 
   return (
     <Page>
-      <TopBar title="Settings" />
+      <TopBar backLabel="Profile" backTo="profile" title="Settings" />
 
       <Section
         footer={state.user ? "Workouts sync a couple of seconds after each change. Signing out keeps your data on this device for when you sign back in." : "Sign in with the email you were invited with to back up your workouts and use them on other devices."}
