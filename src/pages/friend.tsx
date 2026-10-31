@@ -1,10 +1,11 @@
 // A friend's profile, found by username: their stats, pinned lift and
 // badges, your lifts next to theirs, and their recent workouts. Everything
 // comes from their server-side summary, minus what they chose not to share.
-import { Users } from "lucide-react";
+// You can report or block them from here.
+import { Ban, Flag, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { BadgeGrid, PinnedLift, ProfileHeader } from "@/components/badges";
-import { Card, Empty, Page, Row, Section, TopBar } from "@/components/kit";
+import { Card, Empty, Page, Row, Section, Sheet, TopBar } from "@/components/kit";
 import { ask } from "@/lib/dialogs";
 import { BADGES, compareLifts } from "@/lib/model.js";
 import { notify } from "@/lib/notify";
@@ -13,6 +14,57 @@ import { social } from "@/lib/social.js";
 import { profile } from "@/lib/store.js";
 import * as format from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
+
+const REASONS = [
+  { value: "name", title: "Offensive name or username" },
+  { value: "harassment", title: "Harassment or bullying" },
+  { value: "spam", title: "Spam or a fake account" },
+  { value: "other", title: "Something else" }
+];
+
+// Reports go to Lift's admins, who can remove the account.
+export function ReportSheet({ username, name, open, onClose }: { username: string; name: string; open: boolean; onClose: () => void }) {
+  const [reason, setReason] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (open) {
+      setReason("");
+      setNote("");
+    }
+  }, [open]);
+  const send = async () => {
+    setBusy(true);
+    try {
+      await social("/api/friends/report", { username, reason, note });
+      notify(`Reported ${name}. Thanks for telling us.`);
+      onClose();
+    } catch (failure: any) {
+      notify(failure.message, { status: "error" });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Sheet onClose={onClose} open={open} title={`Report ${name}`}>
+      <Section footer="Lift's admins review every report and remove accounts that break the terms. The person you report isn't told who reported them." title="What's wrong?">
+        <Card className="divide-y divide-border">
+          {REASONS.map((option) => (
+            <Row key={option.value} onClick={() => setReason(option.value)} title={option.title} value={reason === option.value ? <span className="text-primary">✓</span> : null} />
+          ))}
+        </Card>
+      </Section>
+      <Section title="Details (optional)">
+        <Card>
+          <textarea aria-label="Report details" className="min-h-24 w-full resize-none bg-transparent px-4 py-3 text-[16px] outline-none placeholder:text-muted-foreground" maxLength={500} onChange={(e) => setNote(e.currentTarget.value)} placeholder="Anything that helps" value={note} />
+        </Card>
+      </Section>
+      <Card>
+        <Row disabled={busy || !reason} onClick={send} title={busy ? "Sending…" : "Send report"} tone="danger" />
+      </Card>
+    </Sheet>
+  );
+}
 
 function CompareRow({ row, them, unit }: { row: any; them: string; unit: string }) {
   const top = Math.max(row.mine, row.theirs, 1);
@@ -41,6 +93,7 @@ export function FriendPage({ username }: { username: string }) {
   const mine = useValue(profile) as any;
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState("");
+  const [reporting, setReporting] = useState(false);
 
   useEffect(() => {
     social(`/api/profile?username=${encodeURIComponent(username)}`)
@@ -66,6 +119,16 @@ export function FriendPage({ username }: { username: string }) {
     try {
       await social("/api/friends/remove", { username });
       notify(`Removed ${data.name}`);
+      back("profile");
+    } catch (failure: any) {
+      notify(failure.message, { status: "error" });
+    }
+  };
+  const block = async () => {
+    if (!(await ask({ title: `Block ${data.name}?`, message: "You stop being friends, and neither of you can find or add the other. You can unblock them from your profile.", confirm: "Block", danger: true }))) return;
+    try {
+      await social("/api/friends/block", { username });
+      notify(`Blocked ${data.name}`);
       back("profile");
     } catch (failure: any) {
       notify(failure.message, { status: "error" });
@@ -125,10 +188,13 @@ export function FriendPage({ username }: { username: string }) {
       </Section>
 
       <Section>
-        <Card>
+        <Card className="divide-y divide-border">
           <Row onClick={remove} title="Remove friend" tone="danger" />
+          <Row icon={Flag} iconClass="bg-destructive/15 text-destructive" onClick={() => setReporting(true)} title={`Report ${first}`} tone="danger" />
+          <Row icon={Ban} iconClass="bg-destructive/15 text-destructive" onClick={block} title={`Block ${first}`} tone="danger" />
         </Card>
       </Section>
+      <ReportSheet name={data.name} onClose={() => setReporting(false)} open={reporting} username={username} />
     </Page>
   );
 }

@@ -1999,5 +1999,19 @@ export const cleanUsername = (text) => String(text || "").trim().toLowerCase().r
 export function usernameProblem(username) {
   if (!USERNAME.test(username)) return "Use 3–20 lowercase letters, numbers, _ or .";
   if (RESERVED_USERNAMES.has(username)) return "That username is reserved.";
-  return "";
+  return nameProblem(username);
+}
+
+// Names other people see (usernames and display names) can't contain slurs
+// or explicit words. The App Store requires filtering what people post; this
+// catches the obvious ones, look-alike digits included, and reports cover
+// the rest. Words that hide inside ordinary names (Hancock, grape,
+// Scunthorpe) only count on their own.
+const BLOCKED_ANYWHERE = ["nigger", "nigga", "faggot", "retard", "tranny", "wetback", "fuck", "whore", "porn", "jizz", "dildo", "hitler"];
+const BLOCKED_WORDS = new Set(["cunt", "cunts", "spic", "chink", "kike", "coon", "fag", "shit", "bitch", "slut", "pussy", "cock", "penis", "vagina", "rape", "nazi", "anal", "cum", "boob", "boobs", "tits"]);
+const LOOKALIKE = { 0: "o", 1: "i", 3: "e", 4: "a", 5: "s", 7: "t", 8: "b", "@": "a", $: "s", "!": "i" };
+export function nameProblem(text) {
+  const words = String(text || "").toLowerCase().replace(/[013457@$!8]/g, (c) => LOOKALIKE[c]).split(/[^a-z]+/).filter(Boolean);
+  const joined = words.join("");
+  return BLOCKED_ANYWHERE.some((word) => joined.includes(word)) || words.some((word) => BLOCKED_WORDS.has(word)) ? "Pick a different name." : "";
 }

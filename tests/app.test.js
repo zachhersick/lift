@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { Readable } from "node:stream";
 import { cleanChanges, createApp } from "../server/app.js";
 import { MemoryStore, NeonStore } from "../server/store.js";
@@ -420,13 +420,16 @@ test("the weekly review asks Claude with fallbacks on and saves a synced record"
 
   const app = createApp({ store, env, anthropic });
   assert.equal((await request(app, { method: "POST", path: "/api/coach/review", cookie: signedIn, body: {}, origin: "https://evil.example" })).status, 403);
-  const early = await request(app, { method: "POST", path: "/api/coach/review", cookie: signedIn, body: {} });
+  const unasked = await request(app, { method: "POST", path: "/api/coach/review", cookie: signedIn, body: {} });
+  assert.equal(unasked.status, 409, "nothing goes to Claude before you agree");
+  assert.equal(unasked.body.error, "Turn on weekly reviews first.");
+  const early = await request(app, { method: "POST", path: "/api/coach/review", cookie: signedIn, body: { consent: true } });
   assert.equal(early.status, 409, "nothing logged yet");
   assert.equal(early.body.error, "Log 3 lifts this week to get your review (0 so far).");
   const meal = { id: "m1", kind: "meal", updatedAt: 1, date: "2026-10-20", name: "Oats", calories: 600, protein: 40, carbs: 80, fat: 10 };
   const lift = (i) => ({ id: `w${i}`, kind: "workout", updatedAt: 1, startedAt: Date.now() - (i + 1) * 86_400_000, finishedAt: Date.now() - i * 86_400_000, entries: [{ id: `e${i}`, exerciseId: "b_bench-press", sets: [{ id: `s${i}`, weight: 100, reps: 5, type: "working", done: true }] }] });
   await request(app, { method: "POST", path: "/api/sync", cookie: signedIn, body: { since: 0, changes: [meal, lift(0), lift(1)] } });
-  assert.match((await request(app, { method: "POST", path: "/api/coach/review", cookie: signedIn, body: {} })).body.error, /\(2 so far\)/);
+  assert.match((await request(app, { method: "POST", path: "/api/coach/review", cookie: signedIn, body: { consent: true } })).body.error, /\(2 so far\)/);
   await request(app, { method: "POST", path: "/api/sync", cookie: signedIn, body: { since: 0, changes: [lift(2)] } });
 
   await store.putUser({ email: "friend@example.com", vip: false, createdAt: 1 });
@@ -435,7 +438,7 @@ test("the weekly review asks Claude with fallbacks on and saves a synced record"
   assert.equal((await request(app, { method: "POST", path: "/api/coach/review", cookie: friend, body: {} })).status, 403);
   assert.equal((await request(app, { path: "/api/session", cookie: signedIn })).body.coach, true);
 
-  const response = await request(app, { method: "POST", path: "/api/coach/review", cookie: signedIn, body: {} });
+  const response = await request(app, { method: "POST", path: "/api/coach/review", cookie: signedIn, body: { consent: true } });
   assert.equal(response.status, 200);
   assert.equal(response.body.review.kind, "coachReview");
   assert.match(response.body.review.text, /^Solid week/);
@@ -447,7 +450,7 @@ test("the weekly review asks Claude with fallbacks on and saves a synced record"
   assert.ok(pulled.body.records.some((r) => r.kind === "coachReview"), "the review syncs to the phone");
 
   const refused = createApp({ store, env, anthropic: { beta: { messages: { create: async () => ({ stop_reason: "refusal", content: [] }) } } } });
-  assert.equal((await request(refused, { method: "POST", path: "/api/coach/review", cookie: signedIn, body: {} })).status, 502);
+  assert.equal((await request(refused, { method: "POST", path: "/api/coach/review", cookie: signedIn, body: { consent: true } })).status, 502);
 });
 
 test("ChatGPT can log micronutrients, and get_day reports them against Daily Values", async () => {
@@ -573,6 +576,107 @@ test("mutual requests make friends, either side can remove, and the leaderboard 
   assert.ok(!JSON.stringify(board).includes("@example.com"));
 
   await post(amy, "/api/friends/remove", { username: "ben" });
-  assert.deepEqual((await request(app, { path: "/api/friends", cookie: ben })).body, { ok: true, friends: [], incoming: [], outgoing: [] });
+  assert.deepEqual((await request(app, { path: "/api/friends", cookie: ben })).body, { ok: true, friends: [], incoming: [], outgoing: [], blocked: [] });
   assert.equal((await request(app, { path: "/api/profile", cookie: amy })).body.profile.username, "amy", "your own profile needs no friendship");
+});
+
+test("blocking ends a friendship and hides you both; reports reach admins", async () => {
+  const { store, app, amy, ben, post } = await members();
+  await post(amy, "/api/account", { username: "amy" });
+  await post(ben, "/api/account", { username: "ben" });
+  await post(amy, "/api/friends/request", { username: "ben" });
+  await post(ben, "/api/friends/accept", { username: "amy" });
+  assert.equal((await post(ben, "/api/friends/block", { username: "amy" }, { origin: "https://evil.example" })).status, 403);
+
+  const blocked = await post(ben, "/api/friends/block", { username: "amy" });
+  assert.deepEqual(blocked.body.friends, [], "the friendship ends");
+  assert.deepEqual(blocked.body.blocked, [{ username: "amy", name: "Amy" }]);
+  assert.deepEqual((await request(app, { path: "/api/friends", cookie: amy })).body.blocked, [], "you don't see who blocked you");
+  assert.equal((await post(amy, "/api/friends/request", { username: "ben" })).status, 404, "a blocker looks like no one");
+  assert.equal((await post(ben, "/api/friends/request", { username: "amy" })).status, 404, "and it works both ways");
+  assert.equal((await request(app, { path: "/api/profile?username=ben", cookie: amy })).status, 404);
+  assert.deepEqual((await post(ben, "/api/friends/unblock", { username: "amy" })).body.blocked, []);
+  assert.equal((await post(amy, "/api/friends/request", { username: "ben" })).status, 200, "unblocked, requests work again");
+
+  assert.equal((await post(amy, "/api/friends/report", { username: "ben", reason: "nope" })).status, 400);
+  assert.equal((await post(amy, "/api/friends/report", { username: "ben", reason: "name", note: "  rude name  " })).status, 200);
+  assert.equal((await request(app, { path: "/api/admin/reports", cookie: amy })).status, 403, "admins only");
+  const listed = (await request(app, { path: "/api/admin/reports", cookie: signedIn })).body.reports;
+  assert.deepEqual(listed.map((r) => [r.reporterUsername, r.reportedUsername, r.reason, r.note]), [["amy", "ben", "name", "rude name"]]);
+  const dismissed = await request(app, { method: "POST", path: "/api/admin/reports/dismiss", cookie: signedIn, body: { id: listed[0].id } });
+  assert.deepEqual(dismissed.body.reports, []);
+  assert.equal((await post(amy, "/api/account", { name: "Big C0ck" })).status, 400, "names are filtered");
+  assert.equal((await post(amy, "/api/account", { username: "sh1t_lifter" })).status, 400);
+  assert.equal((await store.getUser("amy@example.com")).name, "Amy");
+});
+
+test("deleting an account removes everything in it and ends every session", async () => {
+  const { store, app, amy, ben, post } = await members();
+  await post(amy, "/api/account", { username: "amy" });
+  await post(ben, "/api/account", { username: "ben" });
+  await post(amy, "/api/sync", { since: 0, changes: [record("w1", 100)] });
+  await post(ben, "/api/sync", { since: 0, changes: [record("w1", 100)] });
+  await post(amy, "/api/friends/request", { username: "ben" });
+  await post(ben, "/api/friends/accept", { username: "amy" });
+  await post(ben, "/api/friends/report", { username: "amy", reason: "spam" });
+  await post(amy, "/api/friends/block", { username: "ben" });
+
+  assert.equal((await post(amy, "/api/account/delete", {}, { origin: "https://evil.example" })).status, 403);
+  const gone = await post(amy, "/api/account/delete", {});
+  assert.equal(gone.status, 200);
+  assert.match(cookieFrom(gone, SESSION_COOKIE), /^lift_session=$/, "signed out");
+  assert.equal(await store.getUser("amy@example.com"), null);
+  assert.deepEqual(await store.forOwner("amy@example.com").changesSince(0), []);
+  assert.deepEqual(await store.listReports(), []);
+  assert.equal(await store.isBlocked("amy@example.com", "ben@example.com"), false);
+  assert.equal((await store.forOwner("ben@example.com").changesSince(0)).length, 1, "other accounts keep their records");
+  assert.deepEqual((await request(app, { path: "/api/friends", cookie: ben })).body.friends, []);
+  assert.equal((await request(app, { path: "/api/session", cookie: amy })).body.signedIn, false);
+
+  // Invited again (or open sign-up): the old session still doesn't work.
+  await store.putUser({ email: "amy@example.com", vip: false, createdAt: Date.now() + 1 });
+  assert.equal((await request(app, { path: "/api/session", cookie: amy })).body.signedIn, false, "sessions from before the deletion stay dead");
+  assert.equal((await request(app, { method: "POST", path: "/api/account/delete", cookie: signedIn, body: {} })).status, 400, "admins delete themselves in ADMIN_EMAILS");
+});
+
+test("Sign in with Apple posts back with a verified email, and deleting the account revokes it", async () => {
+  const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const appleEnv = { ...env, APPLE_CLIENT_ID: "com.example.lift.web", APPLE_TEAM_ID: "TEAM", APPLE_KEY_ID: "KEY", APPLE_PRIVATE_KEY: privateKey.export({ type: "pkcs8", format: "pem" }).replace(/\n/g, "\\n") };
+  const calls = [];
+  const claims = { iss: "https://appleid.apple.com", aud: "com.example.lift.web", exp: Math.floor(Date.now() / 1000) + 600, email: "Ann@privaterelay.appleid.com", email_verified: "true" };
+  const fetchImpl = async (url, init) => {
+    calls.push({ url: String(url), body: new URLSearchParams(init.body) });
+    const idToken = `x.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.y`;
+    return { ok: true, json: async () => ({ id_token: idToken, refresh_token: "apple-refresh" }) };
+  };
+  const store = new MemoryStore();
+  const app = createApp({ store, env: { ...appleEnv, OPEN_SIGNUP: "1" }, fetchImpl });
+  assert.deepEqual((await request(app, { path: "/api/session" })).body.providers, ["apple", "github"]);
+
+  const start = await request(app, { path: "/api/auth/login?provider=apple" });
+  assert.match(start.headers.location, /^https:\/\/appleid\.apple\.com\/auth\/authorize\?.*response_mode=form_post/);
+  assert.match([].concat(start.headers["set-cookie"]).join(), /lift_oauth_state=.*SameSite=None/, "the state cookie survives Apple's cross-site post");
+  const state = new URL(start.headers.location).searchParams.get("state");
+  const form = { code: "c", state, user: JSON.stringify({ name: { firstName: "Ann", lastName: "Lee" } }) };
+  assert.match((await request(app, { method: "POST", path: "/api/auth/apple/callback", form: { ...form, state: "bad" }, cookie: cookieFrom(start, "lift_oauth_state"), origin: "https://appleid.apple.com" })).headers.location, /signin=expired/);
+  const back = await request(app, { method: "POST", path: "/api/auth/apple/callback", form, cookie: cookieFrom(start, "lift_oauth_state"), origin: "https://appleid.apple.com" });
+  assert.equal(back.headers.location, "/");
+  const client = calls[0].body.get("client_secret").split(".");
+  assert.equal(JSON.parse(Buffer.from(client[0], "base64url")).alg, "ES256");
+  assert.equal(Buffer.from(client[2], "base64url").length, 64, "a raw P-256 signature");
+  const row = await store.getUser("ann@privaterelay.appleid.com");
+  assert.equal(row.name, "Ann Lee", "the name Apple sends once is kept");
+  assert.ok(row.appleToken && !row.appleToken.includes("apple-refresh"), "the refresh token is stored encrypted");
+  assert.ok(!JSON.stringify((await request(app, { path: "/api/admin/users", cookie: signedIn })).body).includes(row.appleToken), "admins never see it");
+
+  const session = cookieFrom(back, SESSION_COOKIE);
+  assert.equal((await request(app, { method: "POST", path: "/api/account/delete", cookie: session, body: {} })).status, 200);
+  const revoke = calls.find((call) => call.url.endsWith("/auth/revoke"));
+  assert.equal(revoke.body.get("token"), "apple-refresh");
+  assert.equal(revoke.body.get("token_type_hint"), "refresh_token");
+
+  claims.email_verified = "false";
+  const again = await request(app, { path: "/api/auth/login?provider=apple" });
+  const refused = await request(app, { method: "POST", path: "/api/auth/apple/callback", form: { code: "c", state: new URL(again.headers.location).searchParams.get("state") }, cookie: cookieFrom(again, "lift_oauth_state") });
+  assert.match(refused.headers.location, /signin=failed/);
 });

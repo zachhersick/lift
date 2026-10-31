@@ -1,6 +1,7 @@
 // The Coach: insight cards computed on the phone from training and eating
 // together (lib/model.js insights), each with the research it rests on; the
-// weekly review Claude writes on the server when ANTHROPIC_API_KEY is set;
+// weekly review Claude writes on the server when ANTHROPIC_API_KEY is set,
+// once you've agreed to your data going to Anthropic (settings.aiConsent);
 // and the sets-per-muscle bars against the evidence-based weekly range.
 import { AlertTriangle, ArrowRight, BookOpen, CheckCircle2, Lightbulb, RefreshCw, Sparkles } from "lucide-react";
 import { motion } from "motion/react";
@@ -8,7 +9,7 @@ import { type ComponentType, useEffect, useRef, useState } from "react";
 import { Card, FadeIn, Section } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { fromDateKey, liftsThisWeek, REVIEW_MIN_LIFTS, VOLUME_RANGE } from "@/lib/model.js";
-import { applyRemote, coach, coachReviews, sessions } from "@/lib/store.js";
+import { applyRemote, coach, coachReviews, saveSettings, sessions, settings } from "@/lib/store.js";
 import { sync } from "@/lib/sync.js";
 import * as format from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
@@ -95,6 +96,7 @@ const WEEK = 7 * 86_400_000;
 
 export function WeeklyReview() {
   const state = useValue(sync) as any;
+  const consent = Boolean((useValue(settings) as any).aiConsent);
   const reviews = useValue(coachReviews) as any[];
   const { headline } = useValue(coach) as { headline: Insight | null };
   const lifts = liftsThisWeek(useValue(sessions) as any[]);
@@ -108,7 +110,7 @@ export function WeeklyReview() {
     setBusy(true);
     setError("");
     try {
-      const response = await fetch("/api/coach/review", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: "{}" });
+      const response = await fetch("/api/coach/review", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ consent: true }) });
       const body = await response.json().catch(() => ({}));
       if (!response.ok || !body.ok) throw new Error(body.error || "The review didn't come through.");
       await applyRemote([body.review]);
@@ -123,10 +125,14 @@ export function WeeklyReview() {
   // with enough lifting logged that week to review.
   const stale = !latest || Date.now() - fromDateKey(latest.date) >= WEEK;
   useEffect(() => {
-    if (tried.current || !state.coach || !state.user || !stale || !enough || !headline || navigator.onLine === false) return;
+    if (tried.current || !consent || !state.coach || !state.user || !stale || !enough || !headline || navigator.onLine === false) return;
     tried.current = true;
     write();
-  }, [state.coach, state.user, stale, enough, headline]);
+  }, [consent, state.coach, state.user, stale, enough, headline]);
+  const agree = () => {
+    saveSettings({ aiConsent: Date.now() });
+    if (enough) write();
+  };
 
   if (!state.coach && !latest) return null;
   return (
@@ -142,12 +148,26 @@ export function WeeklyReview() {
         {busy && !latest ? <p className="text-[14.5px] text-muted-foreground">Reading your last six weeks…</p> : null}
         {latest ? <ReviewText text={latest.text} /> : !busy ? <p className="text-[14.5px] text-muted-foreground">Claude reads your training, meals and weigh-ins and writes what to change this week.</p> : null}
         {error ? <p className="text-[13.5px] text-destructive">{error}</p> : null}
-        {state.coach && !enough ? (
+        {state.coach && !consent ? (
+          <div className="flex flex-col gap-2 rounded-2xl bg-muted/60 p-3 text-[13.5px] leading-snug text-muted-foreground">
+            <p>
+              To write it, Lift sends a summary of your last six weeks (workouts, meals, weigh-ins and targets, no email or name) to Anthropic's Claude. Anthropic doesn't train on it. See the{" "}
+              <a className="text-primary underline" href="/privacy.html">
+                privacy policy
+              </a>
+              .
+            </p>
+            <Button onClick={agree} size="sm" variant="tinted">
+              <Sparkles className="size-4" /> Agree and turn on reviews
+            </Button>
+          </div>
+        ) : null}
+        {state.coach && consent && !enough ? (
           <p className="text-[13.5px] text-muted-foreground">
             Log {REVIEW_MIN_LIFTS} lifts this week for {latest ? "a new" : "your"} review ({lifts}/{REVIEW_MIN_LIFTS}).
           </p>
         ) : null}
-        {state.coach ? (
+        {state.coach && consent ? (
           <Button disabled={busy || !state.user || !enough} onClick={write} size="sm" variant="tinted">
             <RefreshCw className={cn("size-4", busy && "animate-spin")} /> {busy ? "Writing…" : latest ? "Write a new review" : "Write this week's review"}
           </Button>
