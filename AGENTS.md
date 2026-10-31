@@ -31,7 +31,7 @@ Postgres storage.
 | --- | --- |
 | `src/main.tsx`, `src/App.tsx` | Startup, appearance, sync, service worker and app shell |
 | `src/pages/` | Today, workout, history, progress, bodyweight, nutrition (Fuel), split and settings screens |
-| `src/pages/profile.tsx`, `friend.tsx`, `src/components/badges.tsx`, `src/lib/social.js` | Profile tab (stats, badges, friends, sharing), a friend's profile and lift comparison, and the friends API client |
+| `src/pages/profile.tsx`, `friend.tsx`, `src/components/badges.tsx`, `account-sheet.tsx`, `src/lib/social.js` | Profile tab (stats, pinned lift, badges, friends, leaderboard, sharing), a friend's profile and lift comparison, the username sheet, and the friends API client |
 | `src/pages/coach.tsx`, `src/components/insights.tsx` | Coach tab (split analyzer, cards by area, sets per muscle, sources), Coach cards and weekly AI review |
 | `src/components/meal-sheet.tsx` | Meal editor with macros and micronutrients |
 | `src/components/exercise-picker.tsx` | Exercise picker and the create/edit editor (name, primary and secondary muscles, tracking type, equipment) |
@@ -46,7 +46,7 @@ Postgres storage.
 | `src/styles.css`, `public/theme-init.js` | Theme tokens and appearance before first paint |
 | `server/app.js`, `auth.js`, `http.js`, `store.js` | API routing, accounts and invites, Google/GitHub sign-in, request validation and memory/Neon stores |
 | `server/oauth.js`, `mcp.js`, `coach.js` | ChatGPT connector (OAuth 2.1 + MCP tools) and the weekly Claude review |
-| `server/social.js` | Friend lists and the share-filtered profile summary friends receive |
+| `server/social.js` | Friend lists, the leaderboard and the share-filtered profile summary friends receive |
 | `api/index.js` | Vercel entry point for every `/api/*` and `/.well-known/*` request |
 | `tests/model.test.js`, `tests/app.test.js` | Domain logic and API/auth/sync tests |
 | `vite.config.ts`, `vercel.json` | Local API integration, PWA build and deployment configuration |
@@ -126,13 +126,17 @@ Use a production build and preview with `?sw` when checking offline behavior.
   refresh tokens (`lift_once`), token binding to an allowed account and
   `MCP_TOKEN_VERSION`, owner-scoped MCP storage, and the CSP `form-action`
   entries for ChatGPT's hosts.
-- Friendships (`lift_friends`) start as a request and count only once the other
-  person accepts; both people must still be allowed accounts. Friends never read
-  each other's records: `/api/profile` returns `profileSummary()` from
+- People find each other by username (`lift_users.username`: unique, lowercase,
+  `USERNAME`/`usernameProblem()` in `model.js`, set through `/api/account`).
+  Friendships (`lift_friends`, keyed by the two emails) start as a request and
+  count only once the other person accepts; both must still be allowed accounts.
+  Social API replies never include emails. Friends never read each other's
+  records: `/api/profile` and the leaderboard use `profileSummary()` from
   `model.js`, computed on the server and passed through `shareFilter()` with the
-  owner's `settings.share`. Never add bodyweight values, meals or notes to that
-  summary. Badges (`BADGES`, `badges()`) are computed from the owner's own logs,
-  not stored.
+  owner's `settings.share` (the pinned lift is always shown). Never add emails,
+  bodyweight values, meals or notes to that summary. Badges (`BADGES`,
+  `badges()`) are computed from the owner's own logs, not stored; the VIP badge
+  reflects current membership.
 - The weekly AI review is for VIPs only, after `REVIEW_MIN_LIFTS` lifting sessions
   in the last 7 days (`liftsThisWeek` in `model.js`, checked on server and app).
 - Meals written by the server keep the record format the app syncs (`kind:

@@ -61,7 +61,9 @@ export const SCHEMA = [
     created_at bigint not null,
     primary key (a, b)
   )`,
-  "create index if not exists lift_friends_b on lift_friends (b)"
+  "create index if not exists lift_friends_b on lift_friends (b)",
+  "alter table lift_users add column if not exists username text",
+  "create unique index if not exists lift_users_username on lift_users (username) where username is not null"
 ];
 
 export const PULL_LIMIT = 2000;
@@ -84,7 +86,10 @@ const friendRow = (row) => {
   return { a, b, status: row.status, requestedBy: row.requestedBy, createdAt: row.createdAt };
 };
 
-const userRow = (user) => ({ email: user.email, name: user.name || "", vip: Boolean(user.vip), invitedBy: user.invitedBy || "", createdAt: user.createdAt, lastSeenAt: user.lastSeenAt ?? null });
+const userRow = (user) => ({ email: user.email, name: user.name || "", username: user.username || null, vip: Boolean(user.vip), invitedBy: user.invitedBy || "", createdAt: user.createdAt, lastSeenAt: user.lastSeenAt ?? null });
+
+// Usernames are unique; a clash fails the way Postgres's unique index does.
+const usernameTaken = () => Object.assign(new Error("That username is taken."), { code: "23505" });
 
 export class MemoryStore {
   constructor() {
@@ -154,7 +159,14 @@ export class MemoryStore {
   }
 
   async putUser(user) {
-    this.users.set(user.email, userRow(user));
+    const row = userRow(user);
+    if (row.username && [...this.users.values()].some((other) => other.username === row.username && other.email !== row.email)) throw usernameTaken();
+    this.users.set(user.email, row);
+  }
+
+  async getUserByUsername(username) {
+    const user = [...this.users.values()].find((row) => row.username === username);
+    return user ? { ...user } : null;
   }
 
   async removeUser(email) {
@@ -278,10 +290,15 @@ export class NeonStore {
   async putUser(user) {
     const row = userRow(user);
     await this.query(
-      `insert into lift_users (email, name, vip, invited_by, created_at, last_seen_at) values ($1, $2, $3, $4, $5, $6)
-       on conflict (email) do update set name = excluded.name, vip = excluded.vip, invited_by = excluded.invited_by, last_seen_at = excluded.last_seen_at`,
-      [row.email, row.name, row.vip, row.invitedBy, row.createdAt, row.lastSeenAt]
+      `insert into lift_users (email, name, username, vip, invited_by, created_at, last_seen_at) values ($1, $2, $3, $4, $5, $6, $7)
+       on conflict (email) do update set name = excluded.name, username = excluded.username, vip = excluded.vip, invited_by = excluded.invited_by, last_seen_at = excluded.last_seen_at`,
+      [row.email, row.name, row.username, row.vip, row.invitedBy, row.createdAt, row.lastSeenAt]
     );
+  }
+
+  async getUserByUsername(username) {
+    const rows = await this.query("select * from lift_users where username = $1", [username]);
+    return rows[0] ? fromUserRow(rows[0]) : null;
   }
 
   async removeUser(email) {
@@ -312,4 +329,4 @@ export class NeonStore {
 }
 
 const fromFriendRow = (row) => ({ a: row.a, b: row.b, status: row.status, requestedBy: row.requested_by, createdAt: Number(row.created_at) });
-const fromUserRow = (row) => ({ email: row.email, name: row.name, vip: Boolean(row.vip), invitedBy: row.invited_by, createdAt: Number(row.created_at), lastSeenAt: row.last_seen_at == null ? null : Number(row.last_seen_at) });
+const fromUserRow = (row) => ({ email: row.email, name: row.name, username: row.username || null, vip: Boolean(row.vip), invitedBy: row.invited_by, createdAt: Number(row.created_at), lastSeenAt: row.last_seen_at == null ? null : Number(row.last_seen_at) });

@@ -1,9 +1,9 @@
-// A friend's profile: their stats and badges, your lifts next to theirs, and
-// their recent workouts. Everything comes from their server-side summary,
-// minus what they chose not to share.
+// A friend's profile, found by username: their stats, pinned lift and
+// badges, your lifts next to theirs, and their recent workouts. Everything
+// comes from their server-side summary, minus what they chose not to share.
 import { Users } from "lucide-react";
 import { useEffect, useState } from "react";
-import { BadgeGrid, ProfileHeader } from "@/components/badges";
+import { BadgeGrid, PinnedLift, ProfileHeader } from "@/components/badges";
 import { Card, Empty, Page, Row, Section, TopBar } from "@/components/kit";
 import { ask } from "@/lib/dialogs";
 import { BADGES, compareLifts } from "@/lib/model.js";
@@ -37,34 +37,34 @@ function CompareRow({ row, them, unit }: { row: any; them: string; unit: string 
   );
 }
 
-export function FriendPage({ email }: { email: string }) {
+export function FriendPage({ username }: { username: string }) {
   const mine = useValue(profile) as any;
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    social(`/api/profile?email=${encodeURIComponent(email)}`)
+    social(`/api/profile?username=${encodeURIComponent(username)}`)
       .then((reply) => setData(reply.profile))
       .catch((failure) => setError(failure.message));
-  }, [email]);
+  }, [username]);
 
   if (!data) {
     return (
       <Page>
-        <TopBar backLabel="Profile" backTo="profile" large={false} title="Friend" />
+        <TopBar backLabel="Profile" backTo="profile" large={false} title={`@${username}`} />
         {error ? <Empty icon={Users} title="Couldn't load their profile">{error}</Empty> : <Card className="p-4 text-[15px] text-muted-foreground">Loading…</Card>}
       </Page>
     );
   }
 
-  const first = data.name.split(/\s+/)[0];
+  const first = data.name.replace(/^@/, "").split(/\s+/)[0];
   const rows = compareLifts(mine, data);
   const earned = new Map(data.badges.map((badge: any) => [badge.id, badge]));
   const theirBadges = BADGES.filter((badge: any) => earned.has(badge.id)).map((badge: any) => earned.get(badge.id));
   const remove = async () => {
     if (!(await ask({ title: `Remove ${data.name}?`, message: "You stop seeing each other's profiles. Either of you can send a new request.", confirm: "Remove", danger: true }))) return;
     try {
-      await social("/api/friends/remove", { email });
+      await social("/api/friends/remove", { username });
       notify(`Removed ${data.name}`);
       back("profile");
     } catch (failure: any) {
@@ -75,7 +75,13 @@ export function FriendPage({ email }: { email: string }) {
   return (
     <Page>
       <TopBar backLabel="Profile" backTo="profile" large={false} title={data.name} />
-      <ProfileHeader detail={email} name={data.name} summary={data} />
+      <ProfileHeader detail={`@${data.username}`} name={data.name} summary={data} />
+
+      {data.pinned ? (
+        <Section title="Pinned lift">
+          <PinnedLift pinned={data.pinned} unit={data.unit} />
+        </Section>
+      ) : null}
 
       <Section action={`${theirBadges.length} of ${data.badgeCount}`} title="Badges">
         <BadgeGrid badges={theirBadges as any[]} empty={`${first} hasn't earned a badge yet.`} />
