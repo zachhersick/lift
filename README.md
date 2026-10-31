@@ -182,6 +182,8 @@ Open your Lift address in Safari, sign in from Settings, then **Share → Add to
 
 The one iOS limit: a home-screen web app can't play a sound while it's in the background. The rest timer beeps if Lift is on screen, and since the screen stays on during a workout, that's normally the case.
 
+To publish the native iOS app on the App Store, follow [docs/app-store.md](docs/app-store.md).
+
 ## Layout
 
 ```
