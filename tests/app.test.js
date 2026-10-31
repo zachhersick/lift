@@ -46,7 +46,7 @@ test("sync needs a session and a same-origin request", async () => {
   const app = createApp({ store: new MemoryStore(), env });
   assert.equal((await request(app, { method: "POST", path: "/api/sync", body: {} })).status, 401);
   assert.equal((await request(app, { method: "POST", path: "/api/sync", body: {}, cookie: signedIn, origin: "https://evil.example" })).status, 403);
-  assert.deepEqual((await request(app, { path: "/api/session", cookie: signedIn })).body.user, { email: "zach@example.com", name: "", admin: true, vip: true });
+  assert.deepEqual((await request(app, { path: "/api/session", cookie: signedIn })).body.user, { email: "zach@example.com", name: "", username: null, admin: true, vip: true });
 });
 
 test("a second device pulls what the first pushed, and newest edit wins", async () => {
@@ -191,7 +191,7 @@ test("only admins manage the invite list and VIPs", async () => {
   assert.equal((await invite(friendCookie, { email: "x@example.com" })).status, 403);
   assert.equal((await invite(signedIn, { email: "x@example.com" }, { origin: "https://evil.example" })).status, 403);
   assert.equal((await invite(signedIn, { email: "not an email" })).status, 400);
-  assert.deepEqual((await request(app, { path: "/api/session", cookie: friendCookie })).body.user, { email: "friend@example.com", name: "", admin: false, vip: true });
+  assert.deepEqual((await request(app, { path: "/api/session", cookie: friendCookie })).body.user, { email: "friend@example.com", name: "", username: null, admin: false, vip: true });
 
   const lowered = await invite(signedIn, { email: "friend@example.com", vip: false });
   assert.equal(lowered.body.users.find((u) => u.email === "friend@example.com").vip, false);
@@ -478,64 +478,101 @@ test("ChatGPT can log micronutrients, and get_day reports them against Daily Val
   assert.ok(schema.properties.micros.properties.magnesium);
 });
 
-test("friends request, accept and see each other's profile summaries", async () => {
+
+// Two signed-in members with usernames: amy (has a display name) and ben.
+async function members({ amyVip = false } = {}) {
   const store = new MemoryStore();
-  for (const email of ["amy@example.com", "ben@example.com"]) await store.putUser({ email, name: email === "amy@example.com" ? "Amy" : "", vip: false, createdAt: 1 });
+  await store.putUser({ email: "amy@example.com", name: "Amy", vip: amyVip, createdAt: 1 });
+  await store.putUser({ email: "ben@example.com", name: "", vip: false, createdAt: 1 });
   const app = createApp({ store, env });
   const amy = sessionFor("amy@example.com");
   const ben = sessionFor("ben@example.com");
   const post = (cookie, path, body, extra = {}) => request(app, { method: "POST", path, cookie, body, ...extra });
+  return { store, app, amy, ben, post };
+}
+
+test("usernames are chosen once, unique, lowercase and validated", async () => {
+  const { app, amy, ben, post } = await members();
+  assert.equal((await post(amy, "/api/friends/request", { username: "ben" })).status, 409, "pick a username before adding friends");
+  assert.equal((await post(amy, "/api/account", { username: "no" })).status, 400, "too short");
+  assert.equal((await post(amy, "/api/account", { username: "bad name!" })).status, 400);
+  assert.equal((await post(amy, "/api/account", { username: "admin" })).status, 400, "reserved");
+  assert.equal((await post(amy, "/api/account", { username: "amy" }, { origin: "https://evil.example" })).status, 403);
+  const saved = await post(amy, "/api/account", { username: " @Amy.Lifts ", name: "  Amy R  " });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.user.username, "amy.lifts");
+  assert.equal(saved.body.user.name, "Amy R");
+  assert.equal((await request(app, { path: "/api/session", cookie: amy })).body.user.username, "amy.lifts");
+  assert.equal((await post(ben, "/api/account", { username: "AMY.LIFTS" })).status, 409, "taken, whatever the case");
+  assert.equal((await post(amy, "/api/account", { username: "amy.lifts" })).status, 200, "saving your own again is fine");
+  assert.equal((await post(amy, "/api/account", { name: "Amy" })).body.user.username, "amy.lifts", "changing only the name keeps the username");
+});
+
+test("friends add each other by username and see share-filtered summaries without emails", async () => {
+  const { store, app, amy, ben, post } = await members({ amyVip: true });
+  await post(amy, "/api/account", { username: "amy" });
+  await post(ben, "/api/account", { username: "ben" });
   const bench = { id: "w1", kind: "workout", updatedAt: 1, name: "Push", startedAt: Date.UTC(2026, 0, 5), finishedAt: Date.UTC(2026, 0, 5, 1), entries: [{ exerciseId: "b_bench-press", sets: [{ done: true, weight: 225, reps: 5 }] }], notes: "secret note" };
-  await post(amy, "/api/sync", { since: 0, changes: [bench, { id: "bw_2026-01-05", kind: "bodyweight", updatedAt: 1, date: "2026-01-05", weight: 150 }, { id: "m1", kind: "meal", updatedAt: 1, date: "2026-01-05", name: "Pizza" }] });
+  await post(amy, "/api/sync", { since: 0, changes: [bench, { id: "bw_2026-01-05", kind: "bodyweight", updatedAt: 1, date: "2026-01-05", weight: 150 }, { id: "m1", kind: "meal", updatedAt: 1, date: "2026-01-05", name: "Pizza" }, { id: "settings", kind: "settings", updatedAt: 1, pinnedLift: "b_bench-press" }] });
 
-  assert.equal((await request(app, { path: "/api/profile?email=amy%40example.com", cookie: ben })).status, 404, "not friends yet");
-  assert.equal((await post(ben, "/api/friends/request", { email: "ben@example.com" })).status, 400, "not yourself");
-  assert.equal((await post(ben, "/api/friends/request", { email: "nobody@example.com" })).status, 404, "only people on Lift");
-  assert.equal((await post(ben, "/api/friends/request", { email: "amy@example.com" }, { origin: "https://evil.example" })).status, 403);
+  assert.equal((await request(app, { path: "/api/profile?username=amy", cookie: ben })).status, 404, "not friends yet");
+  assert.equal((await post(ben, "/api/friends/request", { username: "ben" })).status, 400, "not yourself");
+  assert.equal((await post(ben, "/api/friends/request", { username: "nobody" })).status, 404);
+  assert.equal((await post(ben, "/api/friends/request", { username: "amy" }, { origin: "https://evil.example" })).status, 403);
 
-  const sent = await post(ben, "/api/friends/request", { email: "Amy@Example.com" });
-  assert.deepEqual(sent.body.outgoing.map((p) => [p.email, p.name]), [["amy@example.com", "Amy"]]);
-  assert.equal((await post(ben, "/api/friends/accept", { email: "amy@example.com" })).status, 404, "you can't accept your own request");
+  const sent = await post(ben, "/api/friends/request", { username: "@AMY" });
+  assert.deepEqual(sent.body.outgoing, [{ username: "amy", name: "Amy", since: sent.body.outgoing[0].since }]);
+  assert.equal((await post(ben, "/api/friends/accept", { username: "amy" })).status, 404, "you can't accept your own request");
   const waiting = await request(app, { path: "/api/friends", cookie: amy });
-  assert.deepEqual(waiting.body.incoming.map((p) => [p.email, p.name]), [["ben@example.com", "ben"]], "names fall back to the email");
-  assert.equal((await request(app, { path: "/api/profile?email=amy%40example.com", cookie: ben })).status, 404, "pending isn't friends");
+  assert.deepEqual(waiting.body.incoming.map((p) => [p.username, p.name]), [["ben", "@ben"]], "no display name falls back to the username");
+  assert.equal((await request(app, { path: "/api/profile?username=amy", cookie: ben })).status, 404, "pending isn't friends");
 
-  const accepted = await post(amy, "/api/friends/accept", { email: "ben@example.com" });
-  assert.deepEqual(accepted.body.friends.map((p) => p.email), ["ben@example.com"]);
-  assert.deepEqual((await request(app, { path: "/api/friends", cookie: ben })).body.friends.map((p) => p.email), ["amy@example.com"]);
+  const accepted = await post(amy, "/api/friends/accept", { username: "ben" });
+  assert.deepEqual(accepted.body.friends.map((p) => p.username), ["ben"]);
+  assert.ok(!JSON.stringify(accepted.body).includes("@example.com"), "friend lists carry no emails");
 
-  const seen = (await request(app, { path: "/api/profile?email=amy%40example.com", cookie: ben })).body.profile;
+  const seen = (await request(app, { path: "/api/profile?username=amy", cookie: ben })).body.profile;
+  assert.equal(seen.username, "amy");
   assert.equal(seen.name, "Amy");
-  assert.equal(seen.totalSessions, 1);
-  assert.ok(seen.badges.some((b) => b.id === "bench-2"), "225 lb earns the 2-plate bench");
-  assert.equal(seen.lifts[0].key, "b_bench-press");
+  assert.ok(seen.badges.some((b) => b.id === "vip"), "Amy's VIP badge shows");
+  assert.ok(seen.badges.some((b) => b.id === "bench-2"));
   assert.equal(seen.ratios["b_bench-press"], 1.75);
-  assert.equal(seen.recent[0].exercises[0].weight, 225);
+  assert.deepEqual(seen.pinned.heaviest.weight, 225);
   const text = JSON.stringify(seen);
-  assert.ok(!text.includes("secret note") && !text.includes("Pizza") && !text.includes("150"), "no notes, meals or bodyweight");
+  assert.ok(!text.includes("secret note") && !text.includes("Pizza") && !text.includes("150") && !text.includes("@example.com"), "no notes, meals, bodyweight or emails");
 
-  await post(amy, "/api/sync", { since: 0, changes: [{ id: "settings", kind: "settings", updatedAt: 2, share: { lifts: false, workouts: false, ratios: false } }] });
-  const hidden = (await request(app, { path: "/api/profile?email=amy%40example.com", cookie: ben })).body.profile;
+  await post(amy, "/api/sync", { since: 0, changes: [{ id: "settings", kind: "settings", updatedAt: 2, pinnedLift: "b_bench-press", share: { lifts: false, workouts: false, ratios: false } }] });
+  const hidden = (await request(app, { path: "/api/profile?username=amy", cookie: ben })).body.profile;
   assert.equal(hidden.lifts, null);
   assert.equal(hidden.recent, null);
   assert.equal(hidden.ratios, null);
-  assert.equal(hidden.badges.length, seen.badges.length, "badges are always shared");
+  assert.equal(hidden.pinned.name, "Bench Press", "a pinned lift is always shown");
 
   await store.removeUser("amy@example.com");
   assert.deepEqual((await request(app, { path: "/api/friends", cookie: ben })).body.friends, [], "removed people drop off");
-  assert.equal((await request(app, { path: "/api/profile?email=amy%40example.com", cookie: ben })).status, 404);
+  assert.equal((await request(app, { path: "/api/profile?username=amy", cookie: ben })).status, 404);
 });
 
-test("asking someone who already asked you makes you friends, and either side can remove it", async () => {
-  const store = new MemoryStore();
-  await store.putUser({ email: "amy@example.com", vip: false, createdAt: 1 });
-  const app = createApp({ store, env });
-  const amy = sessionFor("amy@example.com");
-  await request(app, { method: "POST", path: "/api/friends/request", cookie: amy, body: { email: "zach@example.com" } });
-  const both = await request(app, { method: "POST", path: "/api/friends/request", cookie: signedIn, body: { email: "amy@example.com" } });
-  assert.deepEqual(both.body.friends.map((p) => p.email), ["amy@example.com"]);
-  assert.equal((await request(app, { path: "/api/profile?email=zach%40example.com", cookie: amy })).status, 200);
-  await request(app, { method: "POST", path: "/api/friends/remove", cookie: amy, body: { email: "zach@example.com" } });
-  assert.deepEqual((await request(app, { path: "/api/friends", cookie: signedIn })).body, { ok: true, friends: [], incoming: [], outgoing: [] });
-  assert.equal((await request(app, { path: "/api/profile", cookie: amy })).body.profile.email, "amy@example.com", "your own profile needs no friendship");
+test("mutual requests make friends, either side can remove, and the leaderboard ranks friends", async () => {
+  const { app, amy, ben, post } = await members();
+  await post(amy, "/api/account", { username: "amy" });
+  await post(ben, "/api/account", { username: "ben" });
+  const now = Date.now();
+  const lift = (id, weight) => ({ id, kind: "workout", updatedAt: 1, name: "Push", startedAt: now - 3_600_000, finishedAt: now - 1_800_000, entries: [{ exerciseId: "b_bench-press", sets: [{ done: true, weight, reps: 1 }] }] });
+  await post(amy, "/api/sync", { since: 0, changes: [lift("a1", 100), { id: "settings", kind: "settings", updatedAt: 1, unit: "kg" }] });
+  await post(ben, "/api/sync", { since: 0, changes: [lift("b1", 200), lift("b2", 185)] });
+
+  await post(amy, "/api/friends/request", { username: "ben" });
+  const both = await post(ben, "/api/friends/request", { username: "amy" });
+  assert.deepEqual(both.body.friends.map((p) => p.username), ["amy"]);
+
+  const board = (await request(app, { path: "/api/friends/leaderboard?key=b_bench-press", cookie: amy })).body;
+  assert.deepEqual(board.week.map((row) => [row.username, row.value, row.me]), [["ben", 2, false], ["amy", 1, true]]);
+  assert.equal(board.lift.unit, "kg", "in the viewer's unit");
+  assert.deepEqual(board.lift.rows.map((row) => [row.username, row.value]), [["amy", 100], ["ben", 90.72]]);
+  assert.ok(!JSON.stringify(board).includes("@example.com"));
+
+  await post(amy, "/api/friends/remove", { username: "ben" });
+  assert.deepEqual((await request(app, { path: "/api/friends", cookie: ben })).body, { ok: true, friends: [], incoming: [], outgoing: [] });
+  assert.equal((await request(app, { path: "/api/profile", cookie: amy })).body.profile.username, "amy", "your own profile needs no friendship");
 });

@@ -4,6 +4,7 @@ import { CalendarDays, ChevronUp, Dumbbell, GraduationCap, ListOrdered, Trending
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import { type ReactNode, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { AccountSheet } from "@/components/account-sheet";
 import { AlertHost } from "@/components/alert-host";
 import { Islands } from "@/components/islands";
 import { Keypad } from "@/components/keypad";
@@ -11,6 +12,7 @@ import { spring } from "@/components/kit";
 import { pad } from "@/lib/keypad.js";
 import { go, route } from "@/lib/router.js";
 import { activeWorkout, loaded } from "@/lib/store.js";
+import { sync } from "@/lib/sync.js";
 import { now } from "@/lib/timer.js";
 import * as format from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
@@ -47,7 +49,7 @@ function pageFor(page: string, id: string | null): ReactNode {
   if (page === "split") return id ? <DayEditor id={id} /> : <Split />;
   if (page === "settings") return <Settings />;
   if (page === "profile") return <ProfilePage />;
-  if (page === "friend" && id) return <FriendPage email={id} />;
+  if (page === "friend" && id) return <FriendPage username={id} />;
   return <Today />;
 }
 
@@ -104,6 +106,7 @@ export default function App() {
   const ready = useValue(loaded);
   const r = useValue(route) as { page: string; id: string | null };
   const keypadOpen = Boolean(useValue(pad));
+  const user = (useValue(sync) as any).user;
   const inWorkout = r.page === "workout";
   const depth = r.id ? 1 : 0;
   const lastDepth = useRef(depth);
@@ -147,6 +150,8 @@ export default function App() {
       {inWorkout ? <Keypad /> : null}
       <Islands />
       <AlertHost />
+      {/* Everyone signed in picks a username once; friends find them by it. */}
+      {user && !user.username ? <AccountSheet onClose={() => {}} open required /> : null}
     </MotionConfig>
   );
 }

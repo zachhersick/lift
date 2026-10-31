@@ -13,13 +13,13 @@ import {
 } from "./auth.js";
 import { PULL_LIMIT } from "./store.js";
 import { writeReview } from "./coach.js";
-import { displayName, friendsOf, summaryFor } from "./social.js";
+import { displayName, friendships, leaderboardFor, publicPeople, summaryFor } from "./social.js";
 import { createMcp } from "./mcp.js";
 import {
   authorizationServerMetadata, consentPage, exchangeToken, issueCode, oauthConfig, protectedResourceMetadata, readAuthorizeRequest,
   readBearer, redirectWith, registerClient, signInPage
 } from "./oauth.js";
-import { liftsThisWeek, REVIEW_MIN_LIFTS } from "../src/lib/model.js";
+import { cleanUsername, liftsThisWeek, REVIEW_MIN_LIFTS, usernameProblem } from "../src/lib/model.js";
 
 // Where to go after sign-in when it started from the ChatGPT approval page.
 const NEXT_COOKIE = "lift_next";
@@ -85,7 +85,7 @@ export function cleanChanges(changes) {
   return [...byId.values()];
 }
 
-const publicUser = ({ email, name, admin, vip }) => ({ email, name, admin, vip });
+const publicUser = ({ email, name, username, admin, vip }) => ({ email, name, username: username || null, admin, vip });
 
 // `anthropic` replaces the Claude client in tests.
 export function createApp({ store, env = process.env, fetchImpl = fetch, anthropic = null }) {
@@ -102,7 +102,7 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
     const admin = config.admins.includes(email);
     const row = await store.getUser(email);
     if (!admin && !row && !config.openSignup) return null;
-    return { email, name: row?.name || "", admin, vip: admin || Boolean(row?.vip), row };
+    return { email, name: row?.name || "", username: row?.username || null, admin, vip: admin || Boolean(row?.vip), row };
   }
 
   async function signedIn(req) {
@@ -119,7 +119,7 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
     const user = await account(profile.email);
     if (!user) return redirect(res, "/?signin=denied", { "set-cookie": clearCookie(STATE_COOKIE) });
     const now = Date.now();
-    await store.putUser({ ...user.row, email: user.email, name: profile.name || user.name, vip: Boolean(user.row?.vip), createdAt: user.row?.createdAt || now, lastSeenAt: now });
+    await store.putUser({ ...user.row, email: user.email, name: user.name || profile.name || "", vip: Boolean(user.row?.vip), createdAt: user.row?.createdAt || now, lastSeenAt: now });
     const next = parseCookies(req.headers.cookie)[NEXT_COOKIE] || "";
     return redirect(res, next.startsWith(`${AUTHORIZE_PATH}?`) ? next : "/", {
       "set-cookie": [sessionCookie(createSession({ email: user.email, name: profile.name || user.name }, config.sessionSecret)), clearCookie(STATE_COOKIE), clearCookie(NEXT_COOKIE)]
@@ -270,35 +270,67 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
       return sendJson(res, { ok: true, review: await writeReview({ store: mine, apiKey: env.ANTHROPIC_API_KEY, client: anthropic }) });
     }
 
-    // ---- friends and profiles ----
-    if (path === "/api/friends" && req.method === "GET") return sendJson(res, { ok: true, ...(await friendsOf(store, user.email, account)) });
+    // ---- your username and display name ----
+    if (path === "/api/account" && req.method === "POST") {
+      const body = await readJsonBody(req, { limit: 4_000 });
+      const change = {};
+      if (body.username !== undefined) {
+        const username = cleanUsername(body.username);
+        const problem = usernameProblem(username);
+        if (problem) return sendJson(res, { ok: false, error: problem }, 400);
+        const owner = await store.getUserByUsername(username);
+        if (owner && owner.email !== user.email) return sendJson(res, { ok: false, error: "That username is taken." }, 409);
+        change.username = username;
+      }
+      if (body.name !== undefined) change.name = String(body.name || "").trim().slice(0, 40);
+      const now = Date.now();
+      try {
+        await store.putUser({ ...user.row, email: user.email, vip: Boolean(user.row?.vip), createdAt: user.row?.createdAt || now, lastSeenAt: user.row?.lastSeenAt ?? now, ...change });
+      } catch (error) {
+        if (error.code === "23505") return sendJson(res, { ok: false, error: "That username is taken." }, 409);
+        throw error;
+      }
+      return sendJson(res, { ok: true, user: publicUser(await account(user.email)) });
+    }
+
+    // ---- friends and profiles, by username ----
+    const friendList = async () => publicPeople(await friendships(store, user.email, account));
+    const byUsername = async (text) => {
+      const row = await store.getUserByUsername(cleanUsername(text));
+      return row ? account(row.email) : null;
+    };
+    if (path === "/api/friends" && req.method === "GET") return sendJson(res, { ok: true, ...(await friendList()) });
+    if (path === "/api/friends/leaderboard" && req.method === "GET") {
+      return sendJson(res, { ok: true, ...(await leaderboardFor(store, user, account, url.searchParams.get("key") || "")) });
+    }
     if (path === "/api/friends/request" || path === "/api/friends/accept" || path === "/api/friends/remove") {
       if (req.method !== "POST") return sendJson(res, { ok: false, error: "Use POST." }, 405, { allow: "POST" });
-      const email = normalizeEmail((await readJsonBody(req, { limit: 4_000 })).email);
-      if (!email) return sendJson(res, { ok: false, error: "Enter a valid email." }, 400);
-      if (email === user.email) return sendJson(res, { ok: false, error: "That's your own email." }, 400);
+      if (!user.username) return sendJson(res, { ok: false, error: "Pick a username first." }, 409);
+      const other = await byUsername((await readJsonBody(req, { limit: 4_000 })).username);
+      if (!other) return sendJson(res, { ok: false, error: "No one on Lift has that username." }, 404);
+      const email = other.email;
+      if (email === user.email) return sendJson(res, { ok: false, error: "That's you." }, 400);
       const existing = await store.getFriendship(user.email, email);
       const theirRequest = existing?.status === "pending" && existing.requestedBy === email;
       if (path === "/api/friends/remove") {
         if (existing) await store.removeFriendship(user.email, email);
       } else if (path === "/api/friends/accept") {
-        if (!theirRequest || !(await account(email))) return sendJson(res, { ok: false, error: "There's no request from them to accept." }, 404);
+        if (!theirRequest) return sendJson(res, { ok: false, error: "There's no request from them to accept." }, 404);
         await store.putFriendship({ ...existing, status: "accepted" });
       } else {
-        if (!(await account(email))) return sendJson(res, { ok: false, error: "They aren't on Lift yet. An admin can invite them." }, 404);
         // Asking someone who already asked you makes you friends.
         if (theirRequest) await store.putFriendship({ ...existing, status: "accepted" });
         else if (!existing) await store.putFriendship({ a: user.email, b: email, status: "pending", requestedBy: user.email, createdAt: Date.now() });
       }
-      return sendJson(res, { ok: true, ...(await friendsOf(store, user.email, account)) });
+      return sendJson(res, { ok: true, ...(await friendList()) });
     }
     // Your own profile, or an accepted friend's.
     if (path === "/api/profile" && req.method === "GET") {
-      const email = normalizeEmail(url.searchParams.get("email")) || user.email;
-      const self = email === user.email;
-      const other = self ? user : (await store.getFriendship(user.email, email))?.status === "accepted" ? await account(email) : null;
+      const asked = url.searchParams.get("username");
+      const found = asked ? await byUsername(asked) : user;
+      const other = found && (found.email === user.email || (await store.getFriendship(user.email, found.email))?.status === "accepted") ? found : null;
       if (!other) return sendJson(res, { ok: false, error: "Not found." }, 404);
-      return sendJson(res, { ok: true, profile: { email, name: displayName(other, email), ...(await summaryFor(store, email)) } });
+      return sendJson(res, { ok: true, profile: { username: other.username || null, name: displayName(other), ...(await summaryFor(store, other.email, { vip: other.vip })) } });
     }
 
     // ---- admins: the invite list ----

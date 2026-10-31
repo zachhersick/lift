@@ -6,7 +6,7 @@
 import { signal } from "@preact/signals-core";
 import { switchAccount } from "./account.js";
 import * as db from "./db.js";
-import { applyRemote, pending, records, whenChanged } from "./store.js";
+import { applyRemote, pending, records, setMembership, whenChanged } from "./store.js";
 
 // `user` is { email, name, admin, vip }; `coach` says whether this account
 // gets weekly reviews; `providers` are the sign-in options.
@@ -30,6 +30,7 @@ export async function checkSession() {
       return undefined;
     }
     set({ user: body.ok ? body.user : null, coach: Boolean(body.ok && body.coach), providers: body.providers || [], status: body.ok ? sync.value.status : "signedOut" });
+    if (body.ok) setMembership(body.user.vip);
     return body.ok ? body.user : null;
   } catch {
     set({ status: "offline" });
@@ -117,6 +118,7 @@ export async function signOut() {
   await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: "{}" }).catch(() => {});
   // Your data stays on this device under your account; signed out shows the
   // guest database.
+  setMembership(false);
   if (switchAccount("")) return location.reload();
   set({ status: "signedOut", user: null, coach: false });
 }

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   bodyweightId, cardioSeconds, dailyVolume, dateKey, defaultWeeklyGoal, e1rm, FIELDS, isComplete, setDistance, trackOf, exerciseHistory, isPersonalRecord, movingAverage, muscleSets, nextInSuperset,
-  badges, compareLifts, profileSummary, shareFilter, barFor, muscleGroup, secondaryGroups, nextSplitDay, personalRecords, placeholderFor, plateBreakdown, previousEntry, previousSession, restsAfter, roundLoadable,
+  badges, cleanUsername, compareLifts, leaderboard, profileSummary, shareFilter, usernameProblem, barFor, muscleGroup, secondaryGroups, nextSplitDay, personalRecords, placeholderFor, plateBreakdown, previousEntry, previousSession, restsAfter, roundLoadable,
   analyzeSplit, applySplitEdit, inferredSecondary, liftsThisWeek, REVIEW_MIN_LIFTS, coachingContext, exerciseInUse, stepProgress, workoutSteps, indirectMuscles, splitWeeklySets, dailyIntake, dateKeyIn, fromDateKey, insights, mealMicro, MICROS, microAverages, dayTotals, estimateMaintenance, nutritionTargets, rateStatus, shiftDateKey, weightRate,
   splitDiff, startOfWeek, suggestion, supersetLabels, trend, warmupSets, weekStreak, weekSummary, workoutFromDay, workoutVolume
 } from "../src/lib/model.js";
@@ -932,4 +932,32 @@ test("profile summaries, sharing filters and comparing lifts across units", () =
   assert.deepEqual(rows.map((r) => [r.key, r.theirs]), [["b_bench-press", 220.46], ["name:cable y-raise", 22.05]]);
   assert.equal(rows[0].theirRatio, null);
   assert.deepEqual(compareLifts(mine, { ...theirs, lifts: null }), []);
+});
+
+test("the VIP badge is held while you're a VIP, and a pinned lift carries its PRs", () => {
+  const index = new Map(BUILT_IN.map((e) => [e.id, e]));
+  const t0 = Date.UTC(2026, 0, 5, 15);
+  const workouts = [sessionAt("a", t0, [liftSet("b_squat", 0), liftSet("b_back-squat", 275, 3)]), sessionAt("b", t0 + 86_400_000, [liftSet("b_back-squat", 265, 6)])];
+  const vip = badges(workouts, { vip: true, now: 42 }).find((b) => b.id === "vip");
+  assert.equal(vip.earnedAt, 42);
+  assert.equal(vip.status, "VIP member");
+  assert.equal(badges(workouts).find((b) => b.id === "vip").earnedAt, null);
+  const summary = profileSummary({ workouts, exerciseIndex: index, settings: { pinnedLift: "b_back-squat" }, vip: true, now: t0 + 2 * 86_400_000 });
+  assert.equal(summary.pinned.name, "Back Squat");
+  assert.deepEqual(summary.pinned.heaviest, { weight: 275, reps: 3, date: t0 });
+  assert.equal(summary.pinned.e1rm.value, 318);
+  assert.equal(summary.pinned.e1rm.date, t0 + 86_400_000);
+  assert.equal(shareFilter(summary, { lifts: false }).pinned, summary.pinned, "pinned survives the share filter");
+  assert.equal(profileSummary({ workouts, exerciseIndex: index, settings: {} }).pinned, null);
+});
+
+test("leaderboard ranks friends by workouts and by a lift in your unit", () => {
+  const person = (username, sessionsThisWeek, unit, lifts, pinned = null, me = false) => ({ username, name: username, me, summary: { sessionsThisWeek, unit, lifts, pinned } });
+  const board = leaderboard([person("me", 2, "lb", [{ key: "b_bench-press", name: "Bench Press", e1rm: 220 }], null, true), person("kg", 3, "kg", [{ key: "b_bench-press", name: "Bench Press", e1rm: 110 }]), person("hidden", 1, "lb", null, { key: "b_bench-press", name: "Bench Press", e1rm: { value: 300 } }), person("none", 0, "lb", [])], "b_bench-press", "lb");
+  assert.deepEqual(board.week.map((r) => r.username), ["kg", "me", "hidden", "none"]);
+  assert.deepEqual(board.lift.rows.map((r) => [r.username, r.value]), [["hidden", 300], ["kg", 242.51], ["me", 220]]);
+  assert.equal(board.lift.name, "Bench Press");
+  assert.equal(leaderboard([], "").lift, null);
+  assert.equal(usernameProblem(cleanUsername(" @Zach_H ")), "");
+  assert.notEqual(usernameProblem("me"), "");
 });

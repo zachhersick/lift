@@ -1790,6 +1790,7 @@ const plateLoad = (n) => 45 + 90 * n;
 // Badges earned from your own logs. `metric` names what's measured and `goal`
 // the line to cross; lift weights are in lb (kg logs are converted).
 export const BADGES = [
+  { id: "vip", title: "VIP", detail: "A VIP member of Lift, with the weekly AI review.", icon: "crown", metric: "vip", goal: 1, status: "VIP member" },
   { id: "first", title: "First rep", detail: "Finish your first workout.", icon: "sparkles", metric: "sessions", goal: 1 },
   { id: "sessions-10", title: "Regular", detail: "Finish 10 workouts.", icon: "dumbbell", metric: "sessions", goal: 10 },
   { id: "sessions-50", title: "Dedicated", detail: "Finish 50 workouts.", icon: "dumbbell", metric: "sessions", goal: 50 },
@@ -1822,8 +1823,10 @@ export const BADGES = [
 // Every badge with when you earned it (null if not yet) and how close you
 // are (0–1). Replays your finished workouts oldest first, so `earnedAt` is the
 // start of the workout that crossed the line. Weights use `unit`; bodyweight
-// ratios use your latest weigh-in on or before that day.
-export function badges(workouts, { bodyweights = [], unit = "lb", timeZone } = {}) {
+// ratios use your latest weigh-in on or before that day. Status badges (VIP)
+// are held rather than earned: `status` says what they mean, and `earnedAt`
+// is just `now` while you hold them.
+export function badges(workouts, { bodyweights = [], unit = "lb", timeZone, vip = false, now = Date.now() } = {}) {
   const weighIns = live(bodyweights).filter((entry) => Number(entry.weight) > 0).sort((a, b) => String(a.date).localeCompare(String(b.date)));
   const values = new Map();
   const bump = (metric, value) => values.set(metric, Math.max(values.get(metric) || 0, value));
@@ -1863,7 +1866,11 @@ export function badges(workouts, { bodyweights = [], unit = "lb", timeZone } = {
       const was = best.get(id) || { weight: 0, e1rm: 0 };
       best.set(id, { weight: Math.max(was.weight, top.weight), e1rm: Math.max(was.e1rm, top.e1rm) });
     }
-    for (const badge of BADGES) if (!earned.has(badge.id) && (values.get(badge.metric) || 0) >= badge.goal - 1e-9) earned.set(badge.id, workout.startedAt);
+    for (const badge of BADGES) if (!badge.status && !earned.has(badge.id) && (values.get(badge.metric) || 0) >= badge.goal - 1e-9) earned.set(badge.id, workout.startedAt);
+  }
+  if (vip) {
+    values.set("vip", 1);
+    earned.set("vip", now);
   }
   return BADGES.map(({ metric, goal, ...badge }) => ({ ...badge, earnedAt: earned.get(badge.id) ?? null, progress: Math.min(1, (values.get(metric) || 0) / goal) }));
 }
@@ -1874,11 +1881,12 @@ export const liftKey = (exercise) => (String(exercise?.id || "").startsWith("b_"
 // What a friend can see about you: streak, sessions and earned badges, your
 // most-trained lifts (best estimated 1RM and heaviest set), lifts as a
 // multiple of bodyweight (never the bodyweight itself) and your last few
-// workouts. Weights are in `unit`. The server filters it with shareFilter.
-export function profileSummary({ workouts = [], exerciseIndex = new Map(), bodyweights = [], settings = {}, now = Date.now() } = {}) {
+// workouts. `pinned` is the lift you chose to show off, with its PRs. Weights
+// are in `unit`. The server filters it with shareFilter.
+export function profileSummary({ workouts = [], exerciseIndex = new Map(), bodyweights = [], settings = {}, vip = false, now = Date.now() } = {}) {
   const unit = unitOf(settings);
   const sessions = finished(workouts).filter((w) => !w.rest && w.startedAt <= now);
-  const all = badges(sessions, { bodyweights, unit, timeZone: settings.timeZone });
+  const all = badges(sessions, { bodyweights, unit, timeZone: settings.timeZone, vip, now });
   const lifts = new Map();
   for (const workout of sessions) {
     for (const entry of workout.entries || []) {
@@ -1913,8 +1921,19 @@ export function profileSummary({ workouts = [], exerciseIndex = new Map(), bodyw
       })
       .filter(Boolean)
   }));
+  const chosen = settings.pinnedLift ? exerciseIndex.get(settings.pinnedLift) : null;
+  const records = chosen ? personalRecords(exerciseHistory(sessions, chosen.id)) : null;
+  const pinned = chosen
+    ? {
+        key: liftKey(chosen),
+        name: chosen.name,
+        heaviest: records.weight ? { weight: records.weight.weight, reps: records.weight.reps, date: records.weight.date } : null,
+        e1rm: records.e1rm ? { value: round2(records.e1rm.value), weight: records.e1rm.weight, reps: records.e1rm.reps, date: records.e1rm.date } : null
+      }
+    : null;
   return {
     unit,
+    pinned,
     streak: weekStreak(sessions, now),
     sessionsThisWeek: sessions.filter((w) => w.startedAt >= startOfWeek(now)).length,
     totalSessions: sessions.length,
@@ -1926,8 +1945,8 @@ export function profileSummary({ workouts = [], exerciseIndex = new Map(), bodyw
   };
 }
 
-// The summary with what you've chosen not to share taken out. Badges, streak
-// and session counts are always shared with friends.
+// The summary with what you've chosen not to share taken out. Badges, streak,
+// session counts and your pinned lift are always shared with friends.
 export function shareFilter(summary, share = {}) {
   return { ...summary, lifts: share.lifts === false ? null : summary.lifts, recent: share.workouts === false ? null : summary.recent, ratios: share.ratios === false ? null : summary.ratios };
 }
@@ -1950,4 +1969,35 @@ export function compareLifts(mine, theirs) {
         theirRatio: theirs.ratios?.[row.key] ?? null
       };
     });
+}
+
+// You and your friends ranked by workouts this week and, for one lift, by
+// best estimated 1RM in `unit` (from shared lifts or a pinned lift).
+// `people` is [{ username, name, me, summary }].
+export function leaderboard(people, key = "", unit = "lb") {
+  const rank = (rows) => rows.sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+  const person = ({ username, name, me }) => ({ username, name, me: Boolean(me) });
+  const week = rank(people.map((p) => ({ ...person(p), value: p.summary.sessionsThisWeek || 0 })));
+  if (!key) return { week, lift: null };
+  let liftName = null;
+  const rows = [];
+  for (const p of people) {
+    const shared = p.summary.lifts?.find((row) => row.key === key);
+    const best = shared?.e1rm || (p.summary.pinned?.key === key ? p.summary.pinned.e1rm?.value : 0) || 0;
+    if (!best) continue;
+    liftName ||= shared?.name || p.summary.pinned?.name;
+    rows.push({ ...person(p), value: round2(convertWeight(best, p.summary.unit, unit)) });
+  }
+  return { week, lift: { key, name: liftName, unit, rows: rank(rows) } };
+}
+
+// Usernames: how friends find each other. Lowercase letters, numbers, _ and .
+export const USERNAME = /^[a-z0-9_.]{3,20}$/;
+const RESERVED_USERNAMES = new Set(["admin", "lift", "support", "me"]);
+export const cleanUsername = (text) => String(text || "").trim().toLowerCase().replace(/^@/, "");
+// What's wrong with a username, or "" when it's fine.
+export function usernameProblem(username) {
+  if (!USERNAME.test(username)) return "Use 3–20 lowercase letters, numbers, _ or .";
+  if (RESERVED_USERNAMES.has(username)) return "That username is reserved.";
+  return "";
 }

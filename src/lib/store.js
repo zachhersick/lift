@@ -5,6 +5,7 @@ import { computed, signal } from "@preact/signals-core";
 import { BUILT_IN } from "./exercises.js";
 import { badges, BARS, bodyweightId, dateKey, energyPlan, finished, insights, live, newer, orderedDays, PLATES, profileSummary, uid } from "./model.js";
 import * as db from "./db.js";
+import { databaseName } from "./account.js";
 
 export const DEFAULT_SETTINGS = { id: "settings", kind: "settings", unit: "lb", step: 5, defaultRest: 120, sound: true, theme: "system", tint: "blue", weeklyGoal: null, goal: "maintain", calorieTarget: null, proteinTarget: null, timeZone: null };
 
@@ -58,9 +59,27 @@ export const energy = computed(() => energyPlan(mealsAll.value, bodyweightsAll.v
 export const maintenance = computed(() => energy.value.maintenance);
 export const targets = computed(() => energy.value.targets);
 
+// Whether you're a VIP, from the last session check; remembered per account
+// so the VIP badge still shows when the app starts offline.
+const vipKey = () => `lift:vip:${databaseName()}`;
+function rememberedVip() {
+  try {
+    return localStorage.getItem(vipKey()) === "1";
+  } catch {
+    return false;
+  }
+}
+export const membership = signal({ vip: rememberedVip() });
+export function setMembership(vip) {
+  membership.value = { vip: Boolean(vip) };
+  try {
+    localStorage.setItem(vipKey(), vip ? "1" : "0");
+  } catch {}
+}
+
 // Your badges and the profile summary friends see (before sharing filters).
-export const profile = computed(() => profileSummary({ workouts: workoutsAll.value, exerciseIndex: exerciseIndex.value, bodyweights: bodyweightsAll.value, settings: settings.value }));
-export const badgeList = computed(() => badges(workoutsAll.value, { bodyweights: bodyweightsAll.value, unit: settings.value.unit, timeZone: settings.value.timeZone || undefined }));
+export const profile = computed(() => profileSummary({ workouts: workoutsAll.value, exerciseIndex: exerciseIndex.value, bodyweights: bodyweightsAll.value, settings: settings.value, vip: membership.value.vip }));
+export const badgeList = computed(() => badges(workoutsAll.value, { bodyweights: bodyweightsAll.value, unit: settings.value.unit, timeZone: settings.value.timeZone || undefined, vip: membership.value.vip }));
 
 // The Coach's cards, and the weekly reviews Claude wrote, newest first.
 export const coach = computed(() => insights({ workouts: workoutsAll.value, meals: mealsAll.value, bodyweights: bodyweightsAll.value, settings: settings.value, exerciseIndex: exerciseIndex.value, splitDays: splitDaysAll.value }));
