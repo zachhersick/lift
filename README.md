@@ -64,7 +64,8 @@ The look is dark-first and layered: glass surfaces, your accent color as soft gr
 - **History** has a calendar and every workout. A workout's summary compares volume, sets and time with your last session of the same day, and lists its PRs.
 - **Progress** has a training-volume card (upper body, lower body, core; 7/30/90 days) and lists each exercise with a sparkline and trend. The exercise page swipes between charts of estimated 1RM (Epley), heaviest set, volume and reps over 1M/3M/1Y/All, with PRs, best reps at each weight, every session and the exercise's note. Tap **Edit** on an exercise (or **Edit exercise** in a workout's ⋯ menu) to fix its name, muscles or equipment, e.g. a custom exercise saved as chest that should be triceps. Muscles can be specific (lats, mid back, traps, lower back, front/side/rear delts, abductors, adductors); each counts toward its group's weekly sets (back, shoulders, glutes; adductors are their own). The change applies everywhere, past workouts included. Built-ins can be reset, and the tracking type locks once sets are logged. **Bodyweight** has its own chart with a 7-day average.
 - **Split**: start from a template or build your own. Drag days and exercises to reorder, add rest days, set each exercise's sets, rep range, rest and supersets, and pick from ~100 built-in exercises or your own. **Edit exercise** (in an exercise's split settings, its chart page or the workout menu) sets its primary muscle, its secondary muscles, its equipment, and the name of an exercise you created.
-- **Settings**: your account (and, for admins, **People**: the invite list and VIPs), theme and accent color, weekly goal, nutrition goal and targets, the ChatGPT connector, lb/kg and weight jump, bar weight and available plates, default rest and sound, and JSON **Export/Import** backups.
+- **Profile** (the last tab): your streak, workouts and **badges**. There are 27 badges: session milestones, week streaks, 1–5 plate clubs on bench, squat, deadlift and press, bodyweight-ratio lifts, lifetime volume, PR counts and early workouts. Each records the day you earned it, and finishing a workout that earns one pops a notice. **Friends**: send a request by email to someone on your Lift; once they accept, you each see the other's profile, a side-by-side **compare** of best estimated 1RM on the lifts you both do (converted to your unit, with bodyweight ratios), and their recent workouts. **What friends see** lets you turn off lifts, recent workouts or ratios. Badges and streaks are always shared; bodyweight, meals and notes never are. Friends only get a summary the server computes, never your records.
+- **Settings** (from Profile): your account (and, for admins, **People**: the invite list and VIPs), theme and accent color, weekly goal, nutrition goal and targets, the ChatGPT connector, lb/kg and weight jump, bar weight and available plates, default rest and sound, and JSON **Export/Import** backups.
 
 ## How data is stored
 
@@ -186,13 +187,13 @@ The one iOS limit: a home-screen web app can't play a sound while it's in the ba
 ```
 api/index.js                Vercel function; every /api/* and /.well-known/* request lands here
 server/                     auth (Google/GitHub OAuth, signed cookie), accounts and invites, sync API, Neon/memory store,
-                            oauth.js + mcp.js (the ChatGPT connector), coach.js (weekly AI review)
+                            oauth.js + mcp.js (the ChatGPT connector), coach.js (weekly AI review), social.js (friends, profiles)
 index.html, vite.config.ts  Vite entry; the config also mounts the API for dev/preview and builds the service worker
 src/lib/                    model.js (pure, tested logic), store/db/sync (IndexedDB + signals + sync), keypad, timer, theme
 src/components/kokonutui/   Kokonut UI components, restyled to the app's tokens
 src/components/             kit (page frame, cards, rows, sheets), keypad, plates, islands, charts, shader hero, picker,
-                            meal sheet, insights (Coach cards and weekly review)
-src/pages/                  Today, Workout, History, Progress, Bodyweight, Fuel (nutrition), Split, Settings
+                            meal sheet, insights (Coach cards and weekly review), badges (badge grid, profile header)
+src/pages/                  Today, Workout, History, Progress, Bodyweight, Fuel (nutrition), Split, Coach, Profile, Friend, Settings
 src/styles.css              Tailwind v4 theme: dark/light tokens and accent colors
 public/                     icons, manifest, theme-init.js (applies the theme before first paint)
 tests/                      node --test

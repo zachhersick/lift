@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   bodyweightId, cardioSeconds, dailyVolume, dateKey, defaultWeeklyGoal, e1rm, FIELDS, isComplete, setDistance, trackOf, exerciseHistory, isPersonalRecord, movingAverage, muscleSets, nextInSuperset,
-  barFor, muscleGroup, secondaryGroups, nextSplitDay, personalRecords, placeholderFor, plateBreakdown, previousEntry, previousSession, restsAfter, roundLoadable,
+  badges, compareLifts, profileSummary, shareFilter, barFor, muscleGroup, secondaryGroups, nextSplitDay, personalRecords, placeholderFor, plateBreakdown, previousEntry, previousSession, restsAfter, roundLoadable,
   analyzeSplit, applySplitEdit, inferredSecondary, liftsThisWeek, REVIEW_MIN_LIFTS, coachingContext, exerciseInUse, stepProgress, workoutSteps, indirectMuscles, splitWeeklySets, dailyIntake, dateKeyIn, fromDateKey, insights, mealMicro, MICROS, microAverages, dayTotals, estimateMaintenance, nutritionTargets, rateStatus, shiftDateKey, weightRate,
   splitDiff, startOfWeek, suggestion, supersetLabels, trend, warmupSets, weekStreak, weekSummary, workoutFromDay, workoutVolume
 } from "../src/lib/model.js";
@@ -887,4 +887,49 @@ test("specific muscles count toward their group", () => {
   assert.equal(weekly.get("lats"), undefined);
   const result = analyzeSplit({ splitDays: days, exerciseIndex: index, now: NOW });
   assert.equal(result.muscles.find((m) => m.muscle === "back").before, 4);
+});
+
+const sessionAt = (id, startedAt, entries) => ({ id, kind: "workout", startedAt, finishedAt: startedAt + 3_600_000, name: "Lift", entries });
+const liftSet = (exerciseId, weight, reps = 5) => ({ exerciseId, sets: [{ done: true, weight, reps }] });
+
+test("badges are earned on the workout that crosses the line, with kg converted", () => {
+  const t0 = Date.UTC(2026, 0, 5, 15);
+  const week = 7 * 86_400_000;
+  const workouts = [0, 1, 2, 3].map((i) => sessionAt(`w${i}`, t0 + i * week, [liftSet("b_bench-press", [135, 185, 225, 230][i])]));
+  const byId = new Map(badges(workouts, { unit: "lb", timeZone: "UTC" }).map((b) => [b.id, b]));
+  assert.equal(byId.get("first").earnedAt, t0);
+  assert.equal(byId.get("bench-1").earnedAt, t0);
+  assert.equal(byId.get("bench-2").earnedAt, t0 + 2 * week);
+  assert.equal(byId.get("streak-4").earnedAt, t0 + 3 * week);
+  assert.equal(byId.get("bench-3").earnedAt, null);
+  assert.equal(byId.get("bench-3").progress, 230 / 315);
+  assert.equal(byId.get("sessions-10").progress, 0.4);
+
+  const kg = new Map(badges([sessionAt("k", t0, [liftSet("b_bench-press", 103)])], { unit: "kg" }).map((b) => [b.id, b]));
+  assert.ok(kg.get("bench-2").earnedAt, "103 kg is over 225 lb");
+  const ratio = new Map(badges([sessionAt("r", t0, [liftSet("b_deadlift", 300)])], { bodyweights: [{ date: "2026-01-01", weight: 150 }] }).map((b) => [b.id, b]));
+  assert.ok(ratio.get("deadlift-bw").earnedAt, "twice bodyweight");
+  const early = badges([sessionAt("e", Date.UTC(2026, 0, 5, 11), [liftSet("b_bench-press", 95)])], { timeZone: "America/New_York" }).find((b) => b.id === "early-10");
+  assert.equal(early.progress, 0.1, "6am in New York counts as early");
+});
+
+test("profile summaries, sharing filters and comparing lifts across units", () => {
+  const index = new Map(BUILT_IN.map((e) => [e.id, e]));
+  index.set("x_y", { id: "x_y", name: "Cable Y-Raise", muscle: "side delts", track: "strength" });
+  const t0 = Date.UTC(2026, 0, 5, 15);
+  const workouts = [sessionAt("a", t0, [liftSet("b_bench-press", 200), liftSet("x_y", 20, 12)]), sessionAt("b", t0 + 86_400_000, [liftSet("b_bench-press", 210)])];
+  const mine = profileSummary({ workouts, exerciseIndex: index, bodyweights: [{ date: "2026-01-01", weight: 200 }], settings: { unit: "lb" }, now: t0 + 2 * 86_400_000 });
+  assert.equal(mine.totalSessions, 2);
+  assert.deepEqual(mine.lifts.map((l) => l.key), ["b_bench-press", "name:cable y-raise"], "most-trained first");
+  assert.deepEqual(mine.lifts[0].heaviest, { weight: 210, reps: 5 });
+  assert.equal(mine.ratios["b_bench-press"], 1.23);
+  assert.equal(mine.recent[0].exercises[0].weight, 210);
+  assert.deepEqual(shareFilter(mine, { lifts: false, ratios: false }).lifts, null);
+  assert.equal(shareFilter(mine, {}).lifts, mine.lifts);
+
+  const theirs = { unit: "kg", lifts: [{ key: "b_bench-press", name: "Bench Press", e1rm: 100 }, { key: "name:cable y-raise", name: "Cable Y-Raise", e1rm: 10 }], ratios: null };
+  const rows = compareLifts(mine, theirs);
+  assert.deepEqual(rows.map((r) => [r.key, r.theirs]), [["b_bench-press", 220.46], ["name:cable y-raise", 22.05]]);
+  assert.equal(rows[0].theirRatio, null);
+  assert.deepEqual(compareLifts(mine, { ...theirs, lifts: null }), []);
 });

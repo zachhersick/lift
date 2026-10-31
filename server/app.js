@@ -3,8 +3,9 @@
 // (a verified email) has its own records: the phone keeps its own copy in
 // IndexedDB and sends whatever changed; the server keeps the newest copy of
 // each record. Admins (ADMIN_EMAILS) manage the invite list and who's a VIP,
-// which gets the weekly AI review. ChatGPT connects through OAuth
-// (server/oauth.js) to the MCP endpoint (server/mcp.js).
+// which gets the weekly AI review. People add each other as friends and see
+// each other's profile summaries (server/social.js). ChatGPT connects through
+// OAuth (server/oauth.js) to the MCP endpoint (server/mcp.js).
 import { readJsonBody, readJsonOrForm } from "./http.js";
 import {
   checkOAuthState, clearCookie, cookie, createSession, githubAuthorizeUrl, githubUser, googleAuthorizeUrl, googleUser,
@@ -12,6 +13,7 @@ import {
 } from "./auth.js";
 import { PULL_LIMIT } from "./store.js";
 import { writeReview } from "./coach.js";
+import { displayName, friendsOf, summaryFor } from "./social.js";
 import { createMcp } from "./mcp.js";
 import {
   authorizationServerMetadata, consentPage, exchangeToken, issueCode, oauthConfig, protectedResourceMetadata, readAuthorizeRequest,
@@ -266,6 +268,37 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
       const lifts = liftsThisWeek(await mine.listKind("workout"));
       if (lifts < REVIEW_MIN_LIFTS) return sendJson(res, { ok: false, error: `Log ${REVIEW_MIN_LIFTS} lifts this week to get your review (${lifts} so far).` }, 409);
       return sendJson(res, { ok: true, review: await writeReview({ store: mine, apiKey: env.ANTHROPIC_API_KEY, client: anthropic }) });
+    }
+
+    // ---- friends and profiles ----
+    if (path === "/api/friends" && req.method === "GET") return sendJson(res, { ok: true, ...(await friendsOf(store, user.email, account)) });
+    if (path === "/api/friends/request" || path === "/api/friends/accept" || path === "/api/friends/remove") {
+      if (req.method !== "POST") return sendJson(res, { ok: false, error: "Use POST." }, 405, { allow: "POST" });
+      const email = normalizeEmail((await readJsonBody(req, { limit: 4_000 })).email);
+      if (!email) return sendJson(res, { ok: false, error: "Enter a valid email." }, 400);
+      if (email === user.email) return sendJson(res, { ok: false, error: "That's your own email." }, 400);
+      const existing = await store.getFriendship(user.email, email);
+      const theirRequest = existing?.status === "pending" && existing.requestedBy === email;
+      if (path === "/api/friends/remove") {
+        if (existing) await store.removeFriendship(user.email, email);
+      } else if (path === "/api/friends/accept") {
+        if (!theirRequest || !(await account(email))) return sendJson(res, { ok: false, error: "There's no request from them to accept." }, 404);
+        await store.putFriendship({ ...existing, status: "accepted" });
+      } else {
+        if (!(await account(email))) return sendJson(res, { ok: false, error: "They aren't on Lift yet. An admin can invite them." }, 404);
+        // Asking someone who already asked you makes you friends.
+        if (theirRequest) await store.putFriendship({ ...existing, status: "accepted" });
+        else if (!existing) await store.putFriendship({ a: user.email, b: email, status: "pending", requestedBy: user.email, createdAt: Date.now() });
+      }
+      return sendJson(res, { ok: true, ...(await friendsOf(store, user.email, account)) });
+    }
+    // Your own profile, or an accepted friend's.
+    if (path === "/api/profile" && req.method === "GET") {
+      const email = normalizeEmail(url.searchParams.get("email")) || user.email;
+      const self = email === user.email;
+      const other = self ? user : (await store.getFriendship(user.email, email))?.status === "accepted" ? await account(email) : null;
+      if (!other) return sendJson(res, { ok: false, error: "Not found." }, 404);
+      return sendJson(res, { ok: true, profile: { email, name: displayName(other, email), ...(await summaryFor(store, email)) } });
     }
 
     // ---- admins: the invite list ----

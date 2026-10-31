@@ -3,7 +3,7 @@
 // through save/update/remove.
 import { computed, signal } from "@preact/signals-core";
 import { BUILT_IN } from "./exercises.js";
-import { BARS, bodyweightId, dateKey, energyPlan, finished, insights, live, newer, orderedDays, PLATES, uid } from "./model.js";
+import { badges, BARS, bodyweightId, dateKey, energyPlan, finished, insights, live, newer, orderedDays, PLATES, profileSummary, uid } from "./model.js";
 import * as db from "./db.js";
 
 export const DEFAULT_SETTINGS = { id: "settings", kind: "settings", unit: "lb", step: 5, defaultRest: 120, sound: true, theme: "system", tint: "blue", weeklyGoal: null, goal: "maintain", calorieTarget: null, proteinTarget: null, timeZone: null };
@@ -57,6 +57,10 @@ export const meals = computed(() => live(mealsAll.value).sort((a, b) => b.date.l
 export const energy = computed(() => energyPlan(mealsAll.value, bodyweightsAll.value, settings.value));
 export const maintenance = computed(() => energy.value.maintenance);
 export const targets = computed(() => energy.value.targets);
+
+// Your badges and the profile summary friends see (before sharing filters).
+export const profile = computed(() => profileSummary({ workouts: workoutsAll.value, exerciseIndex: exerciseIndex.value, bodyweights: bodyweightsAll.value, settings: settings.value }));
+export const badgeList = computed(() => badges(workoutsAll.value, { bodyweights: bodyweightsAll.value, unit: settings.value.unit, timeZone: settings.value.timeZone || undefined }));
 
 // The Coach's cards, and the weekly reviews Claude wrote, newest first.
 export const coach = computed(() => insights({ workouts: workoutsAll.value, meals: mealsAll.value, bodyweights: bodyweightsAll.value, settings: settings.value, exerciseIndex: exerciseIndex.value, splitDays: splitDaysAll.value }));
