@@ -20,10 +20,11 @@ single source of project guidance; `CLAUDE.md` imports it.
 
 Lift is an offline-capable workout tracker and installable PWA, with rotating
 splits, strength/cardio/timed sets, progress charts, bodyweight, nutrition
-(meals with macros and micronutrients, measured maintenance, targets), a Coach that connects eating and
-training, and JSON backups. ChatGPT logs meals through an MCP connector.
-It is a single npm package using React 19, Vite 8, Tailwind CSS 4, Motion and
-Preact signals. The backend is plain Node.js with GitHub OAuth and optional Neon
+(meals with macros and micronutrients, measured maintenance, targets), a Coach
+that connects eating and training and analyzes the split, and JSON backups.
+ChatGPT logs meals through an MCP connector. It is a single npm package using
+React 19, Vite 8, Tailwind CSS 4, Motion and Preact signals. The backend is plain
+Node.js with invite-only accounts (Google or GitHub sign-in) and optional Neon
 Postgres storage.
 
 | Location | Responsibility |
@@ -32,9 +33,13 @@ Postgres storage.
 | `src/pages/` | Today, workout, history, progress, bodyweight, nutrition (Fuel), split and settings screens |
 | `src/pages/coach.tsx`, `src/components/insights.tsx` | Coach tab (split analyzer, cards by area, sets per muscle, sources), Coach cards and weekly AI review |
 | `src/components/meal-sheet.tsx` | Meal editor with macros and micronutrients |
+| `src/components/exercise-picker.tsx` | Exercise picker and the create/edit editor (name, primary and secondary muscles, tracking type, equipment) |
+| `src/components/keypad.tsx`, `plates.tsx`, `src/lib/keypad.js` | Workout number pad and plate calculator |
 | `src/components/kit.tsx` | Shared page, card, row, sheet and motion primitives |
 | `src/components/ui/`, `src/components/kokonutui/` | Existing UI components styled for Lift |
 | `src/lib/model.js` | Pure training, progression, history, plate, statistics, nutrition and Coach logic (shared with the server) |
+| `src/lib/exercises.js` | Built-in exercise library, starter split templates, `MUSCLE_GROUPS`, `MUSCLES` and `EQUIPMENT` |
+| `src/lib/timer.js`, `set-timer.js`, `format.js` | Rest and set timers, number and date formatting |
 | `src/lib/store.js`, `db.js`, `sync.js`, `account.js` | Signals, IndexedDB records/outbox (one database per account), server synchronization |
 | `src/lib/actions.js`, `router.js` | Shared actions and hash navigation |
 | `src/styles.css`, `public/theme-init.js` | Theme tokens and appearance before first paint |
@@ -44,6 +49,7 @@ Postgres storage.
 | `tests/model.test.js`, `tests/app.test.js` | Domain logic and API/auth/sync tests |
 | `vite.config.ts`, `vercel.json` | Local API integration, PWA build and deployment configuration |
 | `assets/icon.svg`, `scripts/build-icons.mjs` | Source icon and PNG generation |
+| `.claude/launch.json` | Preview configurations `lift` (dev) and `lift-preview`, both on port 4330 |
 
 Paths abbreviated within a row are relative to the same directory as its first path.
 
@@ -93,6 +99,8 @@ Use a production build and preview with `?sw` when checking offline behavior.
   themes and the workout keypad/timer behavior when changing UI.
 - Keep patches focused; do not reformat unrelated files or edit generated `dist/`
   output. Regenerate public PNG icons only when their source changes.
+- Line endings are mixed (some files CRLF, some LF, with `core.autocrlf=true`).
+  Keep each file's existing endings when editing or appending.
 
 ## Data and security invariants
 
@@ -123,6 +131,18 @@ Use a production build and preview with `?sw` when checking offline behavior.
   Fiber sits on the meal with the macros; other micronutrients go in
   `meal.micros` (keys from `MICROS` in `model.js`). A missing micronutrient means
   unknown, never zero.
+- An exercise's `muscle` is its primary muscle and may be a specific one (lats,
+  mid back, side delts, abductors…) that counts toward a group through
+  `MUSCLE_GROUP` in `model.js`. Weekly volume, Coach cards, the split analyzer and
+  push/pull balance work in groups via `muscleGroup()` and `secondaryGroups()`.
+  Secondary muscles count half a set, once per group and never toward the
+  primary's own group. A missing `secondary` list means inferred from the name
+  (`inferredSecondary`); an empty array means none. Add muscles to `MUSCLES`/
+  `MUSCLE_GROUPS` in `exercises.js` and `MUSCLE_GROUP` together. Built-in names
+  are fixed; edits to a built-in are a resettable override.
+- Plate math (`plateBreakdown`, `roundLoadable`, `warmupSets`) covers `barbell`
+  and `plate loaded` equipment; `barFor()` gives plate-loaded exercises no bar.
+  Check these helpers when adding to `EQUIPMENT`.
 - Coach rules live in `insights()` in `model.js`; every card carries an `area`
   (training, nutrition, recovery) and a `source`. Keep new rules grounded in
   published evidence or label them as patterns in the user's own data, and keep
@@ -150,6 +170,14 @@ Storage, sync and PWA changes need appropriate offline/reload/reconnect checks;
 the Node tests alone do not verify those browser behaviors. Report exactly which
 checks ran and any failures or limitations, without claiming live deployment or
 device validation from a local build.
+
+## Git and pull requests
+
+- Work on a short feature branch from an up-to-date `main`; never push to `main`
+  directly. Stage only the files the change touches.
+- Open a pull request against `main` on `zachhersick/lift` with `gh pr create`.
+- Merge only when Zach asks, with `gh pr merge <number> --repo zachhersick/lift --merge`.
+  Vercel builds a preview for each pull request.
 
 ## Build and deployment
 
