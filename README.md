@@ -146,7 +146,7 @@ Optional:
 | `ANTHROPIC_API_KEY` | Turns on the weekly AI review for VIPs: one Claude call a week each, a few cents. Without it, the rule-based Coach still works. |
 | `OPEN_SIGNUP` | `1` lets anyone with an Apple, Google or GitHub account sign in, not just invitees. Needed for the App Store. |
 
-Sessions last 30 days. Every write from the app needs the session cookie, a JSON body and an `Origin` header that matches `APP_URL`. The one exception is Apple's sign-in callback, which Apple posts from its own site; it's checked against the signed state cookie instead.
+Sessions last 30 days. Every write from the web app needs the session cookie, a JSON body and an `Origin` header that matches `APP_URL`. The iOS app instead signs in through the system browser (PKCE, back to `lift://auth`) and sends its session as a bearer token from `capacitor://localhost`, the one origin the API allows cross-site. The one exception is Apple's sign-in callback, which Apple posts from its own site; it's checked against the signed state cookie instead.
 
 ## Log meals from ChatGPT
 

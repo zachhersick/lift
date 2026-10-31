@@ -202,6 +202,31 @@ export async function revokeApple({ token, apple, fetchImpl = fetch, now = Date.
   return response.ok;
 }
 
+// ---------- the iOS app ----------
+// The app signs in through the system browser and comes back to lift://auth
+// with a short-lived, single-use code, which it trades (with its PKCE
+// verifier) for a session token it sends as a bearer header.
+export const NATIVE_ORIGIN = "capacitor://localhost";
+export const NATIVE_REDIRECT = "lift://auth";
+const NATIVE_CODE_TTL = 120_000;
+
+export function nativeCode(email, challenge, secret, now = Date.now()) {
+  const payload = b64url(JSON.stringify({ sub: email, ch: challenge, j: b64url(randomBytes(12)), exp: now + NATIVE_CODE_TTL }));
+  return `${payload}.${sign(`native.${payload}`, secret)}`;
+}
+
+export function readNativeCode(code, verifier, secret, now = Date.now()) {
+  const [payload, signature, extra] = String(code || "").split(".");
+  if (!payload || !signature || extra !== undefined || !safeEqual(signature, sign(`native.${payload}`, secret))) return null;
+  try {
+    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (!(data.exp > now) || !verifier) return null;
+    return safeEqual(createHash("sha256").update(String(verifier)).digest("base64url"), data.ch) ? data : null;
+  } catch {
+    return null;
+  }
+}
+
 // Small secrets kept at rest (Apple's refresh token), sealed with a key
 // derived from SESSION_SECRET.
 const cipherKey = (secret) => createHash("sha256").update(`lift-at-rest:${secret}`).digest();

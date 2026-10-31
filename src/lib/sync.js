@@ -5,6 +5,7 @@
 // that account's database (account.js) and reloads.
 import { signal } from "@preact/signals-core";
 import { forgetAccount, switchAccount } from "./account.js";
+import { api, finishSignIn, forgetToken, native, postJson } from "./api.js";
 import * as db from "./db.js";
 import { applyRemote, pending, records, setMembership, whenChanged } from "./store.js";
 
@@ -20,7 +21,7 @@ const set = (change) => (sync.value = { ...sync.value, ...change });
 
 export async function checkSession() {
   try {
-    const response = await fetch("/api/session", { credentials: "same-origin", cache: "no-store" });
+    const response = await api("/api/session", { cache: "no-store" });
     const body = await response.json().catch(() => ({}));
     // Signing in as someone else switches databases. An expired session
     // keeps showing your data until you sign in again; only signing out
@@ -51,12 +52,7 @@ export async function syncNow() {
     while (more) {
       const since = (await db.getMeta("cursor")) || 0;
       const changes = await db.loadOutbox();
-      const response = await fetch("/api/sync", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ since, changes })
-      });
+      const response = await postJson("/api/sync", { since, changes });
       if (response.status === 401) {
         set({ status: "signedOut", user: null });
         return;
@@ -117,16 +113,24 @@ export async function startSync() {
 // Deletes the account on the server, then everything it left on this device.
 export async function deleteAccount() {
   const email = sync.value.user?.email;
-  const response = await fetch("/api/account/delete", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: "{}" });
+  const response = await postJson("/api/account/delete");
   const body = await response.json().catch(() => ({}));
   if (!response.ok || !body.ok) throw new Error(body.error || "Couldn't delete your account. Try again.");
   setMembership(false);
+  forgetToken();
   if (email) forgetAccount(email);
   location.reload();
 }
 
+// The iOS app comes back from the browser to lift://auth?code=….
+export async function completeSignIn(link) {
+  if (!(await finishSignIn(link))) return set({ error: "Sign-in didn't finish. Try again." });
+  if (await checkSession()) syncNow();
+}
+
 export async function signOut() {
-  await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: "{}" }).catch(() => {});
+  if (native) forgetToken();
+  else await postJson("/api/auth/logout").catch(() => {});
   // Your data stays on this device under your account; signed out shows the
   // guest database.
   setMembership(false);

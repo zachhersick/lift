@@ -11,7 +11,8 @@ import { randomBytes } from "node:crypto";
 import { readJsonBody, readJsonOrForm } from "./http.js";
 import {
   appleAuthorizeUrl, appleUser, checkOAuthState, clearCookie, cookie, createSession, decryptText, encryptText, githubAuthorizeUrl, githubUser,
-  googleAuthorizeUrl, googleUser, newOAuthState, normalizeEmail, parseCookies, readSession, revokeApple, SESSION_COOKIE, sessionCookie, STATE_COOKIE
+  googleAuthorizeUrl, googleUser, NATIVE_ORIGIN, NATIVE_REDIRECT, nativeCode, newOAuthState, normalizeEmail, parseCookies, readNativeCode, readSession,
+  revokeApple, SESSION_COOKIE, sessionCookie, STATE_COOKIE
 } from "./auth.js";
 import { PULL_LIMIT } from "./store.js";
 import { writeReview } from "./coach.js";
@@ -25,6 +26,9 @@ import { cleanUsername, liftsThisWeek, nameProblem, REVIEW_MIN_LIFTS, usernamePr
 
 // Where to go after sign-in when it started from the ChatGPT approval page.
 const NEXT_COOKIE = "lift_next";
+// Sign-in started by the iOS app: its PKCE challenge, so the callback hands
+// back a code for the app instead of setting a cookie.
+const NATIVE_COOKIE = "lift_native";
 const AUTHORIZE_PATH = "/api/oauth/authorize";
 
 export const KINDS = new Set(["exercise", "splitDay", "workout", "bodyweight", "settings", "meal", "coachReview"]);
@@ -123,14 +127,18 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
     return user;
   }
 
+  // The iOS app sends its session as a bearer header; the web app as a cookie.
+  const bearerSession = (req) => /^Bearer\s+(\S+)$/i.exec(String(req.headers.authorization || ""))?.[1] || "";
+
   async function signedIn(req) {
-    const session = readSession(parseCookies(req.headers.cookie)[SESSION_COOKIE], config.sessionSecret);
+    const session = readSession(bearerSession(req) || parseCookies(req.headers.cookie)[SESSION_COOKIE], config.sessionSecret);
     return session ? member(session.sub, session.iat) : null;
   }
 
-  // Cookie-authenticated writes must come from the app itself.
+  // Cookie-authenticated writes must come from the app itself. A bearer
+  // header can't be sent by another site on its own, so it needs no check.
   function sameOrigin(req) {
-    return Boolean(config.appUrl) && req.headers.origin === config.appUrl;
+    return Boolean(bearerSession(req)) || (Boolean(config.appUrl) && req.headers.origin === config.appUrl);
   }
 
   async function finishSignIn(req, res, profile) {
@@ -139,6 +147,12 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
     const now = Date.now();
     const appleToken = profile.appleToken ? encryptText(profile.appleToken, config.sessionSecret) : user.row?.appleToken || "";
     await store.putUser({ ...user.row, email: user.email, name: user.name || profile.name || "", vip: Boolean(user.row?.vip), createdAt: user.row?.createdAt || now, lastSeenAt: now, appleToken });
+    const challenge = parseCookies(req.headers.cookie)[NATIVE_COOKIE] || "";
+    if (challenge) {
+      return redirect(res, `${NATIVE_REDIRECT}?code=${encodeURIComponent(nativeCode(user.email, challenge, config.sessionSecret, now))}`, {
+        "set-cookie": [clearCookie(STATE_COOKIE), clearCookie(NATIVE_COOKIE)]
+      });
+    }
     const next = parseCookies(req.headers.cookie)[NEXT_COOKIE] || "";
     return redirect(res, next.startsWith(`${AUTHORIZE_PATH}?`) ? next : "/", {
       "set-cookie": [sessionCookie(createSession({ email: user.email, name: profile.name || user.name }, config.sessionSecret)), clearCookie(STATE_COOKIE), clearCookie(NEXT_COOKIE)]
@@ -184,6 +198,11 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
       // Apple posts back from its own site, so its cookies must allow that.
       const sameSite = provider === "apple" ? "None" : "Lax";
       const nextCookie = next.startsWith(`${AUTHORIZE_PATH}?`) ? [cookie(NEXT_COOKIE, next, { maxAge: 600, sameSite })] : [];
+      // From the iOS app: a PKCE S256 challenge, so only the app that started
+      // can redeem the code that comes back to lift://auth.
+      const challenge = url.searchParams.get("client") === "ios" ? url.searchParams.get("challenge") || "" : "";
+      if (challenge && !/^[A-Za-z0-9_-]{43}$/.test(challenge)) return sendJson(res, { ok: false, error: "A PKCE challenge is required." }, 400);
+      nextCookie.push(challenge ? cookie(NATIVE_COOKIE, challenge, { maxAge: 600, sameSite }) : clearCookie(NATIVE_COOKIE));
       if (!provider) return sendHtml(res, signInPage({ providers: config.providers, next }));
       if (provider === "dev") {
         const as = normalizeEmail(url.searchParams.get("as")) || config.admins[0];
@@ -215,6 +234,14 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
       if (!config.apple) return redirect(res, "/?signin=failed");
       const form = new URLSearchParams(await readJsonOrForm(req));
       return oauthCallback(req, res, form, (code) => appleUser({ code, user: form.get("user"), apple: config.apple, redirectUri: `${config.appUrl}/api/auth/apple/callback`, fetchImpl }));
+    }
+    // The iOS app trades its code and PKCE verifier for a session token.
+    if (path === "/api/auth/token" && req.method === "POST") {
+      const body = await readJsonBody(req, { limit: 4_000 });
+      const code = readNativeCode(body.code, body.verifier, config.sessionSecret);
+      const user = code && (await store.claim(`native:${code.j}`, code.exp)) ? await member(code.sub) : null;
+      if (!user) return sendJson(res, { ok: false, error: "That sign-in expired. Try again." }, 400);
+      return sendJson(res, { ok: true, token: createSession({ email: user.email, name: user.name }, config.sessionSecret) });
     }
     if (path === "/api/auth/logout" && req.method === "POST") {
       return sendJson(res, { ok: true }, 200, { "set-cookie": clearCookie(SESSION_COOKIE) });
@@ -443,6 +470,17 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
   return {
     config,
     async handle(req, res) {
+      // The iOS app's API calls come from its own origin: allow exactly that
+      // one, with bearer headers and no cookies.
+      if (req.headers.origin === NATIVE_ORIGIN && String(req.url).startsWith("/api/")) {
+        const cors = { "access-control-allow-origin": NATIVE_ORIGIN, vary: "Origin" };
+        if (req.method === "OPTIONS") {
+          res.writeHead(204, { ...cors, "access-control-allow-methods": "GET, POST", "access-control-allow-headers": "authorization, content-type", "access-control-max-age": "600" });
+          return res.end();
+        }
+        const writeHead = res.writeHead.bind(res);
+        res.writeHead = (status, headers = {}) => writeHead(status, { ...headers, ...cors });
+      }
       try {
         return await handle(req, res);
       } catch (error) {
