@@ -26,9 +26,15 @@ function store(key, value) {
   } catch {}
 }
 
-export function api(path, init = {}) {
+// Where the app keeps its session token; the iOS shell swaps in the Keychain.
+let tokens = { get: async () => stored(TOKEN), set: async (value) => store(TOKEN, value) };
+export function useTokenStore(store) {
+  tokens = store;
+}
+
+export async function api(path, init = {}) {
   if (!native) return fetch(path, { credentials: "same-origin", ...init });
-  const token = stored(TOKEN);
+  const token = await tokens.get();
   return fetch(`${base}${path}`, { ...init, credentials: "omit", headers: { ...init.headers, ...(token ? { authorization: `Bearer ${token}` } : {}) } });
 }
 
@@ -55,20 +61,21 @@ export async function signIn(provider = "") {
   await openBrowser(`${base}/api/auth/login${query}${query ? "&" : "?"}client=ios&challenge=${challenge}`);
 }
 
-// Trades the code from lift://auth?code=… for a session token. True when
-// signed in.
+// Trades the code from lift://auth?code=… for a session token. Returns ""
+// when signed in, or why not (lift://auth?error=… when the server refused).
 export async function finishSignIn(link) {
-  const code = new URL(link).searchParams.get("code");
+  const params = new URL(link).searchParams;
+  const code = params.get("code");
   const verifier = stored(VERIFIER);
-  if (!code || !verifier) return false;
+  if (!code || !verifier) return params.get("error") || "failed";
   const response = await postJson("/api/auth/token", { code, verifier });
   const body = await response.json().catch(() => ({}));
   store(VERIFIER, "");
-  if (!response.ok || !body.ok) return false;
-  store(TOKEN, body.token);
-  return true;
+  if (!response.ok || !body.ok) return "expired";
+  await tokens.set(body.token);
+  return "";
 }
 
 export function forgetToken() {
-  store(TOKEN, "");
+  return tokens.set("");
 }

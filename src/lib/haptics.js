@@ -17,7 +17,14 @@ function ensure() {
   return label;
 }
 
+// The iOS app plays real haptics instead.
+let nativeHaptic = null;
+export function useNativeHaptic(play) {
+  nativeHaptic = play;
+}
+
 export function haptic(pattern = 10) {
+  if (nativeHaptic) return nativeHaptic(pattern);
   try {
     ensure()?.click();
     navigator.vibrate?.(pattern);

@@ -7,6 +7,7 @@ import { signal } from "@preact/signals-core";
 import { forgetAccount, switchAccount } from "./account.js";
 import { api, finishSignIn, forgetToken, native, postJson } from "./api.js";
 import * as db from "./db.js";
+import { notify } from "./notify";
 import { applyRemote, pending, records, setMembership, whenChanged } from "./store.js";
 
 // `user` is { email, name, admin, vip }; `coach` says whether this account
@@ -117,19 +118,23 @@ export async function deleteAccount() {
   const body = await response.json().catch(() => ({}));
   if (!response.ok || !body.ok) throw new Error(body.error || "Couldn't delete your account. Try again.");
   setMembership(false);
-  forgetToken();
+  await forgetToken();
   if (email) forgetAccount(email);
   location.reload();
 }
 
+// Why sign-in didn't work, by the reason the server or the app gives.
+export const SIGNIN_ERRORS = { expired: "Sign-in timed out", failed: "Sign-in failed. Try again.", denied: "That account hasn't been invited yet" };
+
 // The iOS app comes back from the browser to lift://auth?code=….
 export async function completeSignIn(link) {
-  if (!(await finishSignIn(link))) return set({ error: "Sign-in didn't finish. Try again." });
+  const problem = await finishSignIn(link);
+  if (problem) return notify(SIGNIN_ERRORS[problem] || "Sign-in didn't work", { status: "error" });
   if (await checkSession()) syncNow();
 }
 
 export async function signOut() {
-  if (native) forgetToken();
+  if (native) await forgetToken();
   else await postJson("/api/auth/logout").catch(() => {});
   // Your data stays on this device under your account; signed out shows the
   // guest database.

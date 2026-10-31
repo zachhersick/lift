@@ -181,6 +181,16 @@ How the connection is secured:
 - Removing someone from the invite list cuts off their connector too.
 - The connector can read and change meals and read summaries, but it can't touch your workouts.
 
+## The iOS app
+
+`ios/` is a Capacitor app that bundles the built web app, so it works offline, and talks to the Lift API at `LIFT_API_URL` (default `https://lift.zachhersick.com`). It signs in through the system browser and keeps its session in the Keychain. It adds real haptics and a notification when rest is up, even with the phone locked.
+
+```sh
+npm run build:ios   # builds dist/ for the app and runs `cap sync ios`
+```
+
+Then, on a Mac with Xcode, open `ios/App/App.xcodeproj`, set your signing team, and run it or **Product → Archive** for TestFlight. `npm run build:icons` also renders the app icon and launch splash. [docs/app-store.md](docs/app-store.md) has the App Store steps.
+
 ## Install on the iPhone
 
 Open your Lift address in Safari, sign in from Settings, then **Share → Add to Home Screen**. It opens full screen with its own icon and keeps working offline. New deploys update it automatically the next time you open it twice.

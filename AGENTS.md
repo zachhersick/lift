@@ -45,6 +45,7 @@ for social features, AI-sharing consent and the legal pages.
 | `src/lib/timer.js`, `set-timer.js`, `format.js` | Rest and set timers, number and date formatting |
 | `src/lib/store.js`, `db.js`, `sync.js`, `account.js` | Signals, IndexedDB records/outbox (one database per account), server synchronization |
 | `src/lib/api.js` | Every API call: same-origin cookie fetch on the web, `VITE_API_URL` plus a bearer token in the iOS app, and native sign-in (PKCE, `lift://auth`) |
+| `src/lib/native.js`, `capacitor.config.ts`, `ios/`, `scripts/build-ios.mjs` | The iOS app (Capacitor 8, SPM): browser sign-in and `lift://` links, Keychain token, haptics, rest-timer notifications; `Info.plist` has the URL scheme and export compliance |
 | `src/lib/actions.js`, `router.js` | Shared actions and hash navigation |
 | `src/styles.css`, `public/theme-init.js` | Theme tokens and appearance before first paint |
 | `server/app.js`, `auth.js`, `http.js`, `store.js` | API routing, accounts, invites and deletion, Apple/Google/GitHub sign-in, request validation and memory/Neon stores |
@@ -54,7 +55,7 @@ for social features, AI-sharing consent and the legal pages.
 | `api/index.js` | Vercel entry point for every `/api/*` and `/.well-known/*` request |
 | `tests/model.test.js`, `tests/app.test.js` | Domain logic and API/auth/sync tests |
 | `vite.config.ts`, `vercel.json` | Local API integration, PWA build and deployment configuration |
-| `assets/icon.svg`, `scripts/build-icons.mjs` | Source icon and PNG generation |
+| `assets/icon.svg`, `scripts/build-icons.mjs` | Source icon and PNG generation (web icons, plus the opaque iOS app icon and launch splash) |
 | `.claude/launch.json` | Preview configurations `lift` (dev) and `lift-preview`, both on port 4330 |
 
 Paths abbreviated within a row are relative to the same directory as its first path.
@@ -75,6 +76,7 @@ On Windows PowerShell use `npm.cmd`; elsewhere use `npm`.
 | Build production assets into `dist/` | `npm.cmd run build` |
 | Serve the production build locally | `npm.cmd run preview` |
 | Regenerate PNG icons after editing the SVG | `npm.cmd run build:icons` |
+| Build the iOS app and sync it into `ios/` (`LIFT_API_URL` overrides the API) | `npm.cmd run build:ios` |
 
 Development uses `http://localhost:4330` with a strict port. Stop the owned server
 before starting another on that port. Preview also defaults to port 4330.
@@ -135,7 +137,11 @@ Use a production build and preview with `?sw` when checking offline behavior.
   app sends it as `Authorization: Bearer`, which skips the same-origin check
   (cookies never accompany it). CORS allows exactly `capacitor://localhost` on
   `/api/*`. Make every client API call through `api()`/`postJson()` in
-  `api.js`, never a bare `fetch`.
+  `api.js`, never a bare `fetch`. In the app, `native.js` loads before sync
+  starts and keeps the token in the Keychain; failed sign-ins return to
+  `lift://auth?error=…`. The app has no service worker (its files are
+  bundled). Opening, running and archiving `ios/App` needs Xcode on a Mac;
+  `cap sync` works on Windows.
 - Signing in creates the `lift_users` row. Sessions (`iat`) and ChatGPT tokens
   (`t`) only count while a non-admin's row exists and was created before they
   were issued (`member()` in `app.js`), so deleting an account
