@@ -4,7 +4,7 @@
 // When the server says a different account is signed in, the app switches to
 // that account's database (account.js) and reloads.
 import { signal } from "@preact/signals-core";
-import { switchAccount } from "./account.js";
+import { forgetAccount, switchAccount } from "./account.js";
 import * as db from "./db.js";
 import { applyRemote, pending, records, setMembership, whenChanged } from "./store.js";
 
@@ -112,6 +112,17 @@ export async function startSync() {
   setInterval(() => {
     if (sync.value.user && document.visibilityState === "visible") syncNow();
   }, 60_000);
+}
+
+// Deletes the account on the server, then everything it left on this device.
+export async function deleteAccount() {
+  const email = sync.value.user?.email;
+  const response = await fetch("/api/account/delete", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: "{}" });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body.ok) throw new Error(body.error || "Couldn't delete your account. Try again.");
+  setMembership(false);
+  if (email) forgetAccount(email);
+  location.reload();
 }
 
 export async function signOut() {

@@ -60,12 +60,12 @@ The look is dark-first and layered: glass surfaces, your accent color as soft gr
   - eating less on lifting days than on rest days;
   - micronutrients well under (or, for sodium and the other limits, over) their Daily Value for the week;
   - unlogged days.
-- **Weekly review.** With `ANTHROPIC_API_KEY` set, Claude (Opus 5.5) writes a short review from the same summary once a week. It ends in two or three concrete actions for the week, syncs like any record, and stays readable offline.
+- **Weekly review.** With `ANTHROPIC_API_KEY` set, Claude (Opus 5.5) writes a short review from the same summary once a week. It ends in two or three concrete actions for the week, syncs like any record, and stays readable offline. Nothing goes to Anthropic until you tap **Agree and turn on reviews** in the Coach (`settings.aiConsent`).
 - **History** has a calendar and every workout. A workout's summary compares volume, sets and time with your last session of the same day, and lists its PRs.
 - **Progress** has a training-volume card (upper body, lower body, core; 7/30/90 days) and lists each exercise with a sparkline and trend. The exercise page swipes between charts of estimated 1RM (Epley), heaviest set, volume and reps over 1M/3M/1Y/All, with PRs, best reps at each weight, every session and the exercise's note. Tap **Edit** on an exercise (or **Edit exercise** in a workout's ⋯ menu) to fix its name, muscles or equipment, e.g. a custom exercise saved as chest that should be triceps. Muscles can be specific (lats, mid back, traps, lower back, front/side/rear delts, abductors, adductors); each counts toward its group's weekly sets (back, shoulders, glutes; adductors are their own). The change applies everywhere, past workouts included. Built-ins can be reset, and the tracking type locks once sets are logged. **Bodyweight** has its own chart with a 7-day average.
 - **Split**: start from a template or build your own. Drag days and exercises to reorder, add rest days, set each exercise's sets, rep range, rest and supersets, and pick from ~100 built-in exercises or your own. **Edit exercise** (in an exercise's split settings, its chart page or the workout menu) sets its primary muscle, its secondary muscles, its equipment, and the name of an exercise you created.
-- **Profile** (the last tab): your display name and **@username** (everyone picks a username the first time they open the app signed in; change either with the pencil), streak and workouts, a **pinned lift** with its PRs (heaviest set and best estimated 1RM), and **badges**. There are 28: VIP, session milestones, week streaks, 1–5 plate clubs on bench, squat, deadlift and press, bodyweight-ratio lifts, lifetime volume, PR counts and early workouts. Earned ones show with the day you earned them; the rest sit under **Show locked badges** with how close you are. Finishing a workout that earns one pops a notice. **Friends**: add someone on your Lift by **username**; once they accept, you each see the other's profile, pinned lift, a side-by-side **compare** of best estimated 1RM on the lifts you both do (in your unit, with bodyweight ratios) and their recent workouts, plus a **leaderboard** of workouts this week and your pinned lift. **What friends see** turns off lifts, recent workouts or ratios. Badges, streaks and the pinned lift are always shared; your email, bodyweight, meals and notes never are. Friends only get a summary the server computes, never your records.
-- **Settings** (from Profile): your account (and, for admins, **People**: the invite list and VIPs), theme and accent color, weekly goal, nutrition goal and targets, the ChatGPT connector, lb/kg and weight jump, bar weight and available plates, default rest and sound, and JSON **Export/Import** backups.
+- **Profile** (the last tab): your display name and **@username** (everyone picks a username the first time they open the app signed in; change either with the pencil), streak and workouts, a **pinned lift** with its PRs (heaviest set and best estimated 1RM), and **badges**. There are 28: VIP, session milestones, week streaks, 1–5 plate clubs on bench, squat, deadlift and press, bodyweight-ratio lifts, lifetime volume, PR counts and early workouts. Earned ones show with the day you earned them; the rest sit under **Show locked badges** with how close you are. Finishing a workout that earns one pops a notice. **Friends**: add someone on your Lift by **username**; once they accept, you each see the other's profile, pinned lift, a side-by-side **compare** of best estimated 1RM on the lifts you both do (in your unit, with bodyweight ratios) and their recent workouts, plus a **leaderboard** of workouts this week and your pinned lift. **What friends see** turns off lifts, recent workouts or ratios. Badges, streaks and the pinned lift are always shared; your email, bodyweight, meals and notes never are. Friends only get a summary the server computes, never your records. **Report** or **Block** anyone from their profile (block also works on a friend request): blocking ends the friendship and hides you from each other, and reports go to admins. Usernames and display names can't contain slurs or explicit words.
+- **Settings** (from Profile): your account and **Delete account** (and, for admins, **Reports** and **People**: the invite list and VIPs), theme and accent color, weekly goal, nutrition goal and targets, the ChatGPT connector, lb/kg and weight jump, bar weight and available plates, default rest and sound, JSON **Export/Import** backups, and the privacy policy, terms and support pages (`public/privacy.html`, `terms.html`, `support.html`).
 
 ## How data is stored
 
@@ -75,7 +75,7 @@ Without signing in, the app still works fully, but only on that device.
 
 ### Accounts
 
-An account is a verified email address. People sign in with **Google** or **GitHub**, and both reach the same account when the email matches.
+An account is a verified email address. People sign in with **Apple**, **Google** or **GitHub**, and they reach the same account when the email matches (Sign in with Apple may give a private relay address instead).
 
 **Who can sign in:**
 - Admins, listed in `ADMIN_EMAILS`. They manage **People** in Settings.
@@ -85,6 +85,7 @@ An account is a verified email address. People sign in with **Google** or **GitH
 **What accounts control:**
 - **VIP**, toggled per person, adds the weekly AI review. It's written once they've logged 3 lifting sessions in the last 7 days.
 - **Removing someone** signs them out at once. Their data is kept, so adding them back restores it.
+- **Deleting an account** (anyone but an admin, in Settings) permanently removes its records, friendships, blocks and reports, revokes Sign in with Apple, and ends every session and ChatGPT connection from before, even if the same email signs up again.
 
 **How data is kept apart:**
 - On the server, each account's records are separate.
@@ -109,7 +110,10 @@ A Vercel project with Neon Postgres, with sign-in through Google and/or GitHub. 
 1. Push this folder to a private GitHub repo.
 2. In Vercel, **Add New → Project** and import the repo. Choose the framework preset **Other**; the build settings come from `vercel.json`. Under **Settings → Domains** add your domain.
 3. **Storage → Marketplace → Neon** on that project. This sets `DATABASE_URL`. The tables are created on first use.
-4. Set up at least one sign-in provider:
+4. Set up at least one sign-in provider (the App Store needs **Apple** whenever Google is offered):
+   - **Apple:** in the Apple Developer portal, under **Certificates, Identifiers & Profiles**:
+     - Add a **Services ID** (this is `APPLE_CLIENT_ID`) with **Sign in with Apple** on, domain `lift.example.com` and return URL `https://lift.example.com/api/auth/apple/callback`.
+     - Add a **Key** with Sign in with Apple, and download the `.p8` once. Its Key ID is `APPLE_KEY_ID`; your Team ID is `APPLE_TEAM_ID`.
    - **Google:** in Google Cloud Console, go to **APIs & Services → Credentials → Create credentials → OAuth client ID** and choose **Web application**.
      - Authorized redirect URI: `https://lift.example.com/api/auth/google/callback`.
      - First set up the OAuth consent screen. While it's in **Testing**, add each person as a test user, or publish it. The `email` and `profile` scopes need no Google review.
@@ -124,6 +128,7 @@ A Vercel project with Neon Postgres, with sign-in through Google and/or GitHub. 
 | `ADMIN_EMAILS` | Comma-separated admin emails. The first one owns any data from before accounts existed. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | From the Google OAuth client. |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | From the GitHub OAuth app. |
+| `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY` | The Services ID, Team ID, Key ID and the `.p8` key's contents (newlines may be written as `\n`). |
 | `SESSION_SECRET` | 32+ random characters (`node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`). |
 
 **Upgrading from the single-user version:**
@@ -139,9 +144,9 @@ Optional:
 | `MCP_TOKEN_VERSION` | Change it (e.g. `1` → `2`) to disconnect ChatGPT immediately. |
 | `OAUTH_REDIRECT_HOSTS` | Comma-separated hosts the connector may redirect to. Defaults to `chatgpt.com,chat.openai.com`. |
 | `ANTHROPIC_API_KEY` | Turns on the weekly AI review for VIPs: one Claude call a week each, a few cents. Without it, the rule-based Coach still works. |
-| `OPEN_SIGNUP` | `1` lets anyone with a Google or GitHub account sign in, not just invitees. |
+| `OPEN_SIGNUP` | `1` lets anyone with an Apple, Google or GitHub account sign in, not just invitees. Needed for the App Store. |
 
-Sessions last 30 days. Every write from the app needs the session cookie, a JSON body and an `Origin` header that matches `APP_URL`.
+Sessions last 30 days. Every write from the app needs the session cookie, a JSON body and an `Origin` header that matches `APP_URL`. The one exception is Apple's sign-in callback, which Apple posts from its own site; it's checked against the signed state cookie instead.
 
 ## Log meals from ChatGPT
 
@@ -186,8 +191,9 @@ The one iOS limit: a home-screen web app can't play a sound while it's in the ba
 
 ```
 api/index.js                Vercel function; every /api/* and /.well-known/* request lands here
-server/                     auth (Google/GitHub OAuth, signed cookie), accounts and invites, sync API, Neon/memory store,
-                            oauth.js + mcp.js (the ChatGPT connector), coach.js (weekly AI review), social.js (friends, profiles)
+server/                     auth (Apple/Google/GitHub OAuth, signed cookie), accounts, invites and deletion, sync API, Neon/memory store,
+                            oauth.js + mcp.js (the ChatGPT connector), coach.js (weekly AI review), social.js (friends, profiles),
+                            blocks and reports
 index.html, vite.config.ts  Vite entry; the config also mounts the API for dev/preview and builds the service worker
 src/lib/                    model.js (pure, tested logic), store/db/sync (IndexedDB + signals + sync), keypad, timer, theme
 src/components/kokonutui/   Kokonut UI components, restyled to the app's tokens
@@ -195,6 +201,6 @@ src/components/             kit (page frame, cards, rows, sheets), keypad, plate
                             meal sheet, insights (Coach cards and weekly review), badges (badge grid, profile header)
 src/pages/                  Today, Workout, History, Progress, Bodyweight, Fuel (nutrition), Split, Coach, Profile, Friend, Settings
 src/styles.css              Tailwind v4 theme: dark/light tokens and accent colors
-public/                     icons, manifest, theme-init.js (applies the theme before first paint)
+public/                     icons, manifest, theme-init.js (applies the theme before first paint), privacy/terms/support pages
 tests/                      node --test
 ```

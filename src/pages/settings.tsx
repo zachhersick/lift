@@ -1,6 +1,7 @@
-// Settings: sync, appearance, weekly goal, nutrition, the ChatGPT connector,
-// units, barbell and plates, rest timer, backups and installing on the phone.
-import { Check, Cloud, Copy, Download, LogIn, RefreshCw, Share, Sparkles, SquarePlus, Trash2, Upload, UserPlus } from "lucide-react";
+// Settings: your account (and deleting it), appearance, weekly goal,
+// nutrition, the ChatGPT connector, units, barbell and plates, rest timer,
+// backups, installing on the phone, and the privacy policy and terms.
+import { Check, Cloud, Copy, Download, FileText, Flag, LifeBuoy, LogIn, RefreshCw, Share, Shield, Sparkles, SquarePlus, Trash2, Upload, UserPlus } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { Card, Chip, Page, Row, Section, Segmented, spring, Stepper, Toggle, TopBar } from "@/components/kit";
@@ -8,7 +9,7 @@ import { ask } from "@/lib/dialogs";
 import { BARS, defaultWeeklyGoal, PLATES } from "@/lib/model.js";
 import { notify } from "@/lib/notify";
 import { exportData, importRecords, meals, pending, saveSettings, sessions, settings, splitDays, targets } from "@/lib/store.js";
-import { signOut, sync, syncNow } from "@/lib/sync.js";
+import { deleteAccount, signOut, sync, syncNow } from "@/lib/sync.js";
 import { TINTS } from "@/lib/theme.js";
 import * as format from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
@@ -24,8 +25,49 @@ const STATUS: Record<string, string> = {
 };
 const STEPS: Record<string, number[]> = { lb: [2.5, 5, 10], kg: [1, 2.5, 5] };
 
-const PROVIDERS: Record<string, string> = { google: "Google", github: "GitHub", dev: "a dev account" };
+const PROVIDERS: Record<string, string> = { apple: "Apple", google: "Google", github: "GitHub", dev: "a dev account" };
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const REASONS: Record<string, string> = { name: "Offensive name", harassment: "Harassment", spam: "Spam", other: "Something else" };
+
+async function adminCall(path: string, body?: object) {
+  const response = await fetch(path, body ? { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : { credentials: "same-origin", cache: "no-store" });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.ok) throw new Error(data.error || "That didn't work. Try again.");
+  return data;
+}
+
+// Admins only: people reported by other members. Remove someone from People
+// below to sign them out for good.
+function Reports() {
+  const [reports, setReports] = useState<any[] | null>(null);
+  const load = (path: string, body?: object) =>
+    adminCall(path, body)
+      .then((data) => setReports(data.reports))
+      .catch((error) => notify(error.message, { status: "error" }));
+  useEffect(() => {
+    load("/api/admin/reports");
+  }, []);
+  if (!reports?.length) return null;
+  return (
+    <Section footer="Dismiss a report once you've dealt with it. Removing someone from People signs them out." title="Reports">
+      <Card className="divide-y divide-border">
+        {reports.map((report) => (
+          <Row
+            icon={Flag}
+            iconClass="bg-destructive/15 text-destructive"
+            key={report.id}
+            subtitle={[report.reported, `by @${report.reporterUsername || report.reporter}`, report.note, format.ago(report.createdAt)].filter(Boolean).join(" · ")}
+            title={`@${report.reportedUsername || "?"} · ${REASONS[report.reason] || report.reason}`}
+          >
+            <button className="h-8 rounded-full bg-muted px-3 text-[13.5px] font-medium text-muted-foreground active:bg-accent" onClick={() => load("/api/admin/reports/dismiss", { id: report.id })} type="button">
+              Dismiss
+            </button>
+          </Row>
+        ))}
+      </Card>
+    </Section>
+  );
+}
 
 // Admins only: the invite list. Invited people sign in with Google or GitHub
 // using that email; VIPs also get the weekly AI review.
@@ -36,12 +78,7 @@ function People() {
   const [vip, setVip] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const call = async (path: string, body?: object) => {
-    const response = await fetch(path, body ? { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : { credentials: "same-origin", cache: "no-store" });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.ok) throw new Error(data.error || "That didn't work. Try again.");
-    setUsers(data.users);
-  };
+  const call = async (path: string, body?: object) => setUsers((await adminCall(path, body)).users);
   const run = async (work: () => Promise<void>, done?: string) => {
     setBusy(true);
     try {
@@ -128,6 +165,21 @@ export function Settings() {
   const lastChat = mealList.filter((m) => m.source === "chatgpt").sort((a, b) => (b.loggedAt || b.updatedAt) - (a.loggedAt || a.updatedAt))[0];
   const connectorUrl = `${location.origin}/api/mcp`;
 
+  const remove = async () => {
+    const confirmed = await ask({
+      title: "Delete your account?",
+      message: "This permanently deletes your workouts, meals, bodyweight, friends and everything else in your Lift account, on the server and on this device. Export a backup first if you want a copy.",
+      confirm: "Delete account",
+      danger: true
+    });
+    if (!confirmed) return;
+    try {
+      await deleteAccount();
+    } catch (error: any) {
+      notify(error.message, { status: "error" });
+    }
+  };
+
   const download = () => {
     const blob = new Blob([JSON.stringify(exportData(), null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -166,7 +218,7 @@ export function Settings() {
       <TopBar backLabel="Profile" backTo="profile" title="Settings" />
 
       <Section
-        footer={state.user ? "Workouts sync a couple of seconds after each change. Signing out keeps your data on this device for when you sign back in." : "Sign in with the email you were invited with to back up your workouts and use them on other devices."}
+        footer={state.user ? "Workouts sync a couple of seconds after each change. Signing out keeps your data on this device for when you sign back in." : "Sign in to back up your workouts and use them on other devices."}
         title="Account"
       >
         <Card className="divide-y divide-border">
@@ -181,6 +233,7 @@ export function Settings() {
               <Row title="Membership" value={state.user.admin ? "Admin" : state.user.vip ? "VIP" : "Member"} />
               <Row disabled={state.status === "syncing"} icon={RefreshCw} onClick={syncNow} title="Sync now" tone="action" />
               <Row onClick={signOut} title="Sign out" tone="danger" />
+              {state.user.admin ? null : <Row icon={Trash2} iconClass="bg-destructive/15 text-destructive" onClick={remove} title="Delete account" tone="danger" />}
             </>
           ) : state.providers?.length ? (
             state.providers.map((provider: string) => <Row href={`/api/auth/login?provider=${provider}`} icon={LogIn} key={provider} title={`Continue with ${PROVIDERS[provider] || provider}`} tone="action" />)
@@ -190,7 +243,12 @@ export function Settings() {
         </Card>
       </Section>
 
-      {state.user?.admin ? <People /> : null}
+      {state.user?.admin ? (
+        <>
+          <Reports />
+          <People />
+        </>
+      ) : null}
 
       <Section title="Appearance">
         <Card className="flex flex-col gap-5 p-4">
@@ -335,6 +393,14 @@ export function Settings() {
         <Card className="divide-y divide-border">
           <Row icon={Share} subtitle="In Safari, tap the Share button" title="1. Share" />
           <Row icon={SquarePlus} subtitle="Then open Lift from your home screen" title="2. Add to Home Screen" />
+        </Card>
+      </Section>
+
+      <Section footer="Lift's coaching is general fitness information, not medical advice." title="About">
+        <Card className="divide-y divide-border">
+          <Row chevron href="/privacy.html" icon={Shield} title="Privacy policy" />
+          <Row chevron href="/terms.html" icon={FileText} title="Terms of use" />
+          <Row chevron href="/support.html" icon={LifeBuoy} title="Support" />
         </Card>
       </Section>
     </Page>

@@ -1,12 +1,13 @@
 // Profile: your stats, pinned lift and badges, friends (added by username,
-// accepted on the other side) with a leaderboard, and what friends can see.
-// Settings is one row down.
-import { Check, LogIn, Pencil, Pin, Settings2, UserPlus, X } from "lucide-react";
+// accepted on the other side, blocked when needed) with a leaderboard, and
+// what friends can see. Settings is one row down.
+import { Ban, Check, LogIn, Pencil, Pin, Settings2, UserPlus, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AccountSheet } from "@/components/account-sheet";
 import { BadgeGrid, PinnedLift, ProfileHeader } from "@/components/badges";
 import { ExercisePicker } from "@/components/exercise-picker";
 import { Card, Page, Row, Section, Toggle, TopBar } from "@/components/kit";
+import { ask } from "@/lib/dialogs";
 import { cleanUsername, liftKey, usernameProblem } from "@/lib/model.js";
 import { notify } from "@/lib/notify";
 import { social } from "@/lib/social.js";
@@ -17,7 +18,7 @@ import { useValue } from "@/lib/use-signal";
 import { cn } from "@/lib/utils";
 
 type Person = { username: string | null; name: string; since: number };
-type Lists = { friends: Person[]; incoming: Person[]; outgoing: Person[] };
+type Lists = { friends: Person[]; incoming: Person[]; outgoing: Person[]; blocked: { username: string; name: string }[] };
 
 const handle = (person: Person) => (person.username ? `@${person.username}` : "Hasn't picked a username yet");
 
@@ -84,6 +85,10 @@ function Friends({ pinnedKey }: { pinnedKey: string }) {
   const add = async () => {
     if (await run("/api/friends/request", { username: wanted }, `Request sent to @${wanted}`)) setName("");
   };
+  const block = async (person: Person) => {
+    if (!(await ask({ title: `Block ${person.name}?`, message: "Neither of you can find or add the other. You can unblock them here later.", confirm: "Block", danger: true }))) return;
+    run("/api/friends/block", { username: person.username }, `Blocked ${person.name}`);
+  };
 
   return (
     <>
@@ -92,6 +97,9 @@ function Friends({ pinnedKey }: { pinnedKey: string }) {
           <Card className="divide-y divide-border">
             {lists.incoming.map((person) => (
               <Row key={person.username || person.name} subtitle={`${handle(person)} · wants to be friends`} title={person.name}>
+                <button aria-label={`Block ${person.name}`} className="grid size-9 place-items-center rounded-full bg-muted text-destructive active:bg-accent" disabled={busy || !person.username} onClick={() => block(person)} type="button">
+                  <Ban className="size-[17px]" strokeWidth={2.4} />
+                </button>
                 <button aria-label={`Decline ${person.name}`} className="grid size-9 place-items-center rounded-full bg-muted text-muted-foreground active:bg-accent" disabled={busy || !person.username} onClick={() => run("/api/friends/remove", { username: person.username })} type="button">
                   <X className="size-[18px]" strokeWidth={2.4} />
                 </button>
@@ -138,6 +146,19 @@ function Friends({ pinnedKey }: { pinnedKey: string }) {
         </Card>
       </Section>
       {lists?.friends.length ? <Leaderboard pinnedKey={pinnedKey} /> : null}
+      {lists?.blocked.length ? (
+        <Section footer="Blocked people can't find you, add you or see your profile." title="Blocked">
+          <Card className="divide-y divide-border">
+            {lists.blocked.map((person) => (
+              <Row key={person.username} subtitle={`@${person.username}`} title={person.name}>
+                <button className="h-8 rounded-full bg-muted px-3 text-[13.5px] font-medium text-primary active:bg-accent" disabled={busy} onClick={() => run("/api/friends/unblock", { username: person.username }, `Unblocked ${person.name}`)} type="button">
+                  Unblock
+                </button>
+              </Row>
+            ))}
+          </Card>
+        </Section>
+      ) : null}
     </>
   );
 }

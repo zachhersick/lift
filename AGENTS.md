@@ -24,8 +24,10 @@ splits, strength/cardio/timed sets, progress charts, bodyweight, nutrition
 that connects eating and training and analyzes the split, and JSON backups.
 ChatGPT logs meals through an MCP connector. It is a single npm package using
 React 19, Vite 8, Tailwind CSS 4, Motion and Preact signals. The backend is plain
-Node.js with invite-only accounts (Google or GitHub sign-in) and optional Neon
-Postgres storage.
+Node.js with accounts (Apple, Google or GitHub sign-in; invite-only unless
+`OPEN_SIGNUP=1`) and optional Neon Postgres storage. It is being prepared for the
+iOS App Store, which needs account deletion, Sign in with Apple, report/block
+for social features, AI-sharing consent and the legal pages.
 
 | Location | Responsibility |
 | --- | --- |
@@ -44,9 +46,10 @@ Postgres storage.
 | `src/lib/store.js`, `db.js`, `sync.js`, `account.js` | Signals, IndexedDB records/outbox (one database per account), server synchronization |
 | `src/lib/actions.js`, `router.js` | Shared actions and hash navigation |
 | `src/styles.css`, `public/theme-init.js` | Theme tokens and appearance before first paint |
-| `server/app.js`, `auth.js`, `http.js`, `store.js` | API routing, accounts and invites, Google/GitHub sign-in, request validation and memory/Neon stores |
+| `server/app.js`, `auth.js`, `http.js`, `store.js` | API routing, accounts, invites and deletion, Apple/Google/GitHub sign-in, request validation and memory/Neon stores |
 | `server/oauth.js`, `mcp.js`, `coach.js` | ChatGPT connector (OAuth 2.1 + MCP tools) and the weekly Claude review |
-| `server/social.js` | Friend lists, the leaderboard and the share-filtered profile summary friends receive |
+| `server/social.js` | Friend lists, the leaderboard and the share-filtered profile summary friends receive (block and report routes are in `app.js`) |
+| `public/privacy.html`, `terms.html`, `support.html` | Privacy policy, terms (zero tolerance for abuse) and support page, linked from Settings and needed by the App Store |
 | `api/index.js` | Vercel entry point for every `/api/*` and `/.well-known/*` request |
 | `tests/model.test.js`, `tests/app.test.js` | Domain logic and API/auth/sync tests |
 | `vite.config.ts`, `vercel.json` | Local API integration, PWA build and deployment configuration |
@@ -116,11 +119,22 @@ Use a production build and preview with `?sw` when checking offline behavior.
   tombstones with hard deletion or drop history references to deleted exercises.
 - When changing record types or formats, check the model, store, backup import/
   export, server `KINDS`/`cleanChanges`, both storage implementations and tests.
-- An account is a verified email from Google or GitHub. Only admins (`ADMIN_EMAILS`),
+- An account is a verified email from Apple, Google or GitHub. Only admins (`ADMIN_EMAILS`),
   invitees (`lift_users`) or anyone under `OPEN_SIGNUP=1` may sign in, checked on
   every request. Admin APIs are admin-only. Preserve OAuth state verification,
   signed sessions, request body limits and same-origin checks on protected
-  writes. Keep the development login bypass disabled on Vercel.
+  writes. Keep the development login bypass disabled on Vercel. Apple's callback
+  is a cross-site form post (`/api/auth/apple/callback`), so its state and next
+  cookies are `SameSite=None`; it is the only sign-in step outside the
+  same-origin check and still needs the signed state.
+- Signing in creates the `lift_users` row. Sessions (`iat`) and ChatGPT tokens
+  (`t`) only count while a non-admin's row exists and was created before they
+  were issued (`member()` in `app.js`), so deleting an account
+  (`/api/account/delete`, `store.deleteOwner`) ends every old session and
+  connection. Deletion removes records, friendships, blocks and reports both
+  ways, and revokes Sign in with Apple with the refresh token kept encrypted
+  (`encryptText`) in `lift_users.apple_token`. Never expose that column; admin
+  lists strip it. Admins can't delete themselves.
 - The ChatGPT connector authenticates with bearer tokens only, never cookies.
   Keep its redirect-host allowlist, required PKCE S256, single-use codes and
   refresh tokens (`lift_once`), token binding to an allowed account and
@@ -130,7 +144,10 @@ Use a production build and preview with `?sw` when checking offline behavior.
   `USERNAME`/`usernameProblem()` in `model.js`, set through `/api/account`).
   Friendships (`lift_friends`, keyed by the two emails) start as a request and
   count only once the other person accepts; both must still be allowed accounts.
-  Social API replies never include emails. Friends never read each other's
+  Social API replies never include emails. Blocks (`lift_blocks`) end the
+  friendship and make each person look like no one to the other; reports
+  (`lift_reports`) go to admins. `nameProblem()` in `model.js` filters
+  usernames and display names. Friends never read each other's
   records: `/api/profile` and the leaderboard use `profileSummary()` from
   `model.js`, computed on the server and passed through `shareFilter()` with the
   owner's `settings.share` (the pinned lift is always shown). Never add emails,
@@ -138,7 +155,10 @@ Use a production build and preview with `?sw` when checking offline behavior.
   `badges()`) are computed from the owner's own logs, not stored; the VIP badge
   reflects current membership.
 - The weekly AI review is for VIPs only, after `REVIEW_MIN_LIFTS` lifting sessions
-  in the last 7 days (`liftsThisWeek` in `model.js`, checked on server and app).
+  in the last 7 days (`liftsThisWeek` in `model.js`, checked on server and app),
+  and only after the person agrees to their data going to Anthropic
+  (`settings.aiConsent`; the request carries `consent: true` or is refused).
+  Keep the privacy policy in step with any new data flow.
 - Meals written by the server keep the record format the app syncs (`kind:
   "meal"`, `date` in the user's `settings.timeZone`), so the phone pulls them.
   Fiber sits on the meal with the macros; other micronutrients go in

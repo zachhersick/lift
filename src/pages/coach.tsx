@@ -301,7 +301,7 @@ export function CoachPage() {
 
       <SetsPerMuscle />
 
-      <Section footer="The Coach's rules follow these findings. Cards marked “your own logs” are patterns in your data, not proof of cause." title="The science">
+      <Section footer="The Coach's rules follow these findings. Cards marked “your own logs” are patterns in your data, not proof of cause. The Coach is general fitness information, not medical advice: check with a doctor before big changes to training or diet." title="The science">
         <Card className="divide-y divide-border">
           {SOURCES.map(([who, where, finding]) => (
             <div className="flex gap-3 px-4 py-3" key={who}>

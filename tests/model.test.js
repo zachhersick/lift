@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   bodyweightId, cardioSeconds, dailyVolume, dateKey, defaultWeeklyGoal, e1rm, FIELDS, isComplete, setDistance, trackOf, exerciseHistory, isPersonalRecord, movingAverage, muscleSets, nextInSuperset,
-  badges, cleanUsername, compareLifts, leaderboard, profileSummary, shareFilter, usernameProblem, barFor, muscleGroup, secondaryGroups, nextSplitDay, personalRecords, placeholderFor, plateBreakdown, previousEntry, previousSession, restsAfter, roundLoadable,
+  badges, cleanUsername, compareLifts, leaderboard, nameProblem, profileSummary, shareFilter, usernameProblem, barFor, muscleGroup, secondaryGroups, nextSplitDay, personalRecords, placeholderFor, plateBreakdown, previousEntry, previousSession, restsAfter, roundLoadable,
   analyzeSplit, applySplitEdit, inferredSecondary, liftsThisWeek, REVIEW_MIN_LIFTS, coachingContext, exerciseInUse, stepProgress, workoutSteps, indirectMuscles, splitWeeklySets, dailyIntake, dateKeyIn, fromDateKey, insights, mealMicro, MICROS, microAverages, dayTotals, estimateMaintenance, nutritionTargets, rateStatus, shiftDateKey, weightRate,
   splitDiff, startOfWeek, suggestion, supersetLabels, trend, warmupSets, weekStreak, weekSummary, workoutFromDay, workoutVolume
 } from "../src/lib/model.js";
@@ -960,4 +960,10 @@ test("leaderboard ranks friends by workouts and by a lift in your unit", () => {
   assert.equal(leaderboard([], "").lift, null);
   assert.equal(usernameProblem(cleanUsername(" @Zach_H ")), "");
   assert.notEqual(usernameProblem("me"), "");
+});
+
+test("names others see are filtered without catching ordinary names", () => {
+  for (const fine of ["Grace Hancock", "Charles Dickens", "Nazir", "grape.lifts", "analysis_guy", "Scunthorpe", "Cassidy", "raccoon_77"]) assert.equal(nameProblem(fine), "", fine);
+  for (const bad of ["sh1t lifter", "big_c0ck", "FUCKBOY", "n1gger", "anal.king"]) assert.notEqual(nameProblem(bad), "", bad);
+  assert.notEqual(usernameProblem("sh1t.lifter"), "", "usernames go through the same filter");
 });

@@ -2,9 +2,17 @@
 // changed on this device also goes in `outbox` until the server has it.
 // `meta` holds the sync cursor and similar small values. Each account has its
 // own database (see account.js).
-import { databaseName } from "./account.js";
+import { databaseName, takeDroppedDatabase } from "./account.js";
 
 const NAME = databaseName();
+// A deleted account's database. IndexedDB runs this before the open below,
+// even when the guest database now has the same name.
+const dropped = takeDroppedDatabase();
+if (dropped) {
+  try {
+    indexedDB.deleteDatabase(dropped);
+  } catch {}
+}
 const VERSION = 1;
 
 let opening = null;

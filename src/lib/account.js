@@ -35,3 +35,30 @@ export function switchAccount(email) {
   write(state);
   return databaseName(state) !== before;
 }
+
+// After an account is deleted: this device forgets it and shows the guest
+// database. Its own database is deleted on the next load (db.js), once
+// nothing has it open.
+const DROP = "lift-drop-database";
+
+export function forgetAccount(email) {
+  const state = read();
+  const name = state.dbs[email];
+  delete state.dbs[email];
+  state.active = "";
+  write(state);
+  try {
+    if (name) localStorage.setItem(DROP, name);
+  } catch {}
+}
+
+// The database waiting to be deleted, if any, cleared as it's handed out.
+export function takeDroppedDatabase() {
+  try {
+    const name = localStorage.getItem(DROP);
+    localStorage.removeItem(DROP);
+    return name || "";
+  } catch {
+    return "";
+  }
+}

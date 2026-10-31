@@ -125,13 +125,15 @@ export function issueCode(request, user, config) {
   return seal("code", { c: sha256(request.clientId), r: request.redirectUri, ch: request.challenge, sub: String(user.sub), j: b64url(randomBytes(12)) }, config.sessionSecret, { ttl: CODE_TTL });
 }
 
-function tokenPair(sub, clientHash, config, oauth, now) {
+// `t` is when the connection was made, carried through refreshes, so a
+// connection from before an account was deleted stops working.
+function tokenPair(sub, clientHash, config, oauth, now, since = now) {
   const refreshId = b64url(randomBytes(12));
   return {
-    access_token: seal("access", { sub, c: clientHash, v: oauth.tokenVersion }, config.sessionSecret, { ttl: ACCESS_TTL, now }),
+    access_token: seal("access", { sub, c: clientHash, v: oauth.tokenVersion, t: since }, config.sessionSecret, { ttl: ACCESS_TTL, now }),
     token_type: "Bearer",
     expires_in: ACCESS_TTL / 1000,
-    refresh_token: seal("refresh", { sub, c: clientHash, v: oauth.tokenVersion, j: refreshId }, config.sessionSecret, { ttl: REFRESH_TTL, now }),
+    refresh_token: seal("refresh", { sub, c: clientHash, v: oauth.tokenVersion, j: refreshId, t: since }, config.sessionSecret, { ttl: REFRESH_TTL, now }),
     scope: SCOPE
   };
 }
@@ -148,15 +150,15 @@ export async function exchangeToken(body, { config, oauth, store, allowed, now =
     if (!code) throw grantError("invalid_grant", "The code is invalid or expired.");
     if ((clientHash && code.c !== clientHash) || code.r !== String(body.redirect_uri || code.r)) throw grantError("invalid_grant", "The code was issued to another client.");
     if (!body.code_verifier || !safeEqual(sha256(String(body.code_verifier)), code.ch)) throw grantError("invalid_grant", "PKCE verification failed.");
-    if (!(await allowed(code.sub))) throw grantError("invalid_grant", "That account isn't allowed.");
+    if (!(await allowed(code.sub, now))) throw grantError("invalid_grant", "That account isn't allowed.");
     if (!(await store.claim(`code:${code.j}`, code.exp, now))) throw grantError("invalid_grant", "The code was already used.");
     return tokenPair(code.sub, code.c, config, oauth, now);
   }
   if (body.grant_type === "refresh_token") {
     const token = unseal("refresh", body.refresh_token, config.sessionSecret, now);
-    if (!token || token.v !== oauth.tokenVersion || (clientHash && token.c !== clientHash) || !(await allowed(token.sub))) throw grantError("invalid_grant", "Sign in again.");
+    if (!token || token.v !== oauth.tokenVersion || (clientHash && token.c !== clientHash) || !(await allowed(token.sub, token.t))) throw grantError("invalid_grant", "Sign in again.");
     if (!(await store.claim(`refresh:${token.j}`, token.exp, now))) throw grantError("invalid_grant", "That refresh token was already used.");
-    return tokenPair(token.sub, token.c, config, oauth, now);
+    return tokenPair(token.sub, token.c, config, oauth, now, token.t);
   }
   throw grantError("unsupported_grant_type");
 }
@@ -173,7 +175,7 @@ export function readBearer(header, { config, oauth, now = Date.now() }) {
 
 const escape = (text) => String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
-const PROVIDER_NAMES = { google: "Google", github: "GitHub", dev: "Dev account" };
+const PROVIDER_NAMES = { apple: "Apple", google: "Google", github: "GitHub", dev: "Dev account" };
 
 // The sign-in choice when connecting from ChatGPT: one link per provider,
 // coming back to the approval page afterwards.

@@ -1,15 +1,17 @@
-// The Lift API: sign-in with Google or GitHub for the people on the invite
-// list (or anyone, with OPEN_SIGNUP), and a single sync endpoint. Each account
+// The Lift API: sign-in with Apple, Google or GitHub for the people on the
+// invite list (or anyone, with OPEN_SIGNUP), and a single sync endpoint. Each account
 // (a verified email) has its own records: the phone keeps its own copy in
 // IndexedDB and sends whatever changed; the server keeps the newest copy of
 // each record. Admins (ADMIN_EMAILS) manage the invite list and who's a VIP,
 // which gets the weekly AI review. People add each other as friends and see
-// each other's profile summaries (server/social.js). ChatGPT connects through
-// OAuth (server/oauth.js) to the MCP endpoint (server/mcp.js).
+// each other's profile summaries (server/social.js), and can block or report
+// each other. Anyone can delete their account and everything in it. ChatGPT
+// connects through OAuth (server/oauth.js) to the MCP endpoint (server/mcp.js).
+import { randomBytes } from "node:crypto";
 import { readJsonBody, readJsonOrForm } from "./http.js";
 import {
-  checkOAuthState, clearCookie, cookie, createSession, githubAuthorizeUrl, githubUser, googleAuthorizeUrl, googleUser,
-  newOAuthState, normalizeEmail, parseCookies, readSession, SESSION_COOKIE, sessionCookie, STATE_COOKIE
+  appleAuthorizeUrl, appleUser, checkOAuthState, clearCookie, cookie, createSession, decryptText, encryptText, githubAuthorizeUrl, githubUser,
+  googleAuthorizeUrl, googleUser, newOAuthState, normalizeEmail, parseCookies, readSession, revokeApple, SESSION_COOKIE, sessionCookie, STATE_COOKIE
 } from "./auth.js";
 import { PULL_LIMIT } from "./store.js";
 import { writeReview } from "./coach.js";
@@ -19,13 +21,15 @@ import {
   authorizationServerMetadata, consentPage, exchangeToken, issueCode, oauthConfig, protectedResourceMetadata, readAuthorizeRequest,
   readBearer, redirectWith, registerClient, signInPage
 } from "./oauth.js";
-import { cleanUsername, liftsThisWeek, REVIEW_MIN_LIFTS, usernameProblem } from "../src/lib/model.js";
+import { cleanUsername, liftsThisWeek, nameProblem, REVIEW_MIN_LIFTS, usernameProblem } from "../src/lib/model.js";
 
 // Where to go after sign-in when it started from the ChatGPT approval page.
 const NEXT_COOKIE = "lift_next";
 const AUTHORIZE_PATH = "/api/oauth/authorize";
 
 export const KINDS = new Set(["exercise", "splitDay", "workout", "bodyweight", "settings", "meal", "coachReview"]);
+// Why someone can be reported.
+const REPORT_REASONS = new Set(["name", "harassment", "spam", "other"]);
 const SYNC_LIMIT = 4_000_000;
 const MAX_CHANGES = 2000;
 const MAX_RECORD = 200_000;
@@ -37,20 +41,23 @@ export function appConfig(env = process.env) {
     appUrl: String(env.APP_URL || "").replace(/\/$/, ""),
     sessionSecret: env.SESSION_SECRET || "",
     admins: emails(env.ADMIN_EMAILS),
+    apple: env.APPLE_CLIENT_ID && env.APPLE_TEAM_ID && env.APPLE_KEY_ID && env.APPLE_PRIVATE_KEY
+      ? { clientId: env.APPLE_CLIENT_ID, teamId: env.APPLE_TEAM_ID, keyId: env.APPLE_KEY_ID, privateKey: env.APPLE_PRIVATE_KEY }
+      : null,
     google: pair(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET),
     github: pair(env.GITHUB_CLIENT_ID, env.GITHUB_CLIENT_SECRET),
-    // Anyone with a Google or GitHub account can sign in, not just invitees.
+    // Anyone with an Apple, Google or GitHub account can sign in, not just invitees.
     openSignup: env.OPEN_SIGNUP === "1",
     // Local testing only: sign in without Google or GitHub. Refused on Vercel.
     devLogin: env.LIFT_DEV_LOGIN === "1" && !env.VERCEL
   };
-  config.providers = [config.google && "google", config.github && "github", config.devLogin && "dev"].filter(Boolean);
+  config.providers = [config.apple && "apple", config.google && "google", config.github && "github", config.devLogin && "dev"].filter(Boolean);
   const missing = [];
   if (!config.appUrl) missing.push("APP_URL");
   if (!config.sessionSecret) missing.push("SESSION_SECRET");
   else if (config.sessionSecret.length < 32) missing.push("SESSION_SECRET (32+ characters)");
   if (!config.admins.length) missing.push("ADMIN_EMAILS");
-  if (!config.providers.length) missing.push("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, or GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET");
+  if (!config.providers.length) missing.push("APPLE_CLIENT_ID, APPLE_TEAM_ID, APPLE_KEY_ID and APPLE_PRIVATE_KEY, GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, or GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET");
   return { ...config, missing };
 }
 
@@ -105,9 +112,20 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
     return { email, name: row?.name || "", username: row?.username || null, admin, vip: admin || Boolean(row?.vip), row };
   }
 
+  // An account that's still there for a session or token issued at
+  // `issuedAt`. Signing in makes the user row, so a deleted account's old
+  // sessions and ChatGPT tokens stop working, even after a new sign-up with
+  // the same email.
+  async function member(sub, issuedAt = 0) {
+    const user = await account(sub);
+    if (!user) return null;
+    if (!user.admin && (!user.row || (issuedAt && issuedAt < user.row.createdAt))) return null;
+    return user;
+  }
+
   async function signedIn(req) {
     const session = readSession(parseCookies(req.headers.cookie)[SESSION_COOKIE], config.sessionSecret);
-    return session ? account(session.sub) : null;
+    return session ? member(session.sub, session.iat) : null;
   }
 
   // Cookie-authenticated writes must come from the app itself.
@@ -119,19 +137,21 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
     const user = await account(profile.email);
     if (!user) return redirect(res, "/?signin=denied", { "set-cookie": clearCookie(STATE_COOKIE) });
     const now = Date.now();
-    await store.putUser({ ...user.row, email: user.email, name: user.name || profile.name || "", vip: Boolean(user.row?.vip), createdAt: user.row?.createdAt || now, lastSeenAt: now });
+    const appleToken = profile.appleToken ? encryptText(profile.appleToken, config.sessionSecret) : user.row?.appleToken || "";
+    await store.putUser({ ...user.row, email: user.email, name: user.name || profile.name || "", vip: Boolean(user.row?.vip), createdAt: user.row?.createdAt || now, lastSeenAt: now, appleToken });
     const next = parseCookies(req.headers.cookie)[NEXT_COOKIE] || "";
     return redirect(res, next.startsWith(`${AUTHORIZE_PATH}?`) ? next : "/", {
       "set-cookie": [sessionCookie(createSession({ email: user.email, name: profile.name || user.name }, config.sessionSecret)), clearCookie(STATE_COOKIE), clearCookie(NEXT_COOKIE)]
     });
   }
 
-  async function oauthCallback(req, res, url, read) {
+  // `params` are the callback's query, or Apple's posted form.
+  async function oauthCallback(req, res, params, read) {
     const stateCookie = parseCookies(req.headers.cookie)[STATE_COOKIE];
-    if (!checkOAuthState(stateCookie, url.searchParams.get("state"), config.sessionSecret)) return redirect(res, "/?signin=expired", { "set-cookie": clearCookie(STATE_COOKIE) });
+    if (!checkOAuthState(stateCookie, params.get("state"), config.sessionSecret)) return redirect(res, "/?signin=expired", { "set-cookie": clearCookie(STATE_COOKIE) });
     let profile;
     try {
-      profile = await read(url.searchParams.get("code"));
+      profile = await read(params.get("code"));
     } catch {
       return redirect(res, "/?signin=failed", { "set-cookie": clearCookie(STATE_COOKIE) });
     }
@@ -142,7 +162,13 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
     const rows = await store.listUsers();
     const listed = new Set(rows.map((row) => row.email));
     const admins = config.admins.filter((email) => !listed.has(email)).map((email) => ({ email, name: "", vip: true, invitedBy: "", createdAt: 0, lastSeenAt: null }));
-    return [...admins, ...rows].map((row) => ({ ...row, admin: config.admins.includes(row.email), vip: config.admins.includes(row.email) || row.vip }));
+    return [...admins, ...rows].map(({ appleToken, ...row }) => ({ ...row, admin: config.admins.includes(row.email), vip: config.admins.includes(row.email) || row.vip }));
+  }
+
+  // Reports with the usernames admins know people by.
+  async function reports() {
+    const handle = async (email) => (await store.getUser(email))?.username || null;
+    return Promise.all((await store.listReports()).map(async (row) => ({ ...row, reporterUsername: await handle(row.reporter), reportedUsername: await handle(row.reported) })));
   }
 
   async function handle(req, res) {
@@ -153,30 +179,42 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
     // ---- sign-in ----
     if (path === "/api/auth/login" && req.method === "GET") {
       const next = url.searchParams.get("next") || "";
-      const nextCookie = next.startsWith(`${AUTHORIZE_PATH}?`) ? [cookie(NEXT_COOKIE, next, { maxAge: 600 })] : [];
       const asked = url.searchParams.get("provider") || "";
       const provider = config.providers.includes(asked) ? asked : config.providers.length === 1 ? config.providers[0] : "";
+      // Apple posts back from its own site, so its cookies must allow that.
+      const sameSite = provider === "apple" ? "None" : "Lax";
+      const nextCookie = next.startsWith(`${AUTHORIZE_PATH}?`) ? [cookie(NEXT_COOKIE, next, { maxAge: 600, sameSite })] : [];
       if (!provider) return sendHtml(res, signInPage({ providers: config.providers, next }));
       if (provider === "dev") {
         const as = normalizeEmail(url.searchParams.get("as")) || config.admins[0];
         return redirect(res, `/api/auth/callback?dev=${encodeURIComponent(as)}`, nextCookie.length ? { "set-cookie": nextCookie } : {});
       }
       const state = newOAuthState(config.sessionSecret);
-      const location = provider === "google"
-        ? googleAuthorizeUrl({ clientId: config.google.clientId, redirectUri: `${config.appUrl}/api/auth/google/callback`, state: state.nonce })
-        : githubAuthorizeUrl({ clientId: config.github.clientId, redirectUri: `${config.appUrl}/api/auth/callback`, state: state.nonce });
-      return redirect(res, location, { "set-cookie": [cookie(STATE_COOKIE, state.cookieValue, { maxAge: 600 }), ...nextCookie] });
+      const location = provider === "apple"
+        ? appleAuthorizeUrl({ clientId: config.apple.clientId, redirectUri: `${config.appUrl}/api/auth/apple/callback`, state: state.nonce })
+        : provider === "google"
+          ? googleAuthorizeUrl({ clientId: config.google.clientId, redirectUri: `${config.appUrl}/api/auth/google/callback`, state: state.nonce })
+          : githubAuthorizeUrl({ clientId: config.github.clientId, redirectUri: `${config.appUrl}/api/auth/callback`, state: state.nonce });
+      return redirect(res, location, { "set-cookie": [cookie(STATE_COOKIE, state.cookieValue, { maxAge: 600, sameSite }), ...nextCookie] });
     }
     if (path === "/api/auth/callback" && req.method === "GET") {
       if (config.devLogin && url.searchParams.has("dev")) return finishSignIn(req, res, { email: url.searchParams.get("dev"), name: "" });
       if (!config.github) return redirect(res, "/?signin=failed");
       const { clientId, clientSecret } = config.github;
-      return oauthCallback(req, res, url, (code) => githubUser({ code, clientId, clientSecret, redirectUri: `${config.appUrl}/api/auth/callback`, fetchImpl }));
+      return oauthCallback(req, res, url.searchParams, (code) => githubUser({ code, clientId, clientSecret, redirectUri: `${config.appUrl}/api/auth/callback`, fetchImpl }));
     }
     if (path === "/api/auth/google/callback" && req.method === "GET") {
       if (!config.google) return redirect(res, "/?signin=failed");
       const { clientId, clientSecret } = config.google;
-      return oauthCallback(req, res, url, (code) => googleUser({ code, clientId, clientSecret, redirectUri: `${config.appUrl}/api/auth/google/callback`, fetchImpl }));
+      return oauthCallback(req, res, url.searchParams, (code) => googleUser({ code, clientId, clientSecret, redirectUri: `${config.appUrl}/api/auth/google/callback`, fetchImpl }));
+    }
+    // Apple posts the code back as a form (it asks for name and email), so
+    // this is the one sign-in step that isn't a same-origin GET; the signed
+    // state cookie still has to match.
+    if (path === "/api/auth/apple/callback" && req.method === "POST") {
+      if (!config.apple) return redirect(res, "/?signin=failed");
+      const form = new URLSearchParams(await readJsonOrForm(req));
+      return oauthCallback(req, res, form, (code) => appleUser({ code, user: form.get("user"), apple: config.apple, redirectUri: `${config.appUrl}/api/auth/apple/callback`, fetchImpl }));
     }
     if (path === "/api/auth/logout" && req.method === "POST") {
       return sendJson(res, { ok: true }, 200, { "set-cookie": clearCookie(SESSION_COOKIE) });
@@ -215,7 +253,7 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
     }
     if (path === "/api/oauth/token" && req.method === "POST") {
       try {
-        return sendJson(res, await exchangeToken(await readJsonOrForm(req), { config, oauth, store, allowed: async (sub) => Boolean(await account(sub)) }));
+        return sendJson(res, await exchangeToken(await readJsonOrForm(req), { config, oauth, store, allowed: async (sub, since) => Boolean(await member(sub, since)) }));
       } catch (error) {
         if (!error.oauth) throw error;
         return sendJson(res, { error: error.oauth, error_description: error.message }, 400);
@@ -224,7 +262,7 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
     if (path === "/api/mcp") {
       if (req.method !== "POST") return sendJson(res, { error: "Use POST." }, 405, { allow: "POST" });
       const token = readBearer(req.headers.authorization, { config, oauth });
-      const owner = token ? await account(token.sub) : null;
+      const owner = token ? await member(token.sub, token.t) : null;
       if (!owner) {
         return sendJson(res, { error: "invalid_token", error_description: "Connect Lift in ChatGPT to use this." }, 401, {
           "www-authenticate": `Bearer resource_metadata="${config.appUrl}/.well-known/oauth-protected-resource/api/mcp", scope="lift"`
@@ -261,10 +299,12 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
       return sendJson(res, { ok: true, accepted, records: rows.map((row) => row.doc), cursor: reset ? 0 : cursor, more: rows.length === PULL_LIMIT, reset });
     }
     // The weekly AI review (needs ANTHROPIC_API_KEY): for VIPs, once they've
-    // logged enough lifting that week to review.
+    // logged enough lifting that week to review, and only after they agreed
+    // to their data going to Anthropic (`consent`, from settings.aiConsent).
     if (path === "/api/coach/review" && req.method === "POST") {
       if (!reviews) return sendJson(res, { ok: false, error: "Add ANTHROPIC_API_KEY to turn on weekly reviews." }, 503);
       if (!user.vip) return sendJson(res, { ok: false, error: "Weekly reviews are for VIP members." }, 403);
+      if ((await readJsonBody(req, { limit: 1_000 })).consent !== true) return sendJson(res, { ok: false, error: "Turn on weekly reviews first." }, 409);
       const lifts = liftsThisWeek(await mine.listKind("workout"));
       if (lifts < REVIEW_MIN_LIFTS) return sendJson(res, { ok: false, error: `Log ${REVIEW_MIN_LIFTS} lifts this week to get your review (${lifts} so far).` }, 409);
       return sendJson(res, { ok: true, review: await writeReview({ store: mine, apiKey: env.ANTHROPIC_API_KEY, client: anthropic }) });
@@ -282,7 +322,11 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
         if (owner && owner.email !== user.email) return sendJson(res, { ok: false, error: "That username is taken." }, 409);
         change.username = username;
       }
-      if (body.name !== undefined) change.name = String(body.name || "").trim().slice(0, 40);
+      if (body.name !== undefined) {
+        change.name = String(body.name || "").trim().slice(0, 40);
+        const problem = nameProblem(change.name);
+        if (problem) return sendJson(res, { ok: false, error: problem }, 400);
+      }
       const now = Date.now();
       try {
         await store.putUser({ ...user.row, email: user.email, vip: Boolean(user.row?.vip), createdAt: user.row?.createdAt || now, lastSeenAt: user.row?.lastSeenAt ?? now, ...change });
@@ -292,14 +336,48 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
       }
       return sendJson(res, { ok: true, user: publicUser(await account(user.email)) });
     }
+    // Deletes the account and everything in it, and revokes Sign in with
+    // Apple. Admins are set in ADMIN_EMAILS, so they're removed there.
+    if (path === "/api/account/delete" && req.method === "POST") {
+      if (user.admin) return sendJson(res, { ok: false, error: "Admins are set in ADMIN_EMAILS. Remove yourself there first." }, 400);
+      const appleToken = user.row?.appleToken ? decryptText(user.row.appleToken, config.sessionSecret) : "";
+      if (appleToken && config.apple) await revokeApple({ token: appleToken, apple: config.apple, fetchImpl }).catch(() => false);
+      await store.deleteOwner(user.email);
+      return sendJson(res, { ok: true }, 200, { "set-cookie": clearCookie(SESSION_COOKIE) });
+    }
 
     // ---- friends and profiles, by username ----
-    const friendList = async () => publicPeople(await friendships(store, user.email, account));
+    // People you blocked, to unblock; never who blocked you.
+    const blockedList = async () => {
+      const rows = await Promise.all((await store.listBlocked(user.email)).map((email) => store.getUser(email)));
+      return rows.filter((row) => row?.username).map((row) => ({ username: row.username, name: displayName(row) }));
+    };
+    const friendList = async () => ({ ...publicPeople(await friendships(store, user.email, account)), blocked: await blockedList() });
     const byUsername = async (text) => {
       const row = await store.getUserByUsername(cleanUsername(text));
       return row ? account(row.email) : null;
     };
     if (path === "/api/friends" && req.method === "GET") return sendJson(res, { ok: true, ...(await friendList()) });
+    // Blocking ends the friendship and stops requests either way; it works
+    // on anyone, friend or not.
+    if (path === "/api/friends/block" || path === "/api/friends/unblock" || path === "/api/friends/report") {
+      if (req.method !== "POST") return sendJson(res, { ok: false, error: "Use POST." }, 405, { allow: "POST" });
+      const body = await readJsonBody(req, { limit: 4_000 });
+      const other = await byUsername(body.username);
+      if (!other) return sendJson(res, { ok: false, error: "No one on Lift has that username." }, 404);
+      if (other.email === user.email) return sendJson(res, { ok: false, error: "That's you." }, 400);
+      if (path === "/api/friends/block") {
+        await store.removeFriendship(user.email, other.email);
+        await store.putBlock(user.email, other.email);
+      } else if (path === "/api/friends/unblock") {
+        await store.removeBlock(user.email, other.email);
+      } else {
+        const reason = String(body.reason || "");
+        if (!REPORT_REASONS.has(reason)) return sendJson(res, { ok: false, error: "Pick a reason." }, 400);
+        await store.addReport({ id: randomBytes(9).toString("base64url"), reporter: user.email, reported: other.email, reason, note: String(body.note || "").trim().slice(0, 500), createdAt: Date.now() });
+      }
+      return sendJson(res, { ok: true, ...(await friendList()) });
+    }
     if (path === "/api/friends/leaderboard" && req.method === "GET") {
       return sendJson(res, { ok: true, ...(await leaderboardFor(store, user, account, url.searchParams.get("key") || "")) });
     }
@@ -307,7 +385,8 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
       if (req.method !== "POST") return sendJson(res, { ok: false, error: "Use POST." }, 405, { allow: "POST" });
       if (!user.username) return sendJson(res, { ok: false, error: "Pick a username first." }, 409);
       const other = await byUsername((await readJsonBody(req, { limit: 4_000 })).username);
-      if (!other) return sendJson(res, { ok: false, error: "No one on Lift has that username." }, 404);
+      // Someone who blocked you (or you them) looks like no one.
+      if (!other || (path !== "/api/friends/remove" && (await store.isBlocked(user.email, other.email)))) return sendJson(res, { ok: false, error: "No one on Lift has that username." }, 404);
       const email = other.email;
       if (email === user.email) return sendJson(res, { ok: false, error: "That's you." }, 400);
       const existing = await store.getFriendship(user.email, email);
@@ -333,7 +412,15 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
       return sendJson(res, { ok: true, profile: { username: other.username || null, name: displayName(other), ...(await summaryFor(store, other.email, { vip: other.vip })) } });
     }
 
-    // ---- admins: the invite list ----
+    // ---- admins: reports, and the invite list ----
+    if (path === "/api/admin/reports" || path === "/api/admin/reports/dismiss") {
+      if (!user.admin) return sendJson(res, { ok: false, error: "Only admins can see reports." }, 403);
+      if (path === "/api/admin/reports/dismiss") {
+        if (req.method !== "POST") return sendJson(res, { ok: false, error: "Use POST." }, 405, { allow: "POST" });
+        await store.removeReport(String((await readJsonBody(req, { limit: 1_000 })).id || ""));
+      }
+      return sendJson(res, { ok: true, reports: await reports() });
+    }
     if (path === "/api/admin/users" || path === "/api/admin/users/remove") {
       if (!user.admin) return sendJson(res, { ok: false, error: "Only admins can manage people." }, 403);
       if (req.method === "GET" && path === "/api/admin/users") return sendJson(res, { ok: true, users: await people() });

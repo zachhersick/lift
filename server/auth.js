@@ -1,7 +1,7 @@
-// Sign-in for Lift: Google or GitHub OAuth, both resolving to a verified
-// email (the account), and a signed session cookie. Who may sign in is
-// decided in app.js.
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+// Sign-in for Lift: Apple, Google or GitHub OAuth, each resolving to a
+// verified email (the account), and a signed session cookie. Who may sign in
+// is decided in app.js.
+import { createCipheriv, createDecipheriv, createHash, createHmac, createPrivateKey, randomBytes, sign as signData, timingSafeEqual } from "node:crypto";
 
 export const SESSION_COOKIE = "lift_session";
 export const STATE_COOKIE = "lift_oauth_state";
@@ -29,8 +29,10 @@ export function normalizeEmail(value) {
 // refused, so everyone signs in once after the switch to accounts.
 const SESSION_VERSION = 2;
 
+// `iat` lets app.js refuse sessions from before an account was deleted and
+// signed up again.
 export function createSession(user, secret, now = Date.now()) {
-  const payload = b64url(JSON.stringify({ v: SESSION_VERSION, sub: user.email, name: user.name || "", exp: now + SESSION_DAYS * 86_400_000 }));
+  const payload = b64url(JSON.stringify({ v: SESSION_VERSION, sub: user.email, name: user.name || "", iat: now, exp: now + SESSION_DAYS * 86_400_000 }));
   return `${payload}.${sign(payload, secret)}`;
 }
 
@@ -56,8 +58,10 @@ export function parseCookies(header = "") {
   return cookies;
 }
 
-export function cookie(name, value, { maxAge, path = "/" } = {}) {
-  const parts = [`${name}=${encodeURIComponent(value)}`, `Path=${path}`, "HttpOnly", "Secure", "SameSite=Lax"];
+// `sameSite: "None"` is for cookies that must come back on Apple's cross-site
+// form post.
+export function cookie(name, value, { maxAge, path = "/", sameSite = "Lax" } = {}) {
+  const parts = [`${name}=${encodeURIComponent(value)}`, `Path=${path}`, "HttpOnly", "Secure", `SameSite=${sameSite}`];
   if (maxAge !== undefined) parts.push(`Max-Age=${maxAge}`);
   return parts.join("; ");
 }
@@ -134,5 +138,89 @@ export async function googleUser({ code, clientId, clientSecret, redirectUri, fe
   const email = info.email_verified === true ? normalizeEmail(info.email) : "";
   if (!email) throw Object.assign(new Error("Your Google account's email isn't verified."), { status: 401 });
   return { email, name: info.name || "" };
+}
+
+// ---------- Sign in with Apple ----------
+// `apple` is { clientId (the Services ID), teamId, keyId, privateKey (.p8) }.
+const APPLE = "https://appleid.apple.com";
+
+export function appleAuthorizeUrl({ clientId, redirectUri, state }) {
+  const url = new URL(`${APPLE}/auth/authorize`);
+  url.search = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: "code", response_mode: "form_post", scope: "name email", state }).toString();
+  return url.toString();
+}
+
+// The short-lived ES256 JWT Apple takes as the client secret.
+export function appleClientSecret({ clientId, teamId, keyId, privateKey }, now = Date.now()) {
+  const header = b64url(JSON.stringify({ alg: "ES256", kid: keyId }));
+  const seconds = Math.floor(now / 1000);
+  const claims = b64url(JSON.stringify({ iss: teamId, iat: seconds, exp: seconds + 300, aud: APPLE, sub: clientId }));
+  const key = createPrivateKey(String(privateKey).replace(/\\n/g, "\n"));
+  const signature = signData("sha256", Buffer.from(`${header}.${claims}`), { key, dsaEncoding: "ieee-p1363" });
+  return `${header}.${claims}.${b64url(signature)}`;
+}
+
+// Exchanges the code and returns the verified email, the name Apple sends
+// only the first time (in the posted `user`), and the refresh token kept to
+// revoke Sign in with Apple when the account is deleted. The id token comes
+// straight from Apple's token endpoint over TLS, so its claims are checked
+// rather than its signature.
+export async function appleUser({ code, user, apple, redirectUri, fetchImpl = fetch, now = Date.now() }) {
+  const tokenResponse = await fetchImpl(`${APPLE}/auth/token`, {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: apple.clientId, client_secret: appleClientSecret(apple, now), code: String(code || ""), grant_type: "authorization_code", redirect_uri: redirectUri }).toString()
+  });
+  const token = await tokenResponse.json().catch(() => ({}));
+  const failed = () => Object.assign(new Error("Apple sign-in failed."), { status: 401 });
+  if (!token.id_token) throw failed();
+  let claims;
+  try {
+    claims = JSON.parse(Buffer.from(String(token.id_token).split(".")[1], "base64url").toString("utf8"));
+  } catch {
+    throw failed();
+  }
+  if (claims.iss !== APPLE || claims.aud !== apple.clientId || !(claims.exp * 1000 > now)) throw failed();
+  const email = claims.email_verified === true || claims.email_verified === "true" ? normalizeEmail(claims.email) : "";
+  if (!email) throw Object.assign(new Error("Your Apple ID's email isn't verified."), { status: 401 });
+  let name = "";
+  try {
+    const posted = typeof user === "string" ? JSON.parse(user) : user;
+    name = [posted?.name?.firstName, posted?.name?.lastName].filter(Boolean).join(" ");
+  } catch {}
+  return { email, name, appleToken: token.refresh_token || "" };
+}
+
+// Revokes Sign in with Apple for this app, as Apple asks when an account is
+// deleted.
+export async function revokeApple({ token, apple, fetchImpl = fetch, now = Date.now() }) {
+  const response = await fetchImpl(`${APPLE}/auth/revoke`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: apple.clientId, client_secret: appleClientSecret(apple, now), token, token_type_hint: "refresh_token" }).toString()
+  });
+  return response.ok;
+}
+
+// Small secrets kept at rest (Apple's refresh token), sealed with a key
+// derived from SESSION_SECRET.
+const cipherKey = (secret) => createHash("sha256").update(`lift-at-rest:${secret}`).digest();
+
+export function encryptText(text, secret) {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", cipherKey(secret), iv);
+  const body = Buffer.concat([cipher.update(String(text), "utf8"), cipher.final()]);
+  return [iv, cipher.getAuthTag(), body].map(b64url).join(".");
+}
+
+export function decryptText(sealed, secret) {
+  try {
+    const [iv, tag, body] = String(sealed).split(".").map((part) => Buffer.from(part, "base64url"));
+    const decipher = createDecipheriv("aes-256-gcm", cipherKey(secret), iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(body), decipher.final()]).toString("utf8");
+  } catch {
+    return "";
+  }
 }
 

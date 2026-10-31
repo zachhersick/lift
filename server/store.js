@@ -7,7 +7,9 @@
 // runs. `lift_users` is the invite list; `lift_once` remembers one-time OAuth
 // codes and refresh tokens that were already used; `lift_friends` holds
 // friendships (pending until the other person accepts), one row per pair
-// with the two emails in sorted order.
+// with the two emails in sorted order; `lift_blocks` who blocked whom; and
+// `lift_reports` reports about people for admins to review. `deleteOwner`
+// removes everything an account has.
 
 // Run in order on first use. Before accounts, records had no owner: those
 // rows are given to `legacyOwner` (the first admin) and the primary key moves
@@ -63,7 +65,23 @@ export const SCHEMA = [
   )`,
   "create index if not exists lift_friends_b on lift_friends (b)",
   "alter table lift_users add column if not exists username text",
-  "create unique index if not exists lift_users_username on lift_users (username) where username is not null"
+  "create unique index if not exists lift_users_username on lift_users (username) where username is not null",
+  "alter table lift_users add column if not exists apple_token text",
+  `create table if not exists lift_blocks (
+    blocker text not null,
+    blocked text not null,
+    created_at bigint not null,
+    primary key (blocker, blocked)
+  )`,
+  "create index if not exists lift_blocks_blocked on lift_blocks (blocked)",
+  `create table if not exists lift_reports (
+    id text primary key,
+    reporter text not null,
+    reported text not null,
+    reason text not null,
+    note text not null default '',
+    created_at bigint not null
+  )`
 ];
 
 export const PULL_LIMIT = 2000;
@@ -86,7 +104,8 @@ const friendRow = (row) => {
   return { a, b, status: row.status, requestedBy: row.requestedBy, createdAt: row.createdAt };
 };
 
-const userRow = (user) => ({ email: user.email, name: user.name || "", username: user.username || null, vip: Boolean(user.vip), invitedBy: user.invitedBy || "", createdAt: user.createdAt, lastSeenAt: user.lastSeenAt ?? null });
+const userRow = (user) => ({ email: user.email, name: user.name || "", username: user.username || null, vip: Boolean(user.vip), invitedBy: user.invitedBy || "", createdAt: user.createdAt, lastSeenAt: user.lastSeenAt ?? null, appleToken: user.appleToken || "" });
+const reportRow = (row) => ({ id: row.id, reporter: row.reporter, reported: row.reported, reason: row.reason, note: row.note || "", createdAt: row.createdAt });
 
 // Usernames are unique; a clash fails the way Postgres's unique index does.
 const usernameTaken = () => Object.assign(new Error("That username is taken."), { code: "23505" });
@@ -96,6 +115,8 @@ export class MemoryStore {
     this.rows = new Map();
     this.users = new Map();
     this.friends = new Map();
+    this.blocks = new Map();
+    this.reports = new Map();
     this.seq = 0;
   }
 
@@ -189,6 +210,46 @@ export class MemoryStore {
 
   async removeFriendship(x, y) {
     this.friends.delete(friendPair(x, y).join("\n"));
+  }
+
+  async putBlock(blocker, blocked, createdAt = Date.now()) {
+    this.blocks.set(`${blocker}\n${blocked}`, { blocker, blocked, createdAt });
+  }
+
+  async removeBlock(blocker, blocked) {
+    this.blocks.delete(`${blocker}\n${blocked}`);
+  }
+
+  // True when either person blocked the other.
+  async isBlocked(x, y) {
+    return this.blocks.has(`${x}\n${y}`) || this.blocks.has(`${y}\n${x}`);
+  }
+
+  // The emails `email` blocked.
+  async listBlocked(email) {
+    return [...this.blocks.values()].filter((row) => row.blocker === email).sort((a, b) => a.createdAt - b.createdAt).map((row) => row.blocked);
+  }
+
+  async addReport(row) {
+    this.reports.set(row.id, reportRow(row));
+  }
+
+  async listReports() {
+    return [...this.reports.values()].map((row) => ({ ...row })).sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  async removeReport(id) {
+    this.reports.delete(id);
+  }
+
+  // Everything an account has: records, friendships, blocks, reports by or
+  // about it, and its user row.
+  async deleteOwner(email) {
+    for (const [key, row] of this.rows) if (row.owner === email) this.rows.delete(key);
+    for (const [key, row] of this.friends) if (row.a === email || row.b === email) this.friends.delete(key);
+    for (const [key, row] of this.blocks) if (row.blocker === email || row.blocked === email) this.blocks.delete(key);
+    for (const [key, row] of this.reports) if (row.reporter === email || row.reported === email) this.reports.delete(key);
+    this.users.delete(email);
   }
 }
 
@@ -290,9 +351,9 @@ export class NeonStore {
   async putUser(user) {
     const row = userRow(user);
     await this.query(
-      `insert into lift_users (email, name, username, vip, invited_by, created_at, last_seen_at) values ($1, $2, $3, $4, $5, $6, $7)
-       on conflict (email) do update set name = excluded.name, username = excluded.username, vip = excluded.vip, invited_by = excluded.invited_by, last_seen_at = excluded.last_seen_at`,
-      [row.email, row.name, row.username, row.vip, row.invitedBy, row.createdAt, row.lastSeenAt]
+      `insert into lift_users (email, name, username, vip, invited_by, created_at, last_seen_at, apple_token) values ($1, $2, $3, $4, $5, $6, $7, $8)
+       on conflict (email) do update set name = excluded.name, username = excluded.username, vip = excluded.vip, invited_by = excluded.invited_by, last_seen_at = excluded.last_seen_at, apple_token = excluded.apple_token`,
+      [row.email, row.name, row.username, row.vip, row.invitedBy, row.createdAt, row.lastSeenAt, row.appleToken || null]
     );
   }
 
@@ -326,7 +387,45 @@ export class NeonStore {
   async removeFriendship(x, y) {
     await this.query("delete from lift_friends where a = $1 and b = $2", friendPair(x, y));
   }
+
+  async putBlock(blocker, blocked, createdAt = Date.now()) {
+    await this.query("insert into lift_blocks (blocker, blocked, created_at) values ($1, $2, $3) on conflict (blocker, blocked) do nothing", [blocker, blocked, createdAt]);
+  }
+
+  async removeBlock(blocker, blocked) {
+    await this.query("delete from lift_blocks where blocker = $1 and blocked = $2", [blocker, blocked]);
+  }
+
+  async isBlocked(x, y) {
+    const rows = await this.query("select 1 from lift_blocks where (blocker = $1 and blocked = $2) or (blocker = $2 and blocked = $1) limit 1", [x, y]);
+    return rows.length > 0;
+  }
+
+  async listBlocked(email) {
+    return (await this.query("select blocked from lift_blocks where blocker = $1 order by created_at", [email])).map((row) => row.blocked);
+  }
+
+  async addReport(row) {
+    const clean = reportRow(row);
+    await this.query("insert into lift_reports (id, reporter, reported, reason, note, created_at) values ($1, $2, $3, $4, $5, $6)", [clean.id, clean.reporter, clean.reported, clean.reason, clean.note, clean.createdAt]);
+  }
+
+  async listReports() {
+    return (await this.query("select * from lift_reports order by created_at desc")).map((row) => ({ id: row.id, reporter: row.reporter, reported: row.reported, reason: row.reason, note: row.note, createdAt: Number(row.created_at) }));
+  }
+
+  async removeReport(id) {
+    await this.query("delete from lift_reports where id = $1", [id]);
+  }
+
+  async deleteOwner(email) {
+    await this.query("delete from lift_records where owner = $1", [email]);
+    await this.query("delete from lift_friends where a = $1 or b = $1", [email]);
+    await this.query("delete from lift_blocks where blocker = $1 or blocked = $1", [email]);
+    await this.query("delete from lift_reports where reporter = $1 or reported = $1", [email]);
+    await this.query("delete from lift_users where email = $1", [email]);
+  }
 }
 
 const fromFriendRow = (row) => ({ a: row.a, b: row.b, status: row.status, requestedBy: row.requested_by, createdAt: Number(row.created_at) });
-const fromUserRow = (row) => ({ email: row.email, name: row.name, username: row.username || null, vip: Boolean(row.vip), invitedBy: row.invited_by, createdAt: Number(row.created_at), lastSeenAt: row.last_seen_at == null ? null : Number(row.last_seen_at) });
+const fromUserRow = (row) => ({ email: row.email, name: row.name, username: row.username || null, vip: Boolean(row.vip), invitedBy: row.invited_by, createdAt: Number(row.created_at), lastSeenAt: row.last_seen_at == null ? null : Number(row.last_seen_at), appleToken: row.apple_token || "" });
