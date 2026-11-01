@@ -156,6 +156,9 @@ search history, purchases, financial info, sensitive info, usage data,
 diagnostics or device identifiers. Lift doesn't use HealthKit. Rest-timer
 notifications are scheduled on the device and send nothing to the server.
 
+`ios/App/App/PrivacyInfo.xcprivacy` declares the same data types and no tracking.
+Change it together with these answers.
+
 ### Optional processing the user starts
 
 Both of these only run when the user turns them on, and the label above already
@@ -191,13 +194,13 @@ Today → Start opens a workout. Tap a weight or reps box to use the number pad,
 
 NATIVE FEATURES
 • Rest-timer notifications: when you check off a set, Lift schedules a local notification for the end of the rest period, so you're told even if the app is in the background or the phone is locked. Allow notifications when asked.
-• Haptics on logging a set, new records, the end of rest and finishing a workout.
+• Haptics on logging a set and on new records.
 
 FRIENDS
-The first time you open the app signed in, you pick a username. To add a friend: Profile → Friends → Add, and enter a username. You can add @[REVIEW_FRIEND_USERNAME]; we will accept the request during review. Once accepted, tap the friend to see their profile, compare lifts and the leaderboard.
+The first time you open the app signed in, you pick a username. To add a friend: Profile → Friends, enter a username and tap Send friend request. You can add @[REVIEW_FRIEND_USERNAME]; we will accept the request during review. Once accepted, tap the friend to see their profile, compare lifts and the leaderboard.
 
 REPORT AND BLOCK
-On a friend's page, the ⋯ menu has Report and Block. Reports reach us and are reviewed within 24 hours; blocking removes the friendship and hides that user. Usernames are filtered for objectionable words.
+At the bottom of a friend's page are Report and Block; a friend request also has a Block button. Reports reach us and are reviewed within 24 hours; blocking removes the friendship and hides that user. Usernames are filtered for objectionable words.
 
 ACCOUNT DELETION
 Profile → Settings → Account → Delete account. This deletes the account and all its data from our servers.
@@ -208,18 +211,17 @@ The weekly AI review is only for VIP members who have logged 3 lifting sessions 
 CHATGPT CONNECTOR
 Optional and set up from ChatGPT, not from the app. It isn't needed to use Lift.
 
-Contact: [SUPPORT_EMAIL]
+Contact: zachhersick31@gmail.com
 ```
 
 Before submitting, replace `[REVIEW_FRIEND_USERNAME]` with a real account's
-username (yours, or a second account you sign in to during review) and
-`[SUPPORT_EMAIL]` with the contact address on `support.html`. Check the menu
-paths against the merged UI; move them if the account-deletion or report/block
-pull requests placed the controls elsewhere.
+username (yours, or a second account you sign in to during review).
 
 ## 4. Screenshots
 
 App Store Connect needs at least one set of iPhone screenshots; upload up to 10.
+Lift is iPhone-only (`TARGETED_DEVICE_FAMILY = 1`), so no iPad screenshots are
+needed.
 
 | Display | Portrait pixels | CSS viewport at 3× |
 | --- | --- | --- |

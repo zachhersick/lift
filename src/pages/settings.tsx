@@ -5,7 +5,7 @@ import { Check, Cloud, Copy, Download, FileText, Flag, LifeBuoy, LogIn, RefreshC
 import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { Card, Chip, Page, Row, Section, Segmented, spring, Stepper, Toggle, TopBar } from "@/components/kit";
-import { api, apiOrigin, postJson, signIn } from "@/lib/api.js";
+import { api, apiOrigin, native, postJson, signIn } from "@/lib/api.js";
 import { ask } from "@/lib/dialogs";
 import { BARS, defaultWeeklyGoal, PLATES } from "@/lib/model.js";
 import { notify } from "@/lib/notify";
@@ -390,12 +390,14 @@ export function Settings() {
         <input accept="application/json,.json" hidden onChange={upload} ref={file} type="file" />
       </Section>
 
-      <Section footer="Lift then opens full screen from your home screen and works offline." title="Install on iPhone">
-        <Card className="divide-y divide-border">
-          <Row icon={Share} subtitle="In Safari, tap the Share button" title="1. Share" />
-          <Row icon={SquarePlus} subtitle="Then open Lift from your home screen" title="2. Add to Home Screen" />
-        </Card>
-      </Section>
+      {native ? null : (
+        <Section footer="Lift then opens full screen from your home screen and works offline." title="Install on iPhone">
+          <Card className="divide-y divide-border">
+            <Row icon={Share} subtitle="In Safari, tap the Share button" title="1. Share" />
+            <Row icon={SquarePlus} subtitle="Then open Lift from your home screen" title="2. Add to Home Screen" />
+          </Card>
+        </Section>
+      )}
 
       <Section footer="Lift's coaching is general fitness information, not medical advice." title="About">
         <Card className="divide-y divide-border">
