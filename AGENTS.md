@@ -45,7 +45,7 @@ for social features, AI-sharing consent and the legal pages.
 | `src/lib/timer.js`, `set-timer.js`, `format.js` | Rest and set timers, number and date formatting |
 | `src/lib/store.js`, `db.js`, `sync.js`, `account.js` | Signals, IndexedDB records/outbox (one database per account), server synchronization |
 | `src/lib/api.js` | Every API call: same-origin cookie fetch on the web, `VITE_API_URL` plus a bearer token in the iOS app, and native sign-in (PKCE, `lift://auth`) |
-| `src/lib/native.js`, `capacitor.config.ts`, `ios/`, `scripts/build-ios.mjs` | The iOS app (Capacitor 8, SPM): browser sign-in and `lift://` links, Keychain token, haptics, rest-timer notifications; `Info.plist` has the URL scheme and export compliance |
+| `src/lib/native.js`, `capacitor.config.ts`, `ios/`, `scripts/build-ios.mjs` | The iOS app (Capacitor 8, SPM): browser sign-in and `lift://` links, Keychain token, haptics, rest-timer notifications; iPhone-only; `Info.plist` has the URL scheme and export compliance, and `PrivacyInfo.xcprivacy` must match the App Store privacy answers in `docs/app-store.md` |
 | `src/lib/actions.js`, `router.js` | Shared actions and hash navigation |
 | `src/styles.css`, `public/theme-init.js` | Theme tokens and appearance before first paint |
 | `server/app.js`, `auth.js`, `http.js`, `store.js` | API routing, accounts, invites and deletion, Apple/Google/GitHub sign-in, request validation and memory/Neon stores |
