@@ -62,13 +62,15 @@ export async function signIn(provider = "") {
 }
 
 // Trades the code from lift://auth?code=… for a session token. Returns ""
-// when signed in, or why not (lift://auth?error=… when the server refused).
+// when signed in, or why not (lift://auth?error=… when the server refused,
+// "offline" when the server couldn't be reached).
 export async function finishSignIn(link) {
   const params = new URL(link).searchParams;
   const code = params.get("code");
   const verifier = stored(VERIFIER);
   if (!code || !verifier) return params.get("error") || "failed";
-  const response = await postJson("/api/auth/token", { code, verifier });
+  const response = await postJson("/api/auth/token", { code, verifier }).catch(() => null);
+  if (!response) return "offline";
   const body = await response.json().catch(() => ({}));
   store(VERIFIER, "");
   if (!response.ok || !body.ok) return "expired";

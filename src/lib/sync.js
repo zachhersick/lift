@@ -130,7 +130,7 @@ export async function deleteAccount() {
 }
 
 // Why sign-in didn't work, by the reason the server or the app gives.
-export const SIGNIN_ERRORS = { expired: "Sign-in timed out", failed: "Sign-in failed. Try again.", denied: "That account hasn't been invited yet" };
+export const SIGNIN_ERRORS = { expired: "Sign-in timed out", failed: "Sign-in failed. Try again.", denied: "That account hasn't been invited yet", offline: "Couldn't reach Lift. Check your connection." };
 
 // The iOS app comes back from the browser to lift://auth?code=….
 export async function completeSignIn(link) {

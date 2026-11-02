@@ -726,3 +726,18 @@ test("the iOS app signs in through the browser with PKCE and uses a bearer token
   const refused = await request(stranger, { path: `/api/auth/callback?code=c&state=${new URL(again.headers.location).searchParams.get("state")}`, cookie: [cookieFrom(again, "lift_oauth_state"), cookieFrom(again, "lift_native")].join("; ") });
   assert.equal(refused.headers.location, "lift://auth?error=denied", "a refused sign-in goes back to the app");
 });
+
+test("the iOS sign-in says so when the server can't be reached", async () => {
+  const { finishSignIn } = await import("../src/lib/api.js");
+  const saved = { fetch: globalThis.fetch, localStorage: globalThis.localStorage };
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: () => "verifier", setItem() {}, removeItem() {} } });
+  globalThis.fetch = async () => {
+    throw new TypeError("Load failed");
+  };
+  try {
+    assert.equal(await finishSignIn("lift://auth?code=abc"), "offline");
+  } finally {
+    globalThis.fetch = saved.fetch;
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: saved.localStorage });
+  }
+});
