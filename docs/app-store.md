@@ -197,10 +197,10 @@ NATIVE FEATURES
 • Haptics on logging a set and on new records.
 
 FRIENDS
-The first time you open the app signed in, you pick a username. To add a friend: Profile → Friends, enter a username and tap Send friend request. You can add @[REVIEW_FRIEND_USERNAME]; we will accept the request during review. Once accepted, tap the friend to see their profile, compare lifts and the leaderboard.
+The first time you open the app signed in, you pick a username and agree to the terms of use. To add a friend: Profile → Friends, enter a username and tap Send friend request. You can add @[REVIEW_FRIEND_USERNAME]; we will accept the request during review. Once accepted, tap the friend to see their profile, compare lifts and the leaderboard.
 
 REPORT AND BLOCK
-At the bottom of a friend's page are Report and Block; a friend request also has a Block button. Reports reach us and are reviewed within 24 hours; blocking removes the friendship and hides that user. Usernames are filtered for objectionable words.
+At the bottom of a friend's page are Report and Block; a friend request also has Report and Block buttons. Reports reach us and are reviewed within 24 hours; blocking removes the friendship and hides that user. Usernames are filtered for objectionable words.
 
 ACCOUNT DELETION
 Profile → Settings → Account → Delete account. This deletes the account and all its data from our servers.
@@ -305,7 +305,7 @@ In **Certificates, Identifiers & Profiles**:
   - Primary App ID: `com.zachhersick.lift`.
   - Domains and Subdomains: your `<APP_URL>` host without `https://`, e.g.
     `lift.example.com`.
-  - Return URLs: `<APP_URL>/api/auth/callback/apple`.
+  - Return URLs: `<APP_URL>/api/auth/apple/callback`.
 - [ ] **Keys → +.** Name "Lift Sign in with Apple", check **Sign in with Apple**,
       configure it with the primary App ID `com.zachhersick.lift`, and register.
       Download the `.p8` file. Apple lets you download it **once**; store it in

@@ -1,9 +1,10 @@
 // Your username and display name. Everyone picks a username the first time
 // they open the app signed in (`required`: the sheet can't be dismissed);
-// after that it's Edit profile on the Profile page.
+// after that it's Edit profile on the Profile page. Picking one is also where
+// you agree to the terms, before anyone can see or add you.
 import { AtSign } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Card, Row, Section, Sheet } from "./kit";
+import { Card, Row, Section, Sheet, Toggle } from "./kit";
 import { cleanUsername, usernameProblem } from "@/lib/model.js";
 import { notify } from "@/lib/notify";
 import { social } from "@/lib/social.js";
@@ -22,6 +23,7 @@ export function AccountSheet({ open, onClose, required = false }: { open: boolea
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [agreed, setAgreed] = useState(false);
   useEffect(() => {
     if (!open || !user) return;
     setUsername(user.username || suggestion(user.email));
@@ -74,8 +76,18 @@ export function AccountSheet({ open, onClose, required = false }: { open: boolea
           <input aria-label="Display name" className="min-h-14 w-full bg-transparent px-4 text-[17px] outline-none placeholder:text-muted-foreground" maxLength={40} onChange={(e) => setName(e.currentTarget.value)} placeholder="Your name" value={name} />
         </Card>
       </Section>
+      {required ? (
+        <Section footer="Lift has no tolerance for abusive content or behavior. You can report or block anyone, and accounts that break the terms are removed." title="Terms">
+          <Card className="divide-y divide-border">
+            <Row chevron href="/terms.html" title="Read the terms of use" />
+            <Row title="I agree to the terms">
+              <Toggle checked={agreed} label="I agree to the terms of use" onChange={setAgreed} />
+            </Row>
+          </Card>
+        </Section>
+      ) : null}
       <Card>
-        <Row disabled={busy || !clean || Boolean(problem)} onClick={save} title={busy ? "Saving…" : "Save"} tone="action" />
+        <Row disabled={busy || !clean || Boolean(problem) || (required && !agreed)} onClick={save} title={busy ? "Saving…" : "Save"} tone="action" />
       </Card>
     </Sheet>
   );
