@@ -94,6 +94,12 @@ export function schedule(delay = 2000) {
   }, delay);
 }
 
+// Opening the app without reaching the server leaves no user yet, so ask who's
+// signed in before syncing. Signed out stays signed out.
+async function retry() {
+  if (sync.value.user || (sync.value.status !== "signedOut" && (await checkSession()))) syncNow();
+}
+
 export async function startSync() {
   set({ lastSync: (await db.getMeta("lastSync")) || null });
   whenChanged(() => schedule());
@@ -104,10 +110,10 @@ export async function startSync() {
   });
   window.addEventListener("offline", () => set({ status: "offline" }));
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && sync.value.user) syncNow();
+    if (document.visibilityState === "visible") retry();
   });
   setInterval(() => {
-    if (sync.value.user && document.visibilityState === "visible") syncNow();
+    if (document.visibilityState === "visible") retry();
   }, 60_000);
 }
 
