@@ -41,6 +41,10 @@ export default defineConfig({
       injectRegister: false,
       manifest: false,
       workbox: {
+        // autoUpdate only sets these itself with injectRegister "auto". Without them a
+        // new build waits until every window of the app has closed.
+        skipWaiting: true,
+        clientsClaim: true,
         globPatterns: ["**/*.{js,css,html,png,svg,woff2,webmanifest}"],
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [/^\/api\//],
