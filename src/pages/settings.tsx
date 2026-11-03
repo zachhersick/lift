@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { Card, Chip, Page, Row, Section, Segmented, spring, Stepper, Toggle, TopBar } from "@/components/kit";
 import { api, apiOrigin, native, postJson, signIn } from "@/lib/api.js";
 import { ask } from "@/lib/dialogs";
-import { BARS, defaultWeeklyGoal, PLATES } from "@/lib/model.js";
+import { BARS, defaultWeeklyGoal, fromAssistant, PLATES } from "@/lib/model.js";
 import { notify } from "@/lib/notify";
 import { exportData, importRecords, meals, pending, saveSettings, sessions, settings, splitDays, targets } from "@/lib/store.js";
 import { deleteAccount, signOut, sync, syncNow } from "@/lib/sync.js";
@@ -163,7 +163,7 @@ export function Settings() {
   const autoGoal = defaultWeeklyGoal(days);
   const t = useValue(targets) as any;
   const mealList = useValue(meals) as any[];
-  const lastChat = mealList.filter((m) => m.source === "chatgpt").sort((a, b) => (b.loggedAt || b.updatedAt) - (a.loggedAt || a.updatedAt))[0];
+  const lastChat = mealList.filter(fromAssistant).sort((a, b) => (b.loggedAt || b.updatedAt) - (a.loggedAt || a.updatedAt))[0];
   const connectorUrl = `${apiOrigin}/api/mcp`;
 
   const remove = async () => {
@@ -318,8 +318,8 @@ export function Settings() {
       </Section>
 
       <Section
-        footer="In ChatGPT open Settings → Apps & Connectors → Advanced, turn on Developer mode, then Create a connector: paste this URL, choose OAuth and approve with your GitHub account. Then ask your Health chat to log meals to Lift."
-        title="ChatGPT"
+        footer="In Claude open Customize → Connectors and add a custom connector. In ChatGPT open Settings → Apps & Connectors → Advanced, turn on Developer mode and create a connector with OAuth. Paste this URL and approve. Then ask it to log meals or build you a split."
+        title="AI assistants"
       >
         <Card className="divide-y divide-border">
           <Row
@@ -337,7 +337,7 @@ export function Settings() {
             title="Connector URL"
             value={<Copy className="size-4" strokeWidth={2.2} />}
           />
-          <Row subtitle={lastChat ? `${lastChat.name} · ${format.ago(lastChat.loggedAt || lastChat.updatedAt)}` : "Nothing yet"} title="Last meal from ChatGPT" />
+          <Row subtitle={lastChat ? `${lastChat.name} · ${format.ago(lastChat.loggedAt || lastChat.updatedAt)}` : "Nothing yet"} title="Last meal from an assistant" />
         </Card>
       </Section>
 

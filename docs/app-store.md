@@ -80,7 +80,7 @@ FUEL
 • Log meals with calories, protein, carbs, fat and micronutrients.
 • Targets from your goal (cut, maintain, lean bulk) and your measured maintenance: Lift compares your weigh-ins with what you ate, so after about 10 logged days it knows what you actually burn.
 • Fiber, sodium, potassium, calcium, iron, vitamins and more against the FDA Daily Values. Missing data counts as unknown, never zero.
-• Optional: connect ChatGPT and log meals by chatting.
+• Optional: connect Claude or ChatGPT to log meals and build splits by chatting.
 
 PROGRESS
 • Charts of estimated 1RM, heaviest set, volume and reps for every exercise, with PRs and best reps at each weight.
@@ -170,10 +170,11 @@ covers the data involved (Health & Fitness, App Functionality):
   it writes. Anthropic acts as a service provider. The consent screen is what
   App Review Guideline 5.1.2(i) asks for before personal data goes to a
   third-party AI.
-- **ChatGPT connector (OpenAI).** The user connects their own ChatGPT account
-  from Settings and approves access. ChatGPT can then log and read that user's
-  meals and read training summaries; it can't touch workouts. The user can
-  disconnect at any time.
+- **Claude and ChatGPT connector (Anthropic, OpenAI).** The user connects their
+  own assistant account, using the URL shown in Settings, and approves access.
+  The assistant can then log and read that user's meals, read training
+  summaries, and read, add and edit splits and exercises; it can't touch logged
+  workouts or choose the current split. The user can disconnect at any time.
 
 Mention both in `privacy.html` with what is sent, when, and how to turn it off.
 
@@ -208,8 +209,8 @@ Profile → Settings → Account → Delete account. This deletes the account an
 AI WEEKLY REVIEW
 The weekly AI review is only for VIP members who have logged 3 lifting sessions in the last 7 days. Before the first review, the app asks for consent to send a summary of the week's training and eating to Anthropic; nothing is sent without it. A new account isn't VIP, so you won't see it unless we enable VIP for your account; contact us and we will.
 
-CHATGPT CONNECTOR
-Optional and set up from ChatGPT, not from the app. It isn't needed to use Lift.
+CLAUDE AND CHATGPT CONNECTOR
+Optional and set up from Claude or ChatGPT, not from the app. It isn't needed to use Lift.
 
 Contact: zachhersick31@gmail.com
 ```

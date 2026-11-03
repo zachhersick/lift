@@ -1,4 +1,4 @@
-// Fuel: what you ate (logged from ChatGPT or by hand) against targets from
+// Fuel: what you ate (logged from an assistant or by hand) against targets from
 // your goal, micronutrients against their Daily Values, the maintenance Lift
 // works out from your log and weigh-ins, the last two weeks of calories and
 // the Coach.
@@ -9,7 +9,7 @@ import { CoachSection } from "@/components/insights";
 import { MealSheet } from "@/components/meal-sheet";
 import { Card, Empty, FadeIn, Page, Row, Section, Segmented, StatTiles, TopBar } from "@/components/kit";
 import { Button } from "@/components/ui/button";
-import { dailyIntake, dateKey, dayTotals, fromDateKey, MICROS, microAverages, RATE_BANDS, rateStatus, shiftDateKey, weightRate } from "@/lib/model.js";
+import { dailyIntake, dateKey, dayTotals, fromAssistant, fromDateKey, MICROS, microAverages, RATE_BANDS, rateStatus, shiftDateKey, weightRate } from "@/lib/model.js";
 import { bodyweights, maintenance, meals, settings, targets } from "@/lib/store.js";
 import { syncNow } from "@/lib/sync.js";
 import * as format from "@/lib/format.js";
@@ -85,7 +85,6 @@ function DaySummary({ totals, compact = false }: { totals: any; compact?: boolea
   );
 }
 
-const fromChatGPT = (list: any[]) => list.find((m) => m.source === "chatgpt");
 
 // On Today: today's ring and macros, tap for the Fuel page.
 export function FuelCard() {
@@ -94,7 +93,7 @@ export function FuelCard() {
   const todays = list.filter((m) => m.date === today);
   const totals = dayTotals(todays);
   const last = todays[0];
-  const chat = fromChatGPT(list);
+  const chat = list.find(fromAssistant);
   return (
     <Section action={<a className="text-primary" href="#/nutrition">Details</a>} title="Fuel">
       <a className="surface block overflow-hidden rounded-3xl active:scale-[0.99]" href="#/nutrition">
@@ -102,7 +101,7 @@ export function FuelCard() {
         <div className="flex items-center gap-1.5 border-t border-border px-4 py-2.5 text-[13px] text-muted-foreground">
           {chat ? <Sparkles className="size-3.5 text-primary" strokeWidth={2.4} /> : <Utensils className="size-3.5" strokeWidth={2.4} />}
           <span className="truncate">
-            {last ? `${format.plural(todays.length, "meal")} today · last ${format.time(last.eatenAt || last.updatedAt)}` : list.length ? "Nothing logged yet today" : "Log meals from ChatGPT or add them here"}
+            {last ? `${format.plural(todays.length, "meal")} today · last ${format.time(last.eatenAt || last.updatedAt)}` : list.length ? "Nothing logged yet today" : "Log meals from Claude or ChatGPT, or add them here"}
           </span>
         </div>
       </a>
@@ -216,7 +215,7 @@ function Micronutrients({ day }: { day: string }) {
         </Card>
       ) : (
         <Card className="p-4 text-[14.5px] text-muted-foreground">
-          {range === "day" ? "No micronutrients logged for this day." : "No micronutrients logged this week."} Ask ChatGPT to include sodium, potassium, fiber, vitamins and minerals when it logs a meal, or add them in a meal under Micronutrients.
+          {range === "day" ? "No micronutrients logged for this day." : "No micronutrients logged this week."} Ask your assistant to include sodium, potassium, fiber, vitamins and minerals when it logs a meal, or add them in a meal under Micronutrients.
         </Card>
       )}
     </Section>
@@ -275,7 +274,7 @@ export function NutritionPage() {
   const t = useValue(targets) as any;
   const [day, setDay] = useState(dateKey());
   const [sheet, setSheet] = useState<any>(null);
-  // Meals from ChatGPT arrive through sync, so check for new ones on open.
+  // Meals from an assistant arrive through sync, so check for new ones on open.
   useEffect(() => {
     syncNow();
   }, []);
@@ -304,7 +303,7 @@ export function NutritionPage() {
 
       {!list.length ? (
         <Empty action={<Button onClick={() => setSheet("new")} variant="tinted">Add a meal</Button>} icon={Utensils} title="No meals yet">
-          Connect ChatGPT in Settings and every meal you confirm in your Health chat lands here. You can also add meals by hand.
+          Connect Claude or ChatGPT from Settings and every meal you confirm in the chat lands here. You can also add meals by hand.
         </Empty>
       ) : null}
 
@@ -329,7 +328,7 @@ export function NutritionPage() {
             {[...todays].sort((a, b) => (a.eatenAt || 0) - (b.eatenAt || 0)).map((m) => (
               <Row
                 chevron
-                icon={m.source === "chatgpt" ? Sparkles : Utensils}
+                icon={fromAssistant(m) ? Sparkles : Utensils}
                 key={m.id}
                 onClick={() => setSheet(m)}
                 subtitle={`${m.eatenAt ? `${format.time(m.eatenAt)} · ` : ""}P ${Math.round(m.protein || 0)} · C ${Math.round(m.carbs || 0)} · F ${Math.round(m.fat || 0)}`}

@@ -22,7 +22,7 @@ Lift is an offline-capable workout tracker and installable PWA, with rotating
 splits, strength/cardio/timed sets, progress charts, bodyweight, nutrition
 (meals with macros and micronutrients, measured maintenance, targets), a Coach
 that connects eating and training and analyzes the split, and JSON backups.
-ChatGPT logs meals through an MCP connector. It is a single npm package using
+Claude and ChatGPT log meals and build splits through an MCP connector. It is a single npm package using
 React 19, Vite 8, Tailwind CSS 4, Motion and Preact signals. The backend is plain
 Node.js with accounts (Apple, Google or GitHub sign-in; invite-only unless
 `OPEN_SIGNUP=1`) and optional Neon Postgres storage. It is being prepared for the
@@ -49,7 +49,7 @@ for social features, AI-sharing consent and the legal pages.
 | `src/lib/actions.js`, `router.js` | Shared actions and hash navigation |
 | `src/styles.css`, `public/theme-init.js` | Theme tokens and appearance before first paint |
 | `server/app.js`, `auth.js`, `http.js`, `store.js` | API routing, accounts, invites and deletion, Apple/Google/GitHub sign-in, request validation and memory/Neon stores |
-| `server/oauth.js`, `mcp.js`, `coach.js` | ChatGPT connector (OAuth 2.1 + MCP tools) and the weekly Claude review |
+| `server/oauth.js`, `mcp.js`, `coach.js` | Claude and ChatGPT connector (OAuth 2.1 + MCP tools) and the weekly Claude review |
 | `server/social.js` | Friend lists, the leaderboard and the share-filtered profile summary friends receive (block and report routes are in `app.js`) |
 | `public/privacy.html`, `terms.html`, `support.html` | Privacy policy, terms (zero tolerance for abuse) and support page, linked from Settings and needed by the App Store |
 | `api/index.js` | Vercel entry point for every `/api/*` and `/.well-known/*` request |
@@ -150,11 +150,25 @@ Use a production build and preview with `?sw` when checking offline behavior.
   ways, and revokes Sign in with Apple with the refresh token kept encrypted
   (`encryptText`) in `lift_users.apple_token`. Never expose that column; admin
   lists strip it. Admins can't delete themselves.
-- The ChatGPT connector authenticates with bearer tokens only, never cookies.
-  Keep its redirect-host allowlist, required PKCE S256, single-use codes and
-  refresh tokens (`lift_once`), token binding to an allowed account and
-  `MCP_TOKEN_VERSION`, owner-scoped MCP storage, and the CSP `form-action`
-  entries for ChatGPT's hosts.
+- The Claude and ChatGPT connector authenticates with bearer tokens only, never
+  cookies. Keep its redirect-host allowlist (Claude's hosted callback is
+  `https://claude.ai/api/mcp/auth_callback`; Claude Code uses `localhost` or
+  `127.0.0.1` on any port, and only those ignore the port), required PKCE S256,
+  single-use codes and refresh tokens (`lift_once`), token binding to an allowed
+  account and `MCP_TOKEN_VERSION`, owner-scoped MCP storage, the approval page
+  naming the redirect host, and the CSP `form-action` entries for those hosts.
+  Tokens carry the approved assistant (`a`). One without it predates the split
+  tools and keeps only the meal and summary tools until reconnected. When adding
+  a tool that widens access, keep the approval page in step and don't give it to
+  connections that approved less. Tools must not read or write logged workouts.
+- Splits are `split` records plus `splitDay` records with a `splitId`. A day
+  without one belongs to `MAIN_SPLIT`, which has no record until renamed, so
+  older accounts and backups work unchanged. `settings.currentSplit` picks the
+  current split, and only the app sets it: the connector can add and edit splits
+  but never make one current. Read splits through `listSplits()`, and use the
+  store's `splitDays` or the server's `loadTrainingData()` for the current
+  split's days, never every `splitDay`. Rotation position comes from workouts
+  logged against a split's own day ids, so keep day ids stable when editing.
 - People find each other by username (`lift_users.username`: unique, lowercase,
   `USERNAME`/`usernameProblem()` in `model.js`, set through `/api/account`).
   Friendships (`lift_friends`, keyed by the two emails) start as a request and

@@ -1,4 +1,4 @@
-// Add or edit a meal by hand. Meals from ChatGPT open here too, so a wrong
+// Add or edit a meal by hand. Meals from an assistant open here too, so a wrong
 // estimate can be fixed. The number pad types into whichever value is picked:
 // calories and macros, or any micronutrient under "Micronutrients". A
 // micronutrient left blank is unknown, not zero.
@@ -8,7 +8,7 @@ import { Card, Row, Sheet, SheetAction } from "@/components/kit";
 import { Key, KeyGrid } from "@/components/keypad";
 import { Button } from "@/components/ui/button";
 import { ask } from "@/lib/dialogs";
-import { dateKey, fromDateKey, MICROS, mealMicro } from "@/lib/model.js";
+import { dateKey, fromAssistant, fromDateKey, MICROS, mealMicro } from "@/lib/model.js";
 import { remove, saveMeal } from "@/lib/store.js";
 import { cn } from "@/lib/utils";
 
@@ -136,8 +136,8 @@ export function MealSheet({ open, onClose, meal = null, date }: { open: boolean;
       {meal?.items?.length ? (
         <Card className="flex flex-col gap-1.5 p-4 text-[14px]">
           <span className="flex items-center gap-1.5 text-[12.5px] font-medium text-muted-foreground">
-            {meal.source === "chatgpt" ? <Sparkles className="size-3.5" strokeWidth={2.4} /> : null}
-            {meal.source === "chatgpt" ? "Estimated by ChatGPT" : "Items"}
+            {fromAssistant(meal) ? <Sparkles className="size-3.5" strokeWidth={2.4} /> : null}
+            {fromAssistant(meal) ? `Estimated by ${meal.source === "claude" ? "Claude" : "ChatGPT"}` : "Items"}
           </span>
           {meal.items.map((item: any, i: number) => (
             <div className="flex justify-between gap-3" key={i}>
@@ -196,7 +196,7 @@ export function MealSheet({ open, onClose, meal = null, date }: { open: boolean;
       {meal ? (
         <Button
           onClick={async () => {
-            if (await ask({ title: "Delete meal?", message: meal.source === "chatgpt" ? "It stays in your ChatGPT chat; only Lift's copy is removed." : undefined, confirm: "Delete", danger: true })) {
+            if (await ask({ title: "Delete meal?", message: fromAssistant(meal) ? "It stays in your chat; only Lift's copy is removed." : undefined, confirm: "Delete", danger: true })) {
               await remove(meal.id);
               onClose();
             }

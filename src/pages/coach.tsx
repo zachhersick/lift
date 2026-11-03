@@ -11,7 +11,7 @@ import { Card, Empty, FadeIn, Page, Section, Segmented, softSpring, TopBar } fro
 import { Button } from "@/components/ui/button";
 import { analyzeSplit, applySplitEdit, MAIN_MUSCLES, muscleSets, splitWeeklySets } from "@/lib/model.js";
 import { go } from "@/lib/router.js";
-import { coach, exerciseIndex, records, sessions, splitDays, splitDaysAll, update } from "@/lib/store.js";
+import { coach, exerciseIndex, records, sessions, splitDays, update } from "@/lib/store.js";
 import * as format from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
 
@@ -96,8 +96,8 @@ function Suggestion({ suggestion, onApply }: { suggestion: any; onApply: () => v
 // then lists the edits it found. Results stay live, so applying one (or a
 // change made elsewhere) re-runs the analysis.
 function SplitAnalysis() {
-  const days = useValue(splitDaysAll) as any[];
-  const ordered = useValue(splitDays) as any[];
+  const days = useValue(splitDays) as any[];
+  const ordered = days;
   const index = useValue(exerciseIndex) as Map<string, any>;
   const logged = useValue(sessions) as any[];
   const [phase, setPhase] = useState<"idle" | "scanning" | "done">("idle");
@@ -248,7 +248,7 @@ function SplitAnalysis() {
 function SetsPerMuscle() {
   const list = useValue(sessions) as any[];
   const index = useValue(exerciseIndex) as Map<string, any>;
-  const days = useValue(splitDaysAll) as any[];
+  const days = useValue(splitDays) as any[];
   const [range, setRange] = useState<"done" | "split">("done");
   const rows = useMemo(() => {
     const done = new Map(muscleSets(list, index, Date.now() - 14 * 86_400_000, { indirect: true }).map((row: any) => [row.muscle, row.sets / 2]));

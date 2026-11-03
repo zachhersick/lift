@@ -1,10 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { Readable } from "node:stream";
 import { cleanChanges, createApp } from "../server/app.js";
 import { MemoryStore, NeonStore } from "../server/store.js";
 import { createSession, SESSION_COOKIE } from "../server/auth.js";
+import { seal } from "../server/oauth.js";
 
 const SECRET = "test-secret-that-is-at-least-32-chars-long";
 const ORIGIN = "https://lift.example.com";
@@ -350,7 +352,7 @@ test("ChatGPT logs meals that the phone then pulls, and retries don't double up"
   assert.equal(init.serverInfo.name, "lift");
   assert.equal(init.protocolVersion, "2025-06-18");
   const names = (await rpc(app, token, "tools/list")).body.result.tools.map((t) => t.name);
-  assert.deepEqual(names, ["log_meal", "update_meal", "delete_meal", "get_day", "get_coaching_context"]);
+  assert.deepEqual(names, ["log_meal", "update_meal", "delete_meal", "get_day", "get_coaching_context", "get_splits", "get_exercises", "create_exercise", "create_split", "update_split"]);
 
   // 02:00 UTC on Oct 21 is the evening of Oct 20 in Chicago.
   const args = { name: "Burrito bowl", calories: 850, protein: 55, carbs: 90, fat: 25, items: [{ name: "Rice", amount: "1 cup" }], eaten_at: "2026-10-21T02:00:00Z", ref: "chat-1" };
@@ -725,4 +727,211 @@ test("the iOS app signs in through the browser with PKCE and uses a bearer token
   const again = await request(stranger, { path: `/api/auth/login?provider=github&client=ios&challenge=${challenge}` });
   const refused = await request(stranger, { path: `/api/auth/callback?code=c&state=${new URL(again.headers.location).searchParams.get("state")}`, cookie: [cookieFrom(again, "lift_oauth_state"), cookieFrom(again, "lift_native")].join("; ") });
   assert.equal(refused.headers.location, "lift://auth?error=denied", "a refused sign-in goes back to the app");
+});
+
+// ---------- Claude and splits over the connector ----------
+
+const CLAUDE = "https://claude.ai/api/mcp/auth_callback";
+
+// The connect flow for any assistant, showing the approval page on the way.
+async function connectAt(app, redirect, registered = redirect) {
+  const client = (await register(app, [registered])).body.client_id;
+  const page = await request(app, { path: authorizePath(client, { redirect_uri: redirect, resource: `${ORIGIN}/api/mcp` }), cookie: signedIn });
+  const approved = await request(app, { method: "POST", path: "/api/oauth/authorize", cookie: signedIn, form: { ...approval(client), redirect_uri: redirect, resource: `${ORIGIN}/api/mcp` } });
+  const location = new URL(approved.headers.location);
+  const tokens = await request(app, { method: "POST", path: "/api/oauth/token", origin: undefined, form: { grant_type: "authorization_code", code: location.searchParams.get("code"), client_id: client, redirect_uri: redirect, code_verifier: verifier, resource: `${ORIGIN}/api/mcp` } });
+  return { client, page, location, tokens: tokens.body };
+}
+
+const phoneSync = (app, changes = [], since = 0) => request(app, { method: "POST", path: "/api/sync", cookie: signedIn, body: { since, changes } });
+
+const SKI_DAYS = [
+  { name: "Legs", exercises: [{ exercise_id: "b_back-squat", sets: 4, rep_min: 5, rep_max: 8, rest_sec: 180 }, { exercise_id: "b_walking-lunge" }] },
+  { name: "Rest", rest: true, exercises: [{ exercise_id: "b_back-squat" }] },
+  { name: "Power", exercises: [{ exercise_id: "b_box-jumps", superset: "a" }, { exercise_id: "b_wall-sit", superset: "a" }] }
+];
+
+test("Claude's apps connect the way Anthropic documents, with refresh and the newest protocol", async () => {
+  const app = createApp({ store: new MemoryStore(), env });
+  const { page, location, client, tokens } = await connectAt(app, CLAUDE);
+  assert.match(page.body, /returns you to <b>claude\.ai<\/b>/);
+  assert.equal(location.origin + location.pathname, CLAUDE);
+  assert.equal(tokens.token_type, "Bearer");
+
+  assert.equal((await rpc(app, tokens.access_token, "initialize", { protocolVersion: "2025-11-25" })).body.result.protocolVersion, "2025-11-25");
+  assert.equal((await rpc(app, tokens.access_token, "initialize", { protocolVersion: "2099-01-01" })).body.result.protocolVersion, "2025-11-25", "an unknown version gets the newest");
+
+  const logged = await callTool(app, tokens.access_token, "log_meal", { name: "Oats", calories: 300, protein: 12, carbs: 50, fat: 6 });
+  assert.equal(logged.structuredContent.logged.source, "claude", "meals say who logged them");
+
+  const refreshed = await request(app, { method: "POST", path: "/api/oauth/token", origin: undefined, form: { grant_type: "refresh_token", refresh_token: tokens.refresh_token, client_id: client } });
+  assert.equal(refreshed.status, 200);
+  assert.ok((await callTool(app, refreshed.body.access_token, "get_splits")).structuredContent.splits, "still Claude's tools after a refresh");
+  const reused = await request(app, { method: "POST", path: "/api/oauth/token", origin: undefined, form: { grant_type: "refresh_token", refresh_token: tokens.refresh_token, client_id: client } });
+  assert.equal(reused.body.error, "invalid_grant", "a refresh token still works once");
+
+  const csp = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8")).headers[0].headers.find((h) => h.key === "Content-Security-Policy").value;
+  for (const host of ["https://claude.ai", "http://localhost:*", "http://127.0.0.1:*", "https://chatgpt.com"]) assert.ok(csp.includes(host), `form-action lets the approval redirect to ${host}`);
+});
+
+test("Claude Code's loopback redirect matches on any port, and nothing else does", async () => {
+  const app = createApp({ store: new MemoryStore(), env });
+  const { page, location, tokens } = await connectAt(app, "http://localhost:3118/callback", "http://localhost/callback");
+  assert.match(page.body, /a program on this device \(<b>localhost:3118<\/b>\)/, "the approval page warns about local programs");
+  assert.equal(location.port, "3118");
+  assert.ok(tokens.access_token);
+  assert.ok((await connectAt(app, "http://127.0.0.1:50123/callback", "http://127.0.0.1:1/callback")).tokens.access_token);
+
+  const client = (await register(app, ["http://localhost/callback"])).body.client_id;
+  for (const redirect of ["http://localhost:3118/other", "http://127.0.0.1:3118/callback", "https://localhost:3118/callback"]) {
+    assert.equal((await request(app, { path: authorizePath(client, { redirect_uri: redirect }), cookie: signedIn })).status, 400, redirect);
+  }
+  assert.equal((await register(app, ["http://localhost.evil.example/callback"])).status, 400);
+  assert.equal((await register(app, ["https://claude.ai.evil.example/api/mcp/auth_callback"])).status, 400);
+  const chatgpt = (await register(app)).body.client_id;
+  assert.equal((await request(app, { path: authorizePath(chatgpt, { redirect_uri: "https://chatgpt.com:8443/connector_platform_oauth_redirect" }), cookie: signedIn })).status, 400, "only loopback ignores the port");
+
+  // The code stays tied to the exact address it was issued for.
+  const approved = await request(app, { method: "POST", path: "/api/oauth/authorize", cookie: signedIn, form: { ...approval(client), redirect_uri: "http://localhost:4000/callback" } });
+  const code = new URL(approved.headers.location).searchParams.get("code");
+  const other = await request(app, { method: "POST", path: "/api/oauth/token", origin: undefined, form: { grant_type: "authorization_code", code, client_id: client, redirect_uri: "http://localhost:4001/callback", code_verifier: verifier } });
+  assert.equal(other.body.error, "invalid_grant");
+});
+
+test("a connection approved before the split tools keeps only what it agreed to", async () => {
+  const app = createApp({ store: new MemoryStore(), env });
+  const token = seal("access", { sub: "zach@example.com", c: "old", v: "1", t: Date.now() }, SECRET, { ttl: 60_000 });
+  const names = (await rpc(app, token, "tools/list")).body.result.tools.map((t) => t.name);
+  assert.deepEqual(names, ["log_meal", "update_meal", "delete_meal", "get_day", "get_coaching_context"]);
+  const refused = await callTool(app, token, "create_split", { name: "Sneaky", days: SKI_DAYS });
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /add it again/);
+  assert.equal((await callTool(app, token, "log_meal", { name: "Eggs", calories: 200, protein: 14, carbs: 1, fat: 15 })).structuredContent.logged.source, "chatgpt");
+  assert.equal((await phoneSync(app)).body.records.filter((r) => r.kind === "split").length, 0);
+});
+
+test("a split Claude creates reaches the phone in the app's format and doesn't replace the current one", async () => {
+  const app = createApp({ store: new MemoryStore(), env });
+  const token = (await connectAt(app, CLAUDE)).tokens.access_token;
+  const old = [
+    { id: "d1", kind: "splitDay", name: "Push", position: 0, exercises: [{ exerciseId: "b_bench-press", targetSets: 3, repMin: 5, repMax: 8, restSec: 180 }], updatedAt: 1 },
+    { id: "d2", kind: "splitDay", name: "Pull", position: 1, exercises: [], updatedAt: 1 }
+  ];
+  const logged = { id: "w1", kind: "workout", splitDayId: "d1", name: "Push", startedAt: 1000, finishedAt: 2000, entries: [], updatedAt: 1 };
+  const settingsRecord = { id: "settings", kind: "settings", defaultRest: 100, updatedAt: 1 };
+  const { cursor } = (await phoneSync(app, [...old, logged, settingsRecord])).body;
+
+  // An account from before several splits: one unnamed split, already current.
+  const before = (await callTool(app, token, "get_splits")).structuredContent;
+  assert.equal(before.current_split_id, "split_main");
+  assert.equal(before.next_day, "Pull");
+  assert.deepEqual(before.splits.map((s) => [s.name, s.current, s.days.length]), [["My split", true, 2]]);
+
+  const args = { name: "Ski season prep", days: SKI_DAYS, ref: "ski-1" };
+  const created = await callTool(app, token, "create_split", args);
+  assert.equal(created.isError, false);
+  const ski = created.structuredContent.created;
+  assert.equal(ski.current, false);
+  assert.match(created.structuredContent.next_step, /Make current/);
+  assert.equal(ski.days[1].exercises.length, 0, "rest days have no exercises");
+  assert.equal(ski.days[2].exercises[0].superset, "A");
+  assert.equal((await callTool(app, token, "create_split", args)).structuredContent.already_existed, true, "a retry changes nothing");
+
+  const pulled = (await phoneSync(app, [], cursor)).body.records;
+  assert.deepEqual(pulled.map((r) => r.kind).sort(), ["split", "splitDay", "splitDay", "splitDay"], "only the new records, and no settings or workouts");
+  const record = pulled.find((r) => r.kind === "split");
+  assert.equal(record.source, "claude");
+  const legs = pulled.find((r) => r.name === "Legs");
+  assert.equal(legs.splitId, record.id);
+  assert.equal(legs.position, 0);
+  assert.ok(legs.updatedAt > 0);
+  assert.deepEqual(legs.exercises[0], { exerciseId: "b_back-squat", targetSets: 4, repMin: 5, repMax: 8, restSec: 180 });
+  assert.deepEqual(legs.exercises[1], { exerciseId: "b_walking-lunge", targetSets: 3, repMin: 8, repMax: 12, restSec: 100 }, "the user's usual rest by default");
+
+  const context = async () => (await callTool(app, token, "get_coaching_context")).structuredContent;
+  assert.equal((await context()).nextWorkout, "Pull", "still training the old split");
+  assert.equal((await context()).currentSplit, "My split");
+  assert.equal((await context()).setsPerMuscle.split.quads, undefined, "the coach only reads the current split");
+
+  // The phone chooses it, then goes back: each split keeps its place.
+  await phoneSync(app, [{ ...settingsRecord, currentSplit: record.id, updatedAt: Date.now() + 1000 }]);
+  assert.equal((await callTool(app, token, "get_splits")).structuredContent.current_split_id, record.id);
+  assert.equal((await context()).currentSplit, "Ski season prep");
+  assert.equal((await context()).nextWorkout, "Legs", "a new split starts at day one");
+  await phoneSync(app, [{ ...settingsRecord, currentSplit: "split_main", updatedAt: Date.now() + 2000 }]);
+  assert.equal((await context()).nextWorkout, "Pull", "the old rotation picks up where it was");
+});
+
+test("update_split edits days by id, keeps their place and can't reach another split's days", async () => {
+  const app = createApp({ store: new MemoryStore(), env });
+  const token = (await connectAt(app, CLAUDE)).tokens.access_token;
+  await phoneSync(app, [{ id: "d1", kind: "splitDay", name: "Push", position: 0, exercises: [{ exerciseId: "b_bench-press", targetSets: 3, repMin: 5, repMax: 8, restSec: 180 }], updatedAt: 1 }, { id: "d2", kind: "splitDay", name: "Pull", position: 1, exercises: [], updatedAt: 1 }]);
+  const ski = (await callTool(app, token, "create_split", { name: "Ski", days: SKI_DAYS })).structuredContent.created;
+
+  const renamed = await callTool(app, token, "update_split", { id: "split_main", name: "Hypertrophy", days: [{ id: "d2", name: "Pull day" }, { id: "d1", name: "Push" }, { name: "Arms", exercises: [{ exercise_id: "b_barbell-curl" }] }] });
+  assert.equal(renamed.isError, false);
+  assert.deepEqual(renamed.structuredContent.updated.days.map((d) => d.name), ["Pull day", "Push", "Arms"]);
+  assert.equal(renamed.structuredContent.updated.days[1].exercises[0].exercise_id, "b_bench-press", "leaving exercises out keeps them");
+  assert.equal(renamed.structuredContent.updated.name, "Hypertrophy");
+  assert.equal(renamed.structuredContent.updated.current, true);
+
+  const records = (await phoneSync(app)).body.records;
+  assert.equal(records.find((r) => r.id === "d1").splitId, undefined, "the main split's days keep the old format");
+  assert.equal(records.find((r) => r.id === "d1").position, 1);
+
+  const dropped = await callTool(app, token, "update_split", { id: ski.id, days: [{ id: ski.days[0].id, name: "Legs" }] });
+  assert.equal(dropped.structuredContent.updated.days.length, 1);
+  const tombstones = (await phoneSync(app)).body.records.filter((r) => r.splitId === ski.id && r.deleted);
+  assert.equal(tombstones.length, 2, "removed days become tombstones so the phone drops them too");
+
+  assert.equal((await callTool(app, token, "update_split", { id: ski.id, days: [{ id: "d1", name: "Stolen" }] })).isError, true);
+  assert.equal((await callTool(app, token, "update_split", { id: ski.id, days: [{ id: ski.days[0].id, name: "A" }, { id: ski.days[0].id, name: "B" }] })).isError, true);
+  assert.equal((await callTool(app, token, "update_split", { id: "nope", name: "x" })).isError, true);
+  assert.equal((await callTool(app, token, "update_split", { id: ski.id, current: true, name: "Ski 2" })).structuredContent.updated.current, false, "it can't make a split current");
+});
+
+test("create_split checks its input, and exercises can be read and added", async () => {
+  const app = createApp({ store: new MemoryStore(), env });
+  const token = (await connectAt(app, CLAUDE)).tokens.access_token;
+  const bad = async (days, name = "X") => (await callTool(app, token, "create_split", { name, days }));
+  assert.match((await bad([{ name: "A", exercises: [{ exercise_id: "b_nope" }] }])).content[0].text, /get_exercises/);
+  assert.match((await bad([{ name: "A", exercises: [{ exercise_id: "b_back-squat", sets: 99 }] }])).content[0].text, /sets/);
+  assert.match((await bad([{ name: "A", exercises: [{ exercise_id: "b_back-squat" }, { exercise_id: "b_back-squat" }] }])).content[0].text, /twice/);
+  assert.equal((await bad([])).isError, true);
+  assert.equal((await bad([{ name: " " }])).isError, true);
+  assert.equal((await bad(Array.from({ length: 15 }, (_, i) => ({ name: `D${i}` })))).isError, true);
+  assert.equal((await bad([{ name: "A" }], " ")).isError, true);
+  assert.equal((await phoneSync(app)).body.records.length, 0, "a refused split writes nothing");
+
+  const quads = (await callTool(app, token, "get_exercises", { muscle: "quads" })).structuredContent.exercises;
+  assert.ok(quads.some((e) => e.id === "b_back-squat"));
+  assert.ok(quads.every((e) => e.muscle === "quads"));
+  assert.deepEqual((await callTool(app, token, "get_exercises", { search: "wall sit" })).structuredContent.exercises.map((e) => e.track), ["timed"]);
+
+  const made = await callTool(app, token, "create_exercise", { name: "Skater Bounds", muscle: "glutes", equipment: "bodyweight", track: "timed" });
+  assert.equal(made.structuredContent.already_existed, false);
+  const again = await callTool(app, token, "create_exercise", { name: "skater bounds", muscle: "quads" });
+  assert.equal(again.structuredContent.exercise.id, made.structuredContent.exercise.id, "the same name doesn't add a copy");
+  assert.equal((await callTool(app, token, "create_exercise", { name: "Y", muscle: "nose" })).isError, true);
+  assert.equal((await callTool(app, token, "create_split", { name: "Ski", days: [{ name: "A", exercises: [{ exercise_id: made.structuredContent.exercise.id }] }] })).isError, false);
+  const stored = (await phoneSync(app)).body.records.find((r) => r.kind === "exercise");
+  assert.deepEqual([stored.name, stored.muscle, stored.equipment, stored.track, stored.deleted], ["Skater Bounds", "glutes", "bodyweight", "timed", false]);
+});
+
+test("the connector never lists or touches logged workouts, and splits stay per account", async () => {
+  const names = (await import("../server/mcp.js")).TOOLS.map((t) => t.name);
+  assert.ok(!names.some((name) => /workout/.test(name)));
+  const app = createApp({ store: new MemoryStore(), env: { ...env, ADMIN_EMAILS: "zach@example.com,other@example.com" } });
+  const token = (await connectAt(app, CLAUDE)).tokens.access_token;
+  await callTool(app, token, "create_split", { name: "Mine", days: SKI_DAYS });
+  const other = seal("access", { sub: "other@example.com", c: "x", v: "1", t: Date.now(), a: "claude" }, SECRET, { ttl: 60_000 });
+  assert.deepEqual((await callTool(app, other, "get_splits")).structuredContent.splits.map((s) => s.name), ["My split"]);
+  const mine = (await callTool(app, token, "get_splits")).structuredContent.splits.find((s) => s.name === "Mine");
+  assert.equal((await callTool(app, other, "update_split", { id: mine.id, name: "Stolen" })).isError, true);
+});
+
+test("sync accepts split records, tombstones included", () => {
+  const [kept, tombstone] = cleanChanges([{ id: "s1", kind: "split", name: "Ski", updatedAt: 5 }, { id: "s2", kind: "split", name: "Old", deleted: true, updatedAt: 6 }]);
+  assert.equal(kept.kind, "split");
+  assert.equal(tombstone.deleted, true);
 });

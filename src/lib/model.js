@@ -14,6 +14,37 @@ export function orderedDays(splitDays) {
   return live(splitDays).sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || String(a.id).localeCompare(String(b.id)));
 }
 
+// ---------- splits ----------
+
+// You can keep several splits and train through one, the current one
+// (settings.currentSplit). A day belongs to the split in its `splitId`. Days
+// without one, every day from before there were several splits, belong to the
+// main split, which needs no record until it's renamed. Rotation position comes
+// from the workouts logged against a split's own days, so each split keeps its
+// place while another one is current.
+export const MAIN_SPLIT = "split_main";
+export const MAIN_SPLIT_NAME = "My split";
+export const splitIdOf = (day) => day?.splitId || MAIN_SPLIT;
+
+// Every split with its ordered `days`, oldest first, one marked `current`.
+export function listSplits(splits = [], splitDays = [], settings = {}) {
+  const days = live(splitDays);
+  const daysOf = (id) => orderedDays(days.filter((day) => splitIdOf(day) === id));
+  const list = live(splits).map((split) => ({ ...split, days: daysOf(split.id) }));
+  const chosen = settings?.currentSplit;
+  if (!list.some((split) => split.id === MAIN_SPLIT) && (daysOf(MAIN_SPLIT).length || !chosen || chosen === MAIN_SPLIT || !list.length)) {
+    list.push({ id: MAIN_SPLIT, kind: "split", name: MAIN_SPLIT_NAME, days: daysOf(MAIN_SPLIT) });
+  }
+  list.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0) || String(a.id).localeCompare(String(b.id)));
+  const current = list.find((split) => split.id === chosen) || list[0];
+  return list.map((split) => ({ ...split, current: split.id === current.id }));
+}
+
+export const findCurrentSplit = (splits, splitDays, settings) => listSplits(splits, splitDays, settings).find((split) => split.current);
+
+// Whether a record was written by an AI assistant through the connector.
+export const fromAssistant = (record) => record?.source === "chatgpt" || record?.source === "claude";
+
 export const finished = (workouts) => live(workouts).filter((workout) => workout.finishedAt);
 export const byNewest = (a, b) => (b.startedAt || 0) - (a.startedAt || 0);
 export const byOldest = (a, b) => (a.startedAt || 0) - (b.startedAt || 0);
@@ -748,7 +779,7 @@ export function nutritionTargets(settings = {}, maintenance = null, bodyweight =
 }
 
 // Maintenance, targets and weight rate together, the way both the app and
-// the server (for ChatGPT) use them.
+// the server (for the connector) use them.
 export function energyPlan(meals, bodyweights, settings = {}, today = dateKey()) {
   const unit = settings.unit === "kg" ? "kg" : "lb";
   const maintenance = estimateMaintenance(meals, bodyweights, { unit, today });
@@ -809,10 +840,10 @@ export function liftsThisWeek(workouts, now = Date.now()) {
 // ---------- coaching context ----------
 
 // A compact picture of the last few weeks of eating and training: what the
-// Coach rules read, what ChatGPT gets from the connector and what the weekly
+// Coach rules read, what assistants get from the connector and what the weekly
 // AI review is written from. `dayOf` turns a time into a date key (the
 // server passes one in your time zone).
-export function coachingContext({ workouts = [], meals = [], bodyweights = [], settings = {}, exerciseIndex = null, splitDays = [], now = Date.now(), dayOf = dateKey, weeks = 4 } = {}) {
+export function coachingContext({ workouts = [], meals = [], bodyweights = [], settings = {}, exerciseIndex = null, splitDays = [], splitName = null, now = Date.now(), dayOf = dateKey, weeks = 4 } = {}) {
   const twoWeeks = finished(workouts).filter((workout) => !workout.rest && workout.startedAt >= now - 14 * DAY_MS && workout.startedAt <= now);
   const today = dayOf(now);
   const plan = energyPlan(meals, bodyweights, settings, today);
@@ -865,6 +896,7 @@ export function coachingContext({ workouts = [], meals = [], bodyweights = [], s
       split: Object.fromEntries([...splitWeeklySets(splitDays, exerciseIndex)].map(([muscle, sets]) => [muscle, Math.round(sets * 2) / 2]))
     },
     lifts: liftProgress(workouts, exerciseIndex, { now }).map(({ lastDate, exerciseId, ...row }) => ({ ...row, lastDone: dayOf(lastDate) })),
+    currentSplit: splitName,
     nextWorkout: next?.day ? (next.day.rest ? "Rest day" : next.day.name) : null
   };
 }
