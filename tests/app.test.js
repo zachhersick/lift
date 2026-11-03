@@ -935,3 +935,18 @@ test("sync accepts split records, tombstones included", () => {
   assert.equal(kept.kind, "split");
   assert.equal(tombstone.deleted, true);
 });
+
+test("the iOS sign-in says so when the server can't be reached", async () => {
+  const { finishSignIn } = await import("../src/lib/api.js");
+  const saved = { fetch: globalThis.fetch, localStorage: globalThis.localStorage };
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: () => "verifier", setItem() {}, removeItem() {} } });
+  globalThis.fetch = async () => {
+    throw new TypeError("Load failed");
+  };
+  try {
+    assert.equal(await finishSignIn("lift://auth?code=abc"), "offline");
+  } finally {
+    globalThis.fetch = saved.fetch;
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: saved.localStorage });
+  }
+});

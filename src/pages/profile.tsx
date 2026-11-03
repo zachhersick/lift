@@ -1,12 +1,13 @@
 // Profile: your stats, pinned lift and badges, friends (added by username,
 // accepted on the other side, blocked when needed) with a leaderboard, and
 // what friends can see. Settings is one row down.
-import { Ban, Check, LogIn, Pencil, Pin, Settings2, UserPlus, X } from "lucide-react";
+import { Ban, Check, Flag, LogIn, Pencil, Pin, Settings2, UserPlus, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AccountSheet } from "@/components/account-sheet";
 import { BadgeGrid, PinnedLift, ProfileHeader } from "@/components/badges";
 import { ExercisePicker } from "@/components/exercise-picker";
 import { Card, Page, Row, Section, Toggle, TopBar } from "@/components/kit";
+import { ReportSheet } from "@/pages/friend";
 import { ask } from "@/lib/dialogs";
 import { cleanUsername, liftKey, usernameProblem } from "@/lib/model.js";
 import { notify } from "@/lib/notify";
@@ -60,6 +61,7 @@ function Friends({ pinnedKey }: { pinnedKey: string }) {
   const [error, setError] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [reporting, setReporting] = useState<Person | null>(null);
 
   const run = async (path: string, body?: object, done?: string) => {
     setBusy(true);
@@ -96,7 +98,10 @@ function Friends({ pinnedKey }: { pinnedKey: string }) {
         {lists?.incoming.length ? (
           <Card className="divide-y divide-border">
             {lists.incoming.map((person) => (
-              <Row key={person.username || person.name} subtitle={`${handle(person)} · wants to be friends`} title={person.name}>
+              <Row key={person.username || person.name} subtitle={handle(person)} title={person.name}>
+                <button aria-label={`Report ${person.name}`} className="grid size-9 place-items-center rounded-full bg-muted text-destructive active:bg-accent" disabled={busy || !person.username} onClick={() => setReporting(person)} type="button">
+                  <Flag className="size-[17px]" strokeWidth={2.4} />
+                </button>
                 <button aria-label={`Block ${person.name}`} className="grid size-9 place-items-center rounded-full bg-muted text-destructive active:bg-accent" disabled={busy || !person.username} onClick={() => block(person)} type="button">
                   <Ban className="size-[17px]" strokeWidth={2.4} />
                 </button>
@@ -159,6 +164,7 @@ function Friends({ pinnedKey }: { pinnedKey: string }) {
           </Card>
         </Section>
       ) : null}
+      <ReportSheet name={reporting?.name || ""} onClose={() => setReporting(null)} open={Boolean(reporting)} username={reporting?.username || ""} />
     </>
   );
 }
