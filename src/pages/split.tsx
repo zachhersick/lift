@@ -64,7 +64,7 @@ export function Split() {
   const days = shown.days as any[];
   const done = useValue(finishedWorkouts) as any[];
   const [order, setOrder] = useState(days);
-  const [templates, setTemplates] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [naming, setNaming] = useState<"new" | "rename" | null>(null);
   useEffect(() => setOrder(days), [days]);
   // Splits from an assistant arrive through sync, so check for new ones on open.
@@ -88,6 +88,13 @@ export function Split() {
     await removeSplit(shown);
     viewing.value = null;
   };
+  // A new split stays aside until it's made current, so nothing mixes with the days you're on.
+  const startFrom = async (template: any) => {
+    const split = await createSplit(template.name);
+    await applyTemplate(template, split.id);
+    viewing.value = split.id;
+    setStarting(false);
+  };
   const saveName = async (name: string) => {
     if (naming === "new") viewing.value = (await createSplit(name)).id;
     else await saveSplit(shown.id, { name });
@@ -110,7 +117,7 @@ export function Split() {
               {split.current ? <CurrentBadge /> : null}
             </Row>
           ))}
-          <Row icon={Plus} onClick={() => setNaming("new")} title="New split" tone="action" />
+          <Row icon={Plus} onClick={() => setStarting(true)} title="New split" tone="action" />
         </Card>
       </Section>
       {!shown.current ? (
@@ -157,28 +164,27 @@ export function Split() {
       <Card className="divide-y divide-border">
         <Row icon={Plus} onClick={async () => go(`split/${(await addDay({ splitId: shown.id })).id}`)} title="Add training day" tone="action" />
         <Row icon={Moon} iconClass="bg-violet-500/15 text-violet-400" onClick={() => addDay({ rest: true, splitId: shown.id })} title="Add rest day" tone="action" />
-        <Row icon={ListOrdered} onClick={() => setTemplates(true)} title="Add days from a template" tone="action" />
         <Row icon={Pencil} onClick={() => setNaming("rename")} title="Rename split" tone="action" />
         {!shown.current ? <Row icon={Trash2} iconClass="bg-destructive/15 text-destructive" onClick={del} title="Delete split" tone="danger" /> : null}
       </Card>
 
       <NameSheet initial={naming === "rename" ? shown.name : ""} onClose={() => setNaming(null)} onSave={saveName} open={naming !== null} title={naming === "new" ? "New split" : "Rename split"} />
-      <Sheet onClose={() => setTemplates(false)} open={templates} title="Templates">
+      <Sheet onClose={() => setStarting(false)} open={starting} title="New split">
         <Card className="divide-y divide-border">
           {TEMPLATES.map((template: any) => (
-            <Row
-              chevron
-              key={template.id}
-              onClick={async () => {
-                await applyTemplate(template, shown.id);
-                setTemplates(false);
-              }}
-              subtitle={template.blurb}
-              title={template.name}
-            />
+            <Row chevron key={template.id} onClick={() => startFrom(template)} subtitle={template.blurb} title={template.name} />
           ))}
+          <Row
+            chevron
+            onClick={() => {
+              setStarting(false);
+              setNaming("new");
+            }}
+            subtitle="Name it and add your own days"
+            title="Blank split"
+          />
         </Card>
-        <p className="px-1 text-[13px] text-muted-foreground">Adds the template's days to the end of {shown.name}.</p>
+        <p className="px-1 text-[13px] text-muted-foreground">It gets its own days. Today keeps following {current.name} until you make the new one current.</p>
       </Sheet>
     </Page>
   );

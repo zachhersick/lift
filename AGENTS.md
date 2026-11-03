@@ -89,6 +89,9 @@ required for the default local workflow or tests.
 The local server's memory store resets on restart; browser IndexedDB persists.
 Service workers are disabled on localhost/127.0.0.1 unless the URL has `?sw`.
 Use a production build and preview with `?sw` when checking offline behavior.
+A new build takes over as soon as it installs (`skipWaiting`, `clientsClaim` in
+`vite.config.ts`) and reloads the page, and the app looks for one each time it
+returns to the foreground, so keep in-progress work surviving a reload.
 
 ## Change workflow and code style
 

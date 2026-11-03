@@ -41,5 +41,14 @@ caches?.keys().then((keys) => keys.filter((k) => /^lift-[0-9a-f]+$/.test(k)).for
 // The iOS app ships its files inside the app, so it needs no service worker.
 if ("serviceWorker" in navigator && !native) {
   if (local) navigator.serviceWorker.getRegistrations().then((list) => list.forEach((r) => r.unregister())).catch(() => {});
-  else import("virtual:pwa-register").then(({ registerSW }) => registerSW({ immediate: true })).catch(() => {});
+  else import("virtual:pwa-register").then(({ registerSW }) => registerSW({
+    immediate: true,
+    // An installed app is mostly resumed rather than opened, so look for a new
+    // build each time it comes back.
+    onRegisteredSW(_url, registration) {
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible" && navigator.onLine) registration?.update().catch(() => {});
+      });
+    }
+  })).catch(() => {});
 }
