@@ -7,6 +7,7 @@ import {
   splitDiff, startOfWeek, suggestion, supersetLabels, trend, warmupSets, weekStreak, weekSummary, workoutFromDay, workoutVolume
 } from "../src/lib/model.js";
 import { BUILT_IN, slug, TEMPLATES } from "../src/lib/exercises.js";
+import { findCurrentSplit, fromAssistant, listSplits, MAIN_SPLIT, MAIN_SPLIT_NAME, splitIdOf } from "../src/lib/model.js";
 
 const day = (id, position, extra = {}) => ({ id, kind: "splitDay", name: id, position, exercises: [], ...extra });
 const set = (weight, reps, extra = {}) => ({ id: `${weight}-${reps}-${Math.random()}`, weight, reps, type: "working", done: true, ...extra });
@@ -966,4 +967,67 @@ test("names others see are filtered without catching ordinary names", () => {
   for (const fine of ["Grace Hancock", "Charles Dickens", "Nazir", "grape.lifts", "analysis_guy", "Scunthorpe", "Cassidy", "raccoon_77"]) assert.equal(nameProblem(fine), "", fine);
   for (const bad of ["sh1t lifter", "big_c0ck", "FUCKBOY", "n1gger", "anal.king"]) assert.notEqual(nameProblem(bad), "", bad);
   assert.notEqual(usernameProblem("sh1t.lifter"), "", "usernames go through the same filter");
+});
+
+test("an account from before several splits has one split, its days, and it's current", () => {
+  const days = [day("b", 1), day("a", 0), day("gone", 2, { deleted: true })];
+  const [only, ...rest] = listSplits([], days, {});
+  assert.equal(rest.length, 0);
+  assert.equal(only.id, MAIN_SPLIT);
+  assert.equal(only.name, MAIN_SPLIT_NAME);
+  assert.equal(only.current, true);
+  assert.deepEqual(only.days.map((d) => d.id), ["a", "b"]);
+  assert.equal(listSplits([], [], {})[0].id, MAIN_SPLIT, "a new account starts with an empty one");
+  assert.equal(findCurrentSplit([], days, undefined).id, MAIN_SPLIT);
+});
+
+test("a new split doesn't take over until it's chosen, and a bad choice falls back", () => {
+  const ski = { id: "ski", kind: "split", name: "Ski", createdAt: 5 };
+  const days = [day("m1", 0), day("s1", 0, { splitId: "ski" }), day("s2", 1, { splitId: "ski" })];
+  const list = listSplits([ski], days, {});
+  assert.deepEqual(list.map((s) => [s.id, s.current, s.days.length]), [[MAIN_SPLIT, true, 1], ["ski", false, 2]]);
+  assert.equal(findCurrentSplit([ski], days, { currentSplit: "ski" }).id, "ski");
+  assert.equal(findCurrentSplit([ski], days, { currentSplit: "gone" }).id, MAIN_SPLIT, "a split deleted on another device");
+  assert.equal(listSplits([{ ...ski, deleted: true }], days, {}).length, 1);
+  // A new account's first split from an assistant still isn't current.
+  assert.equal(findCurrentSplit([ski], [], {}).id, MAIN_SPLIT);
+  // Renaming gives the main split a record that replaces the implied one.
+  assert.deepEqual(listSplits([{ id: MAIN_SPLIT, kind: "split", name: "Strength" }, ski], days, {}).map((s) => s.name), ["Strength", "Ski"]);
+});
+
+test("a deleted main split stays gone unless days without a split turn up", () => {
+  const ski = { id: "ski", kind: "split", name: "Ski", createdAt: 5 };
+  const settings = { currentSplit: "ski" };
+  const tombstone = { id: MAIN_SPLIT, kind: "split", deleted: true };
+  assert.deepEqual(listSplits([ski, tombstone], [day("s1", 0, { splitId: "ski" }), day("m1", 0, { deleted: true })], settings).map((s) => s.id), ["ski"]);
+  assert.deepEqual(listSplits([ski, tombstone], [day("m1", 0)], settings).map((s) => s.id).sort(), ["ski", MAIN_SPLIT].sort(), "an imported backup's days still show");
+});
+
+test("each split keeps its own place in the rotation, whichever is current", () => {
+  const ski = { id: "ski", kind: "split", name: "Ski", createdAt: 5 };
+  const days = [day("m1", 0), day("m2", 1), day("m3", 2), day("s1", 0, { splitId: "ski" }), day("s2", 1, { splitId: "ski" })];
+  const logged = [workout("w1", 1000, "m1"), workout("w2", 2000, "m2"), workout("w3", 3000, "s1")];
+  const next = (settings) => nextSplitDay(findCurrentSplit([ski], days, settings).days, logged).day.id;
+  assert.equal(next({ currentSplit: "ski" }), "s2");
+  assert.equal(next({ currentSplit: MAIN_SPLIT }), "m3", "the last workout from the other split doesn't move this one");
+  assert.equal(next({}), "m3");
+});
+
+test("deleting a split's days leaves history pointing at them", () => {
+  const days = [day("s1", 0, { splitId: "ski", deleted: true })];
+  const logged = [workout("w1", 1000, "s1", [entry("x", [set(100, 5)])])];
+  assert.equal(previousSession(logged, workout("w2", 2000, "s1")).id, "w1");
+  assert.equal(listSplits([], days, {})[0].days.length, 0);
+  assert.equal(splitIdOf({ splitId: "ski" }), "ski");
+  assert.equal(splitIdOf({}), MAIN_SPLIT);
+});
+
+test("the coaching summary names the current split", () => {
+  assert.equal(coachingContext({ splitName: "Ski", splitDays: [day("a", 0)] }).currentSplit, "Ski");
+  assert.equal(coachingContext({}).currentSplit, null);
+});
+
+test("only connector sources count as from an assistant", () => {
+  for (const source of ["chatgpt", "claude"]) assert.equal(fromAssistant({ source }), true);
+  for (const record of [{ source: "manual" }, {}, null]) assert.equal(fromAssistant(record), false);
 });

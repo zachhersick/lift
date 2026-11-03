@@ -1,9 +1,9 @@
-// The weekly AI review: Claude reads the same summary ChatGPT gets from the
+// The weekly AI review: Claude reads the same summary assistants get from the
 // connector, plus the Coach's own rule cards, and writes a short review.
 // It's saved as a coachReview record, so it syncs and stays readable offline.
 import Anthropic from "@anthropic-ai/sdk";
 import { BUILT_IN } from "../src/lib/exercises.js";
-import { coachingContext, dateKeyIn, insights } from "../src/lib/model.js";
+import { coachingContext, dateKeyIn, findCurrentSplit, insights } from "../src/lib/model.js";
 import { httpError } from "./http.js";
 
 export const REVIEW_MODEL = "claude-opus-5-5";
@@ -14,14 +14,21 @@ Write it the way a good coach talks to an athlete they know: direct, specific, e
 
 Format: plain text, no markdown headings, bold or tables. Open with one sentence on how the week went. Then two to four short paragraphs or "- " bullets on what's working and what's holding progress back. End with a line "This week:" followed by two or three "- " bullets, each a concrete action with a number (kcal, grams, weight, sets or reps). Stay under 220 words. Use the unit field (lb or kg) for weights. If the data points to very low intake or fast weight loss, say so plainly and suggest checking in with a professional.`;
 
-// Everything the Coach reads, straight from the store.
-export async function loadTrainingData(store) {
-  const [meals, bodyweights, settingsDoc, workouts, exercises, splitDays] = await Promise.all(
-    ["meal", "bodyweight", null, "workout", "exercise", "splitDay"].map((kind) => (kind ? store.listKind(kind) : store.get("settings")))
-  );
+// Every exercise by id: the library with your stored ones on top.
+export function indexExercises(exercises) {
   const exerciseIndex = new Map(BUILT_IN.map((exercise) => [exercise.id, exercise]));
   for (const record of exercises) exerciseIndex.set(record.id, { ...exerciseIndex.get(record.id), ...record });
-  return { meals, bodyweights, settings: settingsDoc || {}, timeZone: settingsDoc?.timeZone || "UTC", workouts, exerciseIndex, splitDays };
+  return exerciseIndex;
+}
+
+// Everything the Coach reads, straight from the store. Only the current
+// split's days: the others aren't what you're training.
+export async function loadTrainingData(store) {
+  const [meals, bodyweights, settingsDoc, workouts, exercises, splitDays, splits] = await Promise.all(
+    ["meal", "bodyweight", null, "workout", "exercise", "splitDay", "split"].map((kind) => (kind ? store.listKind(kind) : store.get("settings")))
+  );
+  const split = findCurrentSplit(splits, splitDays, settingsDoc || {});
+  return { meals, bodyweights, settings: settingsDoc || {}, timeZone: settingsDoc?.timeZone || "UTC", workouts, exerciseIndex: indexExercises(exercises), splitDays: split.days, splitName: split.name };
 }
 
 export async function writeReview({ store, apiKey, client = null, now = Date.now() }) {

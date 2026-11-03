@@ -1,6 +1,6 @@
 // Things several pages do: start a workout, log a rest day, set up a split.
-import { activeWorkout, save, saveMany, settings, splitDays } from "./store.js";
-import { uid, workoutFromDay } from "./model.js";
+import { activeWorkout, currentSplit, save, saveMany, settings, splits } from "./store.js";
+import { MAIN_SPLIT, uid, workoutFromDay } from "./model.js";
 import { go } from "./router.js";
 import { ask } from "./dialogs";
 
@@ -22,11 +22,17 @@ export function logRest(day) {
   return save({ id: uid("w"), kind: "workout", splitDayId: day.id, name: day.name, rest: true, startedAt: now, finishedAt: now, entries: [], notes: "" });
 }
 
-export async function applyTemplate(template) {
-  const start = splitDays.value.length;
+// Days of the main split carry no splitId, the same as ones from before there
+// were several splits.
+const inSplit = (splitId) => (splitId === MAIN_SPLIT ? {} : { splitId });
+const dayCount = (splitId) => splits.value.find((split) => split.id === splitId)?.days.length || 0;
+
+export async function applyTemplate(template, splitId = currentSplit.value.id) {
+  const start = dayCount(splitId);
   await saveMany(template.days.map((day, index) => ({
     id: uid("d"),
     kind: "splitDay",
+    ...inSplit(splitId),
     name: day.name,
     rest: Boolean(day.rest),
     position: start + index,
@@ -34,8 +40,12 @@ export async function applyTemplate(template) {
   })));
 }
 
-export async function addDay({ rest = false } = {}) {
-  const position = splitDays.value.length;
-  const record = await save({ id: uid("d"), kind: "splitDay", name: rest ? "Rest" : `Day ${position + 1}`, rest, position, exercises: [] });
+export async function addDay({ rest = false, splitId = currentSplit.value.id } = {}) {
+  const position = dayCount(splitId);
+  const record = await save({ id: uid("d"), kind: "splitDay", ...inSplit(splitId), name: rest ? "Rest" : `Day ${position + 1}`, rest, position, exercises: [] });
   return record;
+}
+
+export function createSplit(name) {
+  return save({ id: uid("split"), kind: "split", name, createdAt: Date.now(), deleted: false });
 }

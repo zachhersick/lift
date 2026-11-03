@@ -5,8 +5,8 @@
 // each record. Admins (ADMIN_EMAILS) manage the invite list and who's a VIP,
 // which gets the weekly AI review. People add each other as friends and see
 // each other's profile summaries (server/social.js), and can block or report
-// each other. Anyone can delete their account and everything in it. ChatGPT
-// connects through OAuth (server/oauth.js) to the MCP endpoint (server/mcp.js).
+// each other. Anyone can delete their account and everything in it. ChatGPT and
+// Claude connect through OAuth (server/oauth.js) to the MCP endpoint (server/mcp.js).
 import { randomBytes } from "node:crypto";
 import { readJsonBody, readJsonOrForm } from "./http.js";
 import {
@@ -31,7 +31,7 @@ const NEXT_COOKIE = "lift_next";
 const NATIVE_COOKIE = "lift_native";
 const AUTHORIZE_PATH = "/api/oauth/authorize";
 
-export const KINDS = new Set(["exercise", "splitDay", "workout", "bodyweight", "settings", "meal", "coachReview"]);
+export const KINDS = new Set(["exercise", "split", "splitDay", "workout", "bodyweight", "settings", "meal", "coachReview"]);
 // Why someone can be reported.
 const REPORT_REASONS = new Set(["name", "harassment", "spam", "other"]);
 const SYNC_LIMIT = 4_000_000;
@@ -254,7 +254,7 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
       return sendJson(res, { ok: true }, 200, { "set-cookie": clearCookie(SESSION_COOKIE) });
     }
 
-    // ---- ChatGPT connector: discovery, OAuth and MCP ----
+    // ---- the AI connector (ChatGPT, Claude): discovery, OAuth and MCP ----
     if (path === "/.well-known/oauth-protected-resource" || path === "/.well-known/oauth-protected-resource/api/mcp") {
       return sendJson(res, protectedResourceMetadata(config, oauth));
     }
@@ -278,7 +278,7 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
       if (error) return redirect(res, redirectWith(request, { error, error_description: description }));
       const user = await signedIn(req);
       if (!user) {
-        if (posted) return sendHtml(res, consentPage({ error: "Your session expired. Start connecting again from ChatGPT." }), 401);
+        if (posted) return sendHtml(res, consentPage({ error: "Your session expired. Start connecting again from your assistant." }), 401);
         return redirect(res, `/api/auth/login?next=${encodeURIComponent(`${AUTHORIZE_PATH}?${url.searchParams}`)}`);
       }
       if (!posted) return sendHtml(res, consentPage({ request, login: user.email }));
@@ -298,11 +298,11 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
       const token = readBearer(req.headers.authorization, { config, oauth });
       const owner = token ? await member(token.sub, token.t) : null;
       if (!owner) {
-        return sendJson(res, { error: "invalid_token", error_description: "Connect Lift in ChatGPT to use this." }, 401, {
+        return sendJson(res, { error: "invalid_token", error_description: "Connect Lift in your assistant to use this." }, 401, {
           "www-authenticate": `Bearer resource_metadata="${config.appUrl}/.well-known/oauth-protected-resource/api/mcp", scope="lift"`
         });
       }
-      const reply = await createMcp({ store: store.forOwner(owner.email) }).handle(await readJsonBody(req, { limit: 256_000 }));
+      const reply = await createMcp({ store: store.forOwner(owner.email), app: token.a }).handle(await readJsonBody(req, { limit: 256_000 }));
       if (!reply) {
         res.writeHead(202, { "cache-control": "no-store" });
         return res.end();

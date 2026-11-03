@@ -20,9 +20,9 @@ The look is dark-first and layered: glass surfaces, your accent color as soft gr
   - **⋯ menu:** **Add Warm-up Sets** (empty bar, then 40/60/80%, rounded to loadable weights), **Superset with Next** (A1/A2 labels; the rest timer only starts after the last exercise in the group), rest time, a **note that sticks to the exercise** (seat height, grip) and shows every time, **History** (a quick look at the last sessions without leaving the workout), swap, reorder, remove.
   - Checking a set starts the **rest timer**, a Dynamic Island-style pill at the top (tap it for −15 / +15 / Skip) that keeps counting if iOS reloads the app. A set that beats your best turns gold with a particle burst. Tap the workout title to change its name, date, time or duration (for logging a workout you forgot). The screen stays on during a workout.
   - **Hold to finish** (or tap Finish). If you added, swapped, removed or reordered exercises, changed set counts or supersets, Lift offers to update that split day to match. Skipping an exercise for the day doesn't count.
-- **Fuel** tracks what you eat. Meals arrive from your ChatGPT chat (see below) or you add them by hand. Today shows a calorie ring and protein/carbs/fat bars against your targets.
+- **Fuel** tracks what you eat. Meals arrive from your Claude or ChatGPT chat (see below) or you add them by hand. Today shows a calorie ring and protein/carbs/fat bars against your targets.
   - Targets come from a goal you pick (cut, maintain, lean bulk) and your **measured maintenance**: Lift fits a line through your weigh-ins and compares it with what you ate, so after about 10 logged days it knows what you actually burn instead of guessing from a formula. Days you didn't log are gaps, not zeros.
-  - The Fuel page has each day's meals (tap one to fix ChatGPT's estimate), two weeks of calories against the target line, protein hit rate, and whether your weekly weight change is inside the range for your goal.
+  - The Fuel page has each day's meals (tap one to fix an assistant's estimate), two weeks of calories against the target line, protein hit rate, and whether your weekly weight change is inside the range for your goal.
   - **Micros**: fiber, sugar, saturated fat, cholesterol, sodium, potassium, calcium, iron, magnesium, zinc, and vitamins A, C, D, B12 and folate.
     - Shown for the day or as a 7-day average, as a percent of the FDA Daily Value. Sodium, saturated fat and cholesterol are limits to stay under.
     - A nutrient a meal didn't estimate counts as unknown, not zero, and partial totals say so (e.g. "2 of 3 meals").
@@ -63,7 +63,7 @@ The look is dark-first and layered: glass surfaces, your accent color as soft gr
 - **Weekly review.** With `ANTHROPIC_API_KEY` set, Claude (Opus 5.5) writes a short review from the same summary once a week. It ends in two or three concrete actions for the week, syncs like any record, and stays readable offline. Nothing goes to Anthropic until you tap **Agree and turn on reviews** in the Coach (`settings.aiConsent`).
 - **History** has a calendar and every workout. A workout's summary compares volume, sets and time with your last session of the same day, and lists its PRs.
 - **Progress** has a training-volume card (upper body, lower body, core; 7/30/90 days) and lists each exercise with a sparkline and trend. The exercise page swipes between charts of estimated 1RM (Epley), heaviest set, volume and reps over 1M/3M/1Y/All, with PRs, best reps at each weight, every session and the exercise's note. Tap **Edit** on an exercise (or **Edit exercise** in a workout's ⋯ menu) to fix its name, muscles or equipment, e.g. a custom exercise saved as chest that should be triceps. Muscles can be specific (lats, mid back, traps, lower back, front/side/rear delts, abductors, adductors); each counts toward its group's weekly sets (back, shoulders, glutes; adductors are their own). The change applies everywhere, past workouts included. Built-ins can be reset, and the tracking type locks once sets are logged. **Bodyweight** has its own chart with a 7-day average.
-- **Split**: start from a template or build your own. Drag days and exercises to reorder, add rest days, set each exercise's sets, rep range, rest and supersets, and pick from ~100 built-in exercises or your own. **Edit exercise** (in an exercise's split settings, its chart page or the workout menu) sets its primary muscle, its secondary muscles, its equipment, and the name of an exercise you created.
+- **Split**: keep as many splits as you like. **Your splits** lists them all with a **Current** badge on the one you're training; Today, the Coach and your weekly goal follow that one. Tap another to look through or edit it, then **Make current** to switch. Each split remembers its place in the rotation, and History is untouched either way. Accounts from before there were several splits see their days as **My split**, with nothing to migrate. In a split, start from a template or build your own. Drag days and exercises to reorder, add rest days, set each exercise's sets, rep range, rest and supersets, and pick from ~100 built-in exercises or your own. **Edit exercise** (in an exercise's split settings, its chart page or the workout menu) sets its primary muscle, its secondary muscles, its equipment, and the name of an exercise you created.
 - **Profile** (the last tab): your display name and **@username** (everyone picks a username the first time they open the app signed in; change either with the pencil), streak and workouts, a **pinned lift** with its PRs (heaviest set and best estimated 1RM), and **badges**. There are 28: VIP, session milestones, week streaks, 1–5 plate clubs on bench, squat, deadlift and press, bodyweight-ratio lifts, lifetime volume, PR counts and early workouts. Earned ones show with the day you earned them; the rest sit under **Show locked badges** with how close you are. Finishing a workout that earns one pops a notice. **Friends**: add someone on your Lift by **username**; once they accept, you each see the other's profile, pinned lift, a side-by-side **compare** of best estimated 1RM on the lifts you both do (in your unit, with bodyweight ratios) and their recent workouts, plus a **leaderboard** of workouts this week and your pinned lift. **What friends see** turns off lifts, recent workouts or ratios. Badges, streaks and the pinned lift are always shared; your email, bodyweight, meals and notes never are. Friends only get a summary the server computes, never your records. **Report** or **Block** anyone from their profile (block also works on a friend request): blocking ends the friendship and hides you from each other, and reports go to admins. Usernames and display names can't contain slurs or explicit words.
 - **Settings** (from Profile): your account and **Delete account** (and, for admins, **Reports** and **People**: the invite list and VIPs), theme and accent color, weekly goal, nutrition goal and targets, the ChatGPT connector, lb/kg and weight jump, bar weight and available plates, default rest and sound, JSON **Export/Import** backups, and the privacy policy, terms and support pages (`public/privacy.html`, `terms.html`, `support.html`).
 
@@ -135,34 +135,51 @@ A Vercel project with Neon Postgres, with sign-in through Google and/or GitHub. 
 1. Set `ADMIN_EMAILS` with your own email first. Use the primary verified email on your GitHub account, or your Google email.
 2. Remove `ALLOWED_GITHUB_ID`.
 
-On first use, existing records move to that first admin. Everyone signs in once, and ChatGPT needs reconnecting once.
+On first use, existing records move to that first admin. Everyone signs in once, and a connected assistant needs reconnecting once.
 
 Optional:
 
 | Variable | Value |
 | --- | --- |
-| `MCP_TOKEN_VERSION` | Change it (e.g. `1` → `2`) to disconnect ChatGPT immediately. |
-| `OAUTH_REDIRECT_HOSTS` | Comma-separated hosts the connector may redirect to. Defaults to `chatgpt.com,chat.openai.com`. |
+| `MCP_TOKEN_VERSION` | Change it (e.g. `1` → `2`) to disconnect every assistant immediately. |
+| `OAUTH_REDIRECT_HOSTS` | Comma-separated hosts the connector may redirect to. Defaults to `chatgpt.com,chat.openai.com,claude.ai,localhost,127.0.0.1`. The last two are for Claude Code. The `form-action` entries in `vercel.json` must include any host you add. |
 | `ANTHROPIC_API_KEY` | Turns on the weekly AI review for VIPs: one Claude call a week each, a few cents. Without it, the rule-based Coach still works. |
 | `OPEN_SIGNUP` | `1` lets anyone with an Apple, Google or GitHub account sign in, not just invitees. Needed for the App Store. |
 
 Sessions last 30 days. Every write from the web app needs the session cookie, a JSON body and an `Origin` header that matches `APP_URL`. The iOS app instead signs in through the system browser (PKCE, back to `lift://auth`) and sends its session as a bearer token from `capacitor://localhost`, the one origin the API allows cross-site. The one exception is Apple's sign-in callback, which Apple posts from its own site; it's checked against the signed state cookie instead.
 
-## Log meals from ChatGPT
+## Connect Claude or ChatGPT
 
-Lift is a ChatGPT **connector** (an MCP server at `/api/mcp`). Once it's connected, ChatGPT can log the meals you confirm straight into Lift, so you keep tracking food by chatting.
+Lift is a **connector** (an MCP server at `/api/mcp`) for Claude and ChatGPT. Once it's connected, the assistant can log the meals you confirm straight into Lift and build you a split. Ask "build me a split in preparation for the ski season", and it appears under **Your splits** as a new split, ready for you to look through and **Make current**. Your connector URL is `https://lift.example.com/api/mcp`, also shown in Lift's Settings with a Copy button.
+
+### Claude
+
+1. In [Claude](https://claude.ai/customize/connectors) open **Customize → Connectors → Add custom connector** and paste the URL. Leave the OAuth client fields empty: Claude registers itself.
+2. Claude opens Lift's approval page. Sign in if asked, then tap **Allow**. Claude's web, desktop and mobile apps share the connection.
+
+For Claude Code:
+
+```sh
+claude mcp add --transport http lift https://lift.example.com/api/mcp
+```
+
+Then run `/mcp` in a session to sign in. The approval page warns you that it returns to a program on your computer.
+
+### ChatGPT
 
 1. In ChatGPT open **Settings → Apps & Connectors → Advanced settings** and turn on **Developer mode**. It needs a plan that offers it, and the menu names may shift.
 2. **Create** a connector:
    - Name: Lift.
-   - URL: `https://lift.example.com/api/mcp` (also shown in Lift's Settings, with a Copy button).
+   - URL: your connector URL.
    - Authentication: **OAuth**.
-3. ChatGPT opens Lift's approval page. Sign in if asked, then tap **Allow**. The connector reads and writes only the account that approved it. Anyone with a Lift account can connect their own ChatGPT.
+3. ChatGPT opens Lift's approval page. Sign in if asked, then tap **Allow**. Anyone with a Lift account can connect their own ChatGPT.
 4. In your **Health** project, add an instruction along these lines:
 
    > When I confirm what I ate, log it to Lift with `log_meal` (best-estimate calories, protein, carbs, fat, fiber, the items, and in `micros` any micronutrients you can estimate reliably, such as sodium, potassium, calcium, iron, magnesium and vitamins; pass a unique `ref`). Never log planned meals. Before suggesting what to eat, check `get_day`. For training or diet advice, read `get_coaching_context` first.
 
-The tools ChatGPT gets:
+### What it can do
+
+The connector reads and writes only the account that approved it. The tools:
 
 | Tool | What it does |
 | --- | --- |
@@ -170,16 +187,23 @@ The tools ChatGPT gets:
 | `update_meal` | Corrects a meal already logged. |
 | `delete_meal` | Removes a meal logged by mistake. |
 | `get_day` | A day's meals and totals against your targets, what's left, and micronutrients against Daily Values. |
-| `get_coaching_context` | Weekly calories and protein, training volume, bodyweight trend against your goal, measured maintenance, and your main lifts' e1RM progress and stalls. |
+| `get_coaching_context` | Weekly calories and protein, training volume, bodyweight trend against your goal, measured maintenance, your main lifts' e1RM progress and stalls, and your current split with its next day. |
+| `get_splits` | Every split with its days and exercises, which one is current, and the next day in its rotation. |
+| `get_exercises` | The exercise library and your own, with ids, muscles, equipment and tracking type. |
+| `create_exercise` | Adds an exercise a split needs that isn't in the library. |
+| `create_split` | Creates a named split. It waits in the Split tab and never becomes current by itself; a repeated `ref` doesn't create a second one. |
+| `update_split` | Renames a split or replaces its days, including the current split's, keeping the rotation place of days it keeps. |
 
-Meals are dated in your time zone (the app tells the server which one) and reach the phone on its next sync, which also runs whenever you open Fuel.
+Meals are dated in your time zone (the app tells the server which one). Everything reaches the phone on its next sync, which also runs whenever you open Fuel or Split.
 
 How the connection is secured:
 
-- ChatGPT gets a one-hour access token and a 60-day refresh token.
-- Both are signed with `SESSION_SECRET` and bound to your account, and every code and refresh token works only once.
+- The assistant gets a one-hour access token and a 60-day refresh token.
+- Both are signed with `SESSION_SECRET` and bound to your account, and every code and refresh token works only once. PKCE with S256 is required.
+- Redirects go only to allowed hosts. Local addresses, for Claude Code, may use any port.
 - Removing someone from the invite list cuts off their connector too.
-- The connector can read and change meals and read summaries, but it can't touch your workouts.
+- The connector can read and change meals, read summaries, and read and edit splits and exercises. It can't see or change your logged workouts, and it can't choose your current split.
+- A ChatGPT connection approved before the split tools existed keeps only the meal and summary tools until you remove the connector and add it again, which shows the new permissions.
 
 ## The iOS app
 
@@ -204,7 +228,7 @@ To publish the native iOS app on the App Store, follow [docs/app-store.md](docs/
 ```
 api/index.js                Vercel function; every /api/* and /.well-known/* request lands here
 server/                     auth (Apple/Google/GitHub OAuth, signed cookie), accounts, invites and deletion, sync API, Neon/memory store,
-                            oauth.js + mcp.js (the ChatGPT connector), coach.js (weekly AI review), social.js (friends, profiles),
+                            oauth.js + mcp.js (the Claude and ChatGPT connector), coach.js (weekly AI review), social.js (friends, profiles),
                             blocks and reports
 index.html, vite.config.ts  Vite entry; the config also mounts the API for dev/preview and builds the service worker
 src/lib/                    model.js (pure, tested logic), store/db/sync (IndexedDB + signals + sync), keypad, timer, theme

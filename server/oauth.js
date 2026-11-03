@@ -1,7 +1,7 @@
-// OAuth 2.1 for the ChatGPT connector. Lift is its own small authorization
-// server: ChatGPT registers itself, you approve once while signed in to
-// Lift, and ChatGPT gets short-lived bearer tokens for /api/mcp, bound to
-// your account (email). Client ids, codes and tokens are all signed with
+// OAuth 2.1 for the AI connector (ChatGPT, Claude). Lift is its own small
+// authorization server: the assistant registers itself, you approve once
+// while signed in to Lift, and it gets short-lived bearer tokens for /api/mcp,
+// bound to your account (email). Client ids, codes and tokens are all signed with
 // SESSION_SECRET; the only thing stored is which one-time codes and refresh
 // tokens were already used.
 import { createHash, randomBytes } from "node:crypto";
@@ -12,7 +12,10 @@ export const SCOPE = "lift";
 const CODE_TTL = 5 * 60_000;
 const ACCESS_TTL = 60 * 60_000;
 const REFRESH_TTL = 60 * 86_400_000;
-const DEFAULT_REDIRECT_HOSTS = ["chatgpt.com", "chat.openai.com"];
+// ChatGPT; Claude's apps; Claude Code, which listens on a local port.
+const CLAUDE_HOST = "claude.ai";
+const LOOPBACK_HOSTS = ["localhost", "127.0.0.1"];
+const DEFAULT_REDIRECT_HOSTS = ["chatgpt.com", "chat.openai.com", CLAUDE_HOST, ...LOOPBACK_HOSTS];
 
 const b64url = (value) => Buffer.from(value).toString("base64url");
 const sha256 = (value) => createHash("sha256").update(value).digest("base64url");
@@ -54,6 +57,28 @@ function allowedRedirect(uri, hosts) {
   }
 }
 
+const isLoopback = (url) => url.protocol === "http:" && LOOPBACK_HOSTS.includes(url.hostname);
+
+// A native app picks its port when it runs (RFC 8252), so a loopback address
+// matches its registered form whatever the port. Anything else matches exactly.
+function sameRedirect(registered, uri) {
+  if (registered === uri) return true;
+  try {
+    const [a, b] = [new URL(registered), new URL(uri)];
+    a.port = "";
+    b.port = "";
+    return isLoopback(a) && a.href === b.href;
+  } catch {
+    return false;
+  }
+}
+
+// Which assistant a redirect address belongs to: labels what it writes.
+function assistantOf(redirectUri) {
+  const url = new URL(redirectUri);
+  return url.hostname === CLAUDE_HOST || isLoopback(url) ? "claude" : "chatgpt";
+}
+
 export function protectedResourceMetadata(config, oauth) {
   return { resource: oauth.resource, authorization_servers: [config.appUrl], scopes_supported: [SCOPE], bearer_methods_supported: ["header"], resource_name: "Lift" };
 }
@@ -73,13 +98,13 @@ export function authorizationServerMetadata(config) {
 }
 
 // Dynamic client registration: the client id carries its redirect URIs,
-// which must be on ChatGPT's hosts.
+// which must be on an allowed host.
 export function registerClient(body, config, oauth) {
   const uris = Array.isArray(body.redirect_uris) ? body.redirect_uris.map(String).slice(0, 10) : [];
   if (!uris.length || !uris.every((uri) => allowedRedirect(uri, oauth.redirectHosts))) {
     throw Object.assign(httpError(400, "Redirect URIs must be on an allowed host."), { oauth: "invalid_redirect_uri" });
   }
-  const name = String(body.client_name || "ChatGPT").slice(0, 80);
+  const name = String(body.client_name || "AI assistant").slice(0, 80);
   return {
     client_id: seal("client", { r: uris, n: name }, config.sessionSecret),
     client_name: name,
@@ -95,9 +120,9 @@ export function registerClient(body, config, oauth) {
 // be shown on the page rather than sent to an unverified redirect URI.
 export function readAuthorizeRequest(params, config, oauth) {
   const client = unseal("client", params.client_id, config.sessionSecret);
-  if (!client) return { fatal: "Unknown client. Remove the connector in ChatGPT and add it again." };
+  if (!client) return { fatal: "Unknown client. Remove the connector in your assistant and add it again." };
   const redirectUri = String(params.redirect_uri || (client.r.length === 1 ? client.r[0] : ""));
-  if (!client.r.includes(redirectUri) || !allowedRedirect(redirectUri, oauth.redirectHosts)) return { fatal: "That redirect address isn't registered for this client." };
+  if (!client.r.some((registered) => sameRedirect(registered, redirectUri)) || !allowedRedirect(redirectUri, oauth.redirectHosts)) return { fatal: "That redirect address isn't registered for this client." };
   const request = {
     clientId: String(params.client_id),
     clientName: client.n,
@@ -122,18 +147,20 @@ export function redirectWith(request, params) {
 }
 
 export function issueCode(request, user, config) {
-  return seal("code", { c: sha256(request.clientId), r: request.redirectUri, ch: request.challenge, sub: String(user.sub), j: b64url(randomBytes(12)) }, config.sessionSecret, { ttl: CODE_TTL });
+  return seal("code", { c: sha256(request.clientId), r: request.redirectUri, ch: request.challenge, sub: String(user.sub), a: assistantOf(request.redirectUri), j: b64url(randomBytes(12)) }, config.sessionSecret, { ttl: CODE_TTL });
 }
 
 // `t` is when the connection was made, carried through refreshes, so a
-// connection from before an account was deleted stops working.
-function tokenPair(sub, clientHash, config, oauth, now, since = now) {
+// connection from before an account was deleted stops working. `a` is the
+// assistant approved. Connections approved before the split tools existed have
+// none, and keep what they agreed to until they reconnect (see mcp.js).
+function tokenPair(sub, clientHash, assistant, config, oauth, now, since = now) {
   const refreshId = b64url(randomBytes(12));
   return {
-    access_token: seal("access", { sub, c: clientHash, v: oauth.tokenVersion, t: since }, config.sessionSecret, { ttl: ACCESS_TTL, now }),
+    access_token: seal("access", { sub, c: clientHash, v: oauth.tokenVersion, t: since, a: assistant }, config.sessionSecret, { ttl: ACCESS_TTL, now }),
     token_type: "Bearer",
     expires_in: ACCESS_TTL / 1000,
-    refresh_token: seal("refresh", { sub, c: clientHash, v: oauth.tokenVersion, j: refreshId, t: since }, config.sessionSecret, { ttl: REFRESH_TTL, now }),
+    refresh_token: seal("refresh", { sub, c: clientHash, v: oauth.tokenVersion, j: refreshId, t: since, a: assistant }, config.sessionSecret, { ttl: REFRESH_TTL, now }),
     scope: SCOPE
   };
 }
@@ -152,13 +179,13 @@ export async function exchangeToken(body, { config, oauth, store, allowed, now =
     if (!body.code_verifier || !safeEqual(sha256(String(body.code_verifier)), code.ch)) throw grantError("invalid_grant", "PKCE verification failed.");
     if (!(await allowed(code.sub, now))) throw grantError("invalid_grant", "That account isn't allowed.");
     if (!(await store.claim(`code:${code.j}`, code.exp, now))) throw grantError("invalid_grant", "The code was already used.");
-    return tokenPair(code.sub, code.c, config, oauth, now);
+    return tokenPair(code.sub, code.c, code.a, config, oauth, now);
   }
   if (body.grant_type === "refresh_token") {
     const token = unseal("refresh", body.refresh_token, config.sessionSecret, now);
     if (!token || token.v !== oauth.tokenVersion || (clientHash && token.c !== clientHash) || !(await allowed(token.sub, token.t))) throw grantError("invalid_grant", "Sign in again.");
     if (!(await store.claim(`refresh:${token.j}`, token.exp, now))) throw grantError("invalid_grant", "That refresh token was already used.");
-    return tokenPair(token.sub, token.c, config, oauth, now, token.t);
+    return tokenPair(token.sub, token.c, token.a, config, oauth, now, token.t);
   }
   throw grantError("unsupported_grant_type");
 }
@@ -177,11 +204,11 @@ const escape = (text) => String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;"
 
 const PROVIDER_NAMES = { apple: "Apple", google: "Google", github: "GitHub", dev: "Dev account" };
 
-// The sign-in choice when connecting from ChatGPT: one link per provider,
+// The sign-in choice when connecting an assistant: one link per provider,
 // coming back to the approval page afterwards.
 export function signInPage({ providers, next }) {
   const links = providers.map((provider) => `<a class="button" href="/api/auth/login?${escape(new URLSearchParams({ provider, next }).toString())}">Continue with ${PROVIDER_NAMES[provider] || provider}</a>`).join("");
-  return shell("Sign in", `<h1>Sign in to Lift</h1><p>Sign in to connect ChatGPT to your Lift account.</p><div class="stack">${links}</div>`);
+  return shell("Sign in", `<h1>Sign in to Lift</h1><p>Sign in to connect your AI assistant to your Lift account.</p><div class="stack">${links}</div>`);
 }
 
 // The approval page. No scripts: two buttons in a same-origin form.
@@ -194,12 +221,18 @@ export function consentPage({ request, login, error }) {
         })
         .join("")
     : "";
+  const target = request ? new URL(request.redirectUri) : null;
+  // Any program on a device can listen on a local port, so say so.
+  const destination = target && (isLoopback(target)
+    ? `<p class="muted">This returns to a program on this device (<b>${escape(target.host)}</b>). Only allow it if you just started connecting from one, such as Claude Code.</p>`
+    : `<p class="muted">This returns you to <b>${escape(target.host)}</b>.</p>`);
   const body = error
     ? `<h1>Can't connect</h1><p>${escape(error)}</p>`
     : `<h1>Connect ${escape(request.clientName)} to Lift?</h1>
 <p>Signed in as <b>${escape(login)}</b>. ${escape(request.clientName)} will be able to:</p>
-<ul><li>Log, change and delete meals</li><li>Read your nutrition targets and daily totals</li><li>Read a summary of your training, bodyweight and progress</li></ul>
-<p class="muted">It can't see or change your workouts. Disconnect any time in ChatGPT's settings.</p>
+<ul><li>Log, change and delete meals</li><li>Read your nutrition targets and daily totals</li><li>Read a summary of your training, bodyweight and progress</li><li>Read your splits and exercises, add new splits and exercises, and edit any split, including your current one</li></ul>
+<p class="muted">It can't see or change your logged workouts, and a new split waits in the Split tab until you make it current. Disconnect any time in your assistant's settings.</p>
+${destination}
 <form method="post" action="/api/oauth/authorize">${hidden}<input type="hidden" name="response_type" value="code">
 <button name="decision" value="allow">Allow</button><button name="decision" value="deny" class="secondary">Cancel</button></form>`;
   return shell("Connect", body);

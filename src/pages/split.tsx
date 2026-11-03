@@ -1,7 +1,8 @@
-// Split: the days in your rotation (drag to reorder) with the weekly sets it
-// gives each muscle, and the editor for one day's exercises with sets, rep
-// range, rest and supersets.
-import { GripVertical, ListOrdered, Moon, Pencil, Plus, Trash2 } from "lucide-react";
+// Split: your splits with the current one marked, the days in one's rotation
+// (drag to reorder) with the weekly sets it gives each muscle, and the editor
+// for one day's exercises with sets, rep range, rest and supersets.
+import { signal } from "@preact/signals-core";
+import { Check, GripVertical, ListOrdered, Moon, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
 import { Reorder, useDragControls } from "motion/react";
 import { type ReactNode, useEffect, useState } from "react";
 import WheelPicker from "@/components/kokonutui/wheel-picker";
@@ -9,13 +10,14 @@ import { EditExerciseSheet, ExercisePicker } from "@/components/exercise-picker"
 import { MuscleBars } from "@/components/insights";
 import { Card, Chip, Empty, Page, Row, Section, Sheet, SheetAction, Stepper, Toggle, TopBar } from "@/components/kit";
 import { Button } from "@/components/ui/button";
-import { addDay, applyTemplate } from "@/lib/actions.js";
+import { addDay, applyTemplate, createSplit } from "@/lib/actions.js";
 import { ask } from "@/lib/dialogs";
 import { TEMPLATES } from "@/lib/exercises.js";
-import { indirectMuscles, lastDoneAt, MAIN_MUSCLES, nextSplitDay, splitWeeklySets, supersetLabels, trackOf, uid, VOLUME_RANGE } from "@/lib/model.js";
+import { fromAssistant, indirectMuscles, lastDoneAt, MAIN_MUSCLES, nextSplitDay, splitIdOf, splitWeeklySets, supersetLabels, trackOf, uid, VOLUME_RANGE } from "@/lib/model.js";
 import { go } from "@/lib/router.js";
-import { exerciseIndex, exerciseName, finishedWorkouts, records, remove, saveMany, settings, splitDays, update } from "@/lib/store.js";
+import { exerciseIndex, exerciseName, finishedWorkouts, records, remove, removeSplit, saveMany, saveSettings, saveSplit, settings, splits, update } from "@/lib/store.js";
 import * as format from "@/lib/format.js";
+import { syncNow } from "@/lib/sync.js";
 import { useValue } from "@/lib/use-signal";
 
 // A row you can drag by its grip; the rest of the row stays tappable and
@@ -40,13 +42,36 @@ function DragRow({ value, children, onDragEnd }: { value: any; children: ReactNo
   );
 }
 
+// The split being looked at. It outlives the page, so coming back from a day's
+// editor returns to the same split. Looking at one never makes it current.
+const viewing = signal<string | null>(null);
+
+const ASSISTANTS: Record<string, string> = { chatgpt: "ChatGPT", claude: "Claude" };
+
+function CurrentBadge() {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-[12px] font-semibold text-primary-foreground">
+      <Check className="size-3.5" strokeWidth={3} /> Current
+    </span>
+  );
+}
+
 export function Split() {
-  const days = useValue(splitDays) as any[];
+  const all = useValue(splits) as any[];
+  const chosen = useValue(viewing);
+  const current = all.find((split) => split.current);
+  const shown = all.find((split) => split.id === chosen) || current;
+  const days = shown.days as any[];
   const done = useValue(finishedWorkouts) as any[];
   const [order, setOrder] = useState(days);
   const [templates, setTemplates] = useState(false);
+  const [naming, setNaming] = useState<"new" | "rename" | null>(null);
   useEffect(() => setOrder(days), [days]);
-  const next = nextSplitDay(days, done);
+  // Splits from an assistant arrive through sync, so check for new ones on open.
+  useEffect(() => {
+    syncNow();
+  }, []);
+  const next = shown.current ? nextSplitDay(days, done) : null;
 
   const persist = () => saveMany(order.map((day: any, position: number) => ({ ...day, position })));
   const index = useValue(exerciseIndex) as Map<string, any>;
@@ -54,15 +79,57 @@ export function Split() {
   const volumeRows = [...MAIN_MUSCLES, ...[...weekly.keys()].filter((m) => !MAIN_MUSCLES.includes(m) && !["cardio", "full body", "other"].includes(m))].map((muscle) => ({ muscle, sets: weekly.get(muscle) || 0 }));
   const under = volumeRows.filter((row) => row.sets < VOLUME_RANGE[0]);
 
+  const makeCurrent = async () => {
+    await saveSettings({ currentSplit: shown.id });
+    viewing.value = null;
+  };
+  const del = async () => {
+    if (!(await ask({ title: `Delete ${shown.name}?`, message: "Its days go too. Past workouts stay in History.", confirm: "Delete", danger: true }))) return;
+    await removeSplit(shown);
+    viewing.value = null;
+  };
+  const saveName = async (name: string) => {
+    if (naming === "new") viewing.value = (await createSplit(name)).id;
+    else await saveSplit(shown.id, { name });
+    setNaming(null);
+  };
+
   return (
     <Page>
-      <TopBar subtitle="Your rotation, in order. Drag to reorder." title="Split" />
+      <TopBar subtitle={`Current split: ${current.name}`} title="Split" />
+      <Section footer="Today follows your current split. Each split remembers its place in the rotation, and your history stays whichever you use." title="Your splits">
+        <Card className="divide-y divide-border">
+          {all.map((split) => (
+            <Row
+              className={split.id === shown.id && all.length > 1 ? "bg-accent/60" : undefined}
+              key={split.id}
+              onClick={() => (viewing.value = split.id)}
+              subtitle={[format.plural(split.days.length, "day"), fromAssistant(split) ? `from ${ASSISTANTS[split.source]}` : null].filter(Boolean).join(" · ")}
+              title={split.name}
+            >
+              {split.current ? <CurrentBadge /> : null}
+            </Row>
+          ))}
+          <Row icon={Plus} onClick={() => setNaming("new")} title="New split" tone="action" />
+        </Card>
+      </Section>
+      {!shown.current ? (
+        <Card className="flex flex-col gap-3 p-4">
+          <p className="flex items-start gap-2 text-[14.5px] text-muted-foreground">
+            {fromAssistant(shown) ? <Sparkles className="mt-0.5 size-4 shrink-0 text-primary" strokeWidth={2.2} /> : null}
+            <span><b className="font-semibold text-foreground">{shown.name}</b> isn't current. Today keeps following {current.name} until you switch.</span>
+          </p>
+          <Button onClick={makeCurrent}>
+            <Check className="size-4" strokeWidth={2.6} /> Make current
+          </Button>
+        </Card>
+      ) : null}
       {!days.length ? (
         <Empty icon={ListOrdered} title="No days yet">
           Add your training days in the order you rotate through them, rest days included.
         </Empty>
       ) : (
-        <Section footer="After the last day it starts over. Doing a different day than suggested moves the rotation along." title="Rotation">
+        <Section footer="Drag to reorder. After the last day it starts over. Doing a different day than suggested moves the rotation along." title={all.length > 1 ? `${shown.name}: rotation` : "Rotation"}>
           <Reorder.Group as="div" axis="y" className="surface divide-y divide-border overflow-hidden rounded-3xl" onReorder={setOrder} values={order}>
             {order.map((day: any) => {
               const last = lastDoneAt(day.id, done);
@@ -88,11 +155,14 @@ export function Split() {
         </Section>
       ) : null}
       <Card className="divide-y divide-border">
-        <Row icon={Plus} onClick={async () => go(`split/${(await addDay()).id}`)} title="Add training day" tone="action" />
-        <Row icon={Moon} iconClass="bg-violet-500/15 text-violet-400" onClick={() => addDay({ rest: true })} title="Add rest day" tone="action" />
+        <Row icon={Plus} onClick={async () => go(`split/${(await addDay({ splitId: shown.id })).id}`)} title="Add training day" tone="action" />
+        <Row icon={Moon} iconClass="bg-violet-500/15 text-violet-400" onClick={() => addDay({ rest: true, splitId: shown.id })} title="Add rest day" tone="action" />
         <Row icon={ListOrdered} onClick={() => setTemplates(true)} title="Add days from a template" tone="action" />
+        <Row icon={Pencil} onClick={() => setNaming("rename")} title="Rename split" tone="action" />
+        {!shown.current ? <Row icon={Trash2} iconClass="bg-destructive/15 text-destructive" onClick={del} title="Delete split" tone="danger" /> : null}
       </Card>
 
+      <NameSheet initial={naming === "rename" ? shown.name : ""} onClose={() => setNaming(null)} onSave={saveName} open={naming !== null} title={naming === "new" ? "New split" : "Rename split"} />
       <Sheet onClose={() => setTemplates(false)} open={templates} title="Templates">
         <Card className="divide-y divide-border">
           {TEMPLATES.map((template: any) => (
@@ -100,7 +170,7 @@ export function Split() {
               chevron
               key={template.id}
               onClick={async () => {
-                await applyTemplate(template);
+                await applyTemplate(template, shown.id);
                 setTemplates(false);
               }}
               subtitle={template.blurb}
@@ -108,9 +178,36 @@ export function Split() {
             />
           ))}
         </Card>
-        <p className="px-1 text-[13px] text-muted-foreground">Adds the template's days to the end of your rotation.</p>
+        <p className="px-1 text-[13px] text-muted-foreground">Adds the template's days to the end of {shown.name}.</p>
       </Sheet>
     </Page>
+  );
+}
+
+function NameSheet({ open, initial, title, onClose, onSave }: { open: boolean; initial: string; title: string; onClose: () => void; onSave: (name: string) => void }) {
+  const [name, setName] = useState(initial);
+  useEffect(() => {
+    if (open) setName(initial);
+  }, [open, initial]);
+  const submit = () => {
+    if (name.trim()) onSave(name.trim().slice(0, 60));
+  };
+  return (
+    <Sheet left={<SheetAction onClick={onClose}>Cancel</SheetAction>} onClose={onClose} open={open} right={<SheetAction bold onClick={submit}>Save</SheetAction>} title={title}>
+      <Card>
+        <Row title="Name">
+          <input
+            aria-label="Split name"
+            className="w-44 bg-transparent text-right text-[15.5px] text-muted-foreground outline-none"
+            maxLength={60}
+            onChange={(e) => setName(e.currentTarget.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+            placeholder="Ski season prep"
+            value={name}
+          />
+        </Row>
+      </Card>
+    </Sheet>
   );
 }
 
@@ -143,7 +240,8 @@ export function DayEditor({ id }: { id: string }) {
   const del = async () => {
     if (!(await ask({ title: `Delete ${day.name}?`, message: "Past workouts stay in History.", confirm: "Delete", danger: true }))) return;
     await remove(id);
-    await saveMany((splitDays.value as any[]).filter((d) => d.id !== id).map((d, position) => ({ ...d, position })));
+    const siblings = (splits.value as any[]).find((split) => split.id === splitIdOf(day))?.days || [];
+    await saveMany(siblings.filter((d: any) => d.id !== id).map((d: any, position: number) => ({ ...d, position })));
     go("split", { replace: true });
   };
 

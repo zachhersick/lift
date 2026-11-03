@@ -3,11 +3,11 @@
 // through save/update/remove.
 import { computed, signal } from "@preact/signals-core";
 import { BUILT_IN } from "./exercises.js";
-import { badges, BARS, bodyweightId, dateKey, energyPlan, finished, insights, live, newer, orderedDays, PLATES, profileSummary, uid } from "./model.js";
+import { badges, BARS, bodyweightId, dateKey, energyPlan, finished, insights, listSplits, live, MAIN_SPLIT_NAME, newer, PLATES, profileSummary, uid } from "./model.js";
 import * as db from "./db.js";
 import { databaseName } from "./account.js";
 
-export const DEFAULT_SETTINGS = { id: "settings", kind: "settings", unit: "lb", step: 5, defaultRest: 120, sound: true, theme: "system", tint: "blue", weeklyGoal: null, goal: "maintain", calorieTarget: null, proteinTarget: null, timeZone: null };
+export const DEFAULT_SETTINGS = { id: "settings", kind: "settings", unit: "lb", step: 5, defaultRest: 120, sound: true, theme: "system", tint: "blue", weeklyGoal: null, goal: "maintain", calorieTarget: null, proteinTarget: null, timeZone: null, currentSplit: null };
 
 export const records = signal(new Map());
 export const loaded = signal(false);
@@ -21,7 +21,8 @@ export function whenChanged(fn) {
 const ofKind = (kind) => computed(() => [...records.value.values()].filter((record) => record.kind === kind));
 
 const storedExercises = ofKind("exercise");
-export const splitDaysAll = ofKind("splitDay");
+const splitRecords = ofKind("split");
+const splitDaysAll = ofKind("splitDay");
 export const workoutsAll = ofKind("workout");
 const bodyweightsAll = ofKind("bodyweight");
 const mealsAll = ofKind("meal");
@@ -34,7 +35,11 @@ export const settings = computed(() => {
   const tint = stored.tint === "indigo" ? "violet" : stored.tint;
   return { ...stored, tint, unit, barWeight: stored.barWeight ?? BARS[unit][0], plates: stored.plates?.length ? stored.plates : PLATES[unit] };
 });
-export const splitDays = computed(() => orderedDays(splitDaysAll.value));
+// Every split, and the current one: its days are what Today, the Coach and
+// the weekly goal work from.
+export const splits = computed(() => listSplits(splitRecords.value, splitDaysAll.value, settings.value));
+export const currentSplit = computed(() => splits.value.find((split) => split.current));
+export const splitDays = computed(() => currentSplit.value.days);
 export const workouts = computed(() => live(workoutsAll.value));
 export const finishedWorkouts = computed(() => finished(workoutsAll.value));
 // Logged training sessions, without the "rest day done" markers.
@@ -82,8 +87,19 @@ export const profile = computed(() => profileSummary({ workouts: workoutsAll.val
 export const badgeList = computed(() => badges(workoutsAll.value, { bodyweights: bodyweightsAll.value, unit: settings.value.unit, timeZone: settings.value.timeZone || undefined, vip: membership.value.vip }));
 
 // The Coach's cards, and the weekly reviews Claude wrote, newest first.
-export const coach = computed(() => insights({ workouts: workoutsAll.value, meals: mealsAll.value, bodyweights: bodyweightsAll.value, settings: settings.value, exerciseIndex: exerciseIndex.value, splitDays: splitDaysAll.value }));
+export const coach = computed(() => insights({ workouts: workoutsAll.value, meals: mealsAll.value, bodyweights: bodyweightsAll.value, settings: settings.value, exerciseIndex: exerciseIndex.value, splitDays: splitDays.value }));
 export const coachReviews = computed(() => live(reviewsAll.value).sort((a, b) => b.date.localeCompare(a.date)));
+
+// Changes a split's record. The main split gets one the first time it's renamed.
+export function saveSplit(id, change) {
+  return save({ id, kind: "split", name: MAIN_SPLIT_NAME, ...(records.value.get(id) || {}), ...change, deleted: false });
+}
+
+// Deletes a split and its days. Workouts logged from them stay in History.
+export function removeSplit(split) {
+  const { days, current, ...record } = split;
+  return saveMany([{ ...record, kind: "split", deleted: true }, ...days.map((day) => ({ ...day, deleted: true }))]);
+}
 
 export function saveMeal(meal) {
   return save({ source: "manual", items: [], ...meal, id: meal.id || uid("meal"), kind: "meal", date: meal.date || dateKey(meal.eatenAt || Date.now()), deleted: false });

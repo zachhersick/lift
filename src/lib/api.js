@@ -8,7 +8,7 @@ const VERIFIER = "lift-verifier";
 
 export const native = typeof window !== "undefined" && Boolean(window.Capacitor?.isNativePlatform?.());
 const base = native ? String(import.meta.env.VITE_API_URL || "").replace(/\/$/, "") : "";
-// Where Lift's server is, for links people copy (the ChatGPT connector).
+// Where Lift's server is, for links people copy (the Claude and ChatGPT connector).
 export const apiOrigin = base || (typeof location !== "undefined" ? location.origin : "");
 
 function stored(key) {
