@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createHash, generateKeyPairSync } from "node:crypto";
+import { createHash, createHmac, generateKeyPairSync } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { Readable } from "node:stream";
 import { cleanChanges, createApp } from "../server/app.js";
@@ -48,7 +48,7 @@ test("sync needs a session and a same-origin request", async () => {
   const app = createApp({ store: new MemoryStore(), env });
   assert.equal((await request(app, { method: "POST", path: "/api/sync", body: {} })).status, 401);
   assert.equal((await request(app, { method: "POST", path: "/api/sync", body: {}, cookie: signedIn, origin: "https://evil.example" })).status, 403);
-  assert.deepEqual((await request(app, { path: "/api/session", cookie: signedIn })).body.user, { email: "zach@example.com", name: "", username: null, admin: true, vip: true });
+  assert.deepEqual((await request(app, { path: "/api/session", cookie: signedIn })).body.user, { email: "zach@example.com", name: "", username: null, admin: true, vip: true, pro: true, subscribed: false });
 });
 
 test("a second device pulls what the first pushed, and newest edit wins", async () => {
@@ -193,7 +193,7 @@ test("only admins manage the invite list and VIPs", async () => {
   assert.equal((await invite(friendCookie, { email: "x@example.com" })).status, 403);
   assert.equal((await invite(signedIn, { email: "x@example.com" }, { origin: "https://evil.example" })).status, 403);
   assert.equal((await invite(signedIn, { email: "not an email" })).status, 400);
-  assert.deepEqual((await request(app, { path: "/api/session", cookie: friendCookie })).body.user, { email: "friend@example.com", name: "", username: null, admin: false, vip: true });
+  assert.deepEqual((await request(app, { path: "/api/session", cookie: friendCookie })).body.user, { email: "friend@example.com", name: "", username: null, admin: false, vip: true, pro: true, subscribed: false });
 
   const lowered = await invite(signedIn, { email: "friend@example.com", vip: false });
   assert.equal(lowered.body.users.find((u) => u.email === "friend@example.com").vip, false);
@@ -948,5 +948,234 @@ test("the iOS sign-in says so when the server can't be reached", async () => {
   } finally {
     globalThis.fetch = saved.fetch;
     Object.defineProperty(globalThis, "localStorage", { configurable: true, value: saved.localStorage });
+  }
+});
+
+// ---- Lift Pro through Stripe ----
+
+const billingEnv = { ...env, STRIPE_SECRET_KEY: "test-key", STRIPE_WEBHOOK_SECRET: "test-webhook-secret", STRIPE_PRICE_MONTHLY: "price_month", STRIPE_PRICE_YEARLY: "price_year" };
+const DAY = 24 * 60 * 60 * 1000;
+const inSeconds = (ms) => Math.floor(ms / 1000);
+
+// A stand-in for Stripe's API; `subs` is what each customer has right now.
+function fakeStripe() {
+  const fake = { subs: {}, calls: [], fail: false };
+  fake.fetchImpl = async (url, init = {}) => {
+    const { pathname } = new URL(url);
+    fake.calls.push({ method: init.method || "GET", pathname, body: new URLSearchParams(init.body || "") });
+    const reply = (body, status = 200) => ({ ok: status < 400, status, json: async () => body });
+    if (fake.fail) return reply({}, 500);
+    if (pathname === "/v1/customers") return reply({ id: "cus_new" });
+    if (pathname === "/v1/checkout/sessions") return reply({ url: "https://checkout.example/session" });
+    if (pathname === "/v1/billing_portal/sessions") return reply({ url: "https://portal.example/session" });
+    if (pathname === "/v1/subscriptions") return reply({ data: fake.subs[new URL(url).searchParams.get("customer")] || [] });
+    if (pathname.startsWith("/v1/prices/")) return reply({ unit_amount: pathname.endsWith("month") ? 499 : 3499, currency: "usd" });
+    if (pathname.startsWith("/v1/customers/") && init.method === "DELETE") return reply({ deleted: true });
+    return reply({}, 404);
+  };
+  return fake;
+}
+
+const sub = (status, end = Date.now() + 30 * DAY, start = Date.now()) => ({ status, items: { data: [{ current_period_start: inSeconds(start), current_period_end: inSeconds(end) }] } });
+
+function billingApp(extra = {}) {
+  const store = new MemoryStore();
+  const stripe = fakeStripe();
+  const anthropic = { beta: { messages: { create: async () => ({ stop_reason: "end_turn", content: [{ type: "text", text: "Good week." }] }) } } };
+  return { store, stripe, app: createApp({ store, env: billingEnv, fetchImpl: stripe.fetchImpl, anthropic, ...extra }) };
+}
+
+function webhook(app, event, { secret = billingEnv.STRIPE_WEBHOOK_SECRET, at = Date.now() } = {}) {
+  const raw = JSON.stringify(event);
+  const time = inSeconds(at);
+  const signature = createHmac("sha256", secret).update(`${time}.${raw}`).digest("hex");
+  return request(app, { method: "POST", path: "/api/billing/webhook", origin: undefined, body: event, headers: { "stripe-signature": `t=${time},v1=${signature}` } });
+}
+const changed = (customer = "cus_1", type = "customer.subscription.updated") => ({ type, data: { object: { customer } } });
+
+async function member(store, email = "amy@example.com", customer = "cus_1") {
+  await store.putUser({ email, createdAt: 1 });
+  if (customer) await store.setPlan(email, { customer });
+  return sessionFor(email);
+}
+const me = async (app, cookie) => (await request(app, { path: "/api/session", cookie })).body;
+
+test("with Stripe unset, billing is off and everything works as before", async () => {
+  const store = new MemoryStore();
+  const app = createApp({ store, env });
+  const cookie = await member(store);
+  const session = await me(app, cookie);
+  assert.equal(session.billing, false);
+  assert.equal(session.user.pro, false);
+  assert.equal((await request(app, { method: "POST", path: "/api/billing/checkout", cookie, body: { interval: "monthly" } })).status, 503);
+  assert.equal((await webhook(app, changed())).status, 404);
+  assert.equal((await request(app, { method: "POST", path: "/api/account/delete", cookie, body: {} })).status, 200);
+  assert.equal(await store.getUser("amy@example.com"), null);
+});
+
+test("Pro isn't offered without the weekly review it sells", async () => {
+  const store = new MemoryStore();
+  const cookie = await member(store);
+  const app = createApp({ store, env: billingEnv, fetchImpl: fakeStripe().fetchImpl });
+  assert.equal((await me(app, cookie)).billing, false);
+});
+
+test("the webhook only accepts Stripe's fresh signature", async () => {
+  const { app, store, stripe } = billingApp();
+  await member(store);
+  stripe.subs.cus_1 = [sub("active")];
+  assert.equal((await webhook(app, changed(), { secret: "wrong-secret" })).status, 400);
+  assert.equal((await webhook(app, changed(), { at: Date.now() - 10 * 60 * 1000 })).status, 400);
+  assert.equal((await request(app, { method: "POST", path: "/api/billing/webhook", origin: undefined, body: changed() })).status, 400);
+  assert.equal((await store.getUser("amy@example.com")).planStatus, null);
+  assert.equal((await webhook(app, changed())).status, 200);
+  assert.equal((await store.getUser("amy@example.com")).planStatus, "active");
+  assert.equal((await store.getUser("amy@example.com")).planSource, "stripe");
+});
+
+test("webhooks end in the right plan whatever order they arrive in", async () => {
+  const { app, store, stripe } = billingApp();
+  const cookie = await member(store);
+  stripe.subs.cus_1 = [sub("canceled"), sub("active")];
+  const deleted = changed("cus_1", "customer.subscription.deleted");
+  await webhook(app, changed());
+  await webhook(app, deleted);
+  await webhook(app, deleted);
+  assert.equal((await me(app, cookie)).user.subscribed, true, "an old subscription ending doesn't end the new one");
+  stripe.subs.cus_1 = [sub("canceled")];
+  await webhook(app, deleted);
+  assert.equal((await me(app, cookie)).user.pro, false);
+  assert.equal((await webhook(app, changed("cus_stranger"))).status, 200, "an unknown customer is ignored");
+  const reads = stripe.calls.filter((call) => call.pathname === "/v1/subscriptions").length;
+  await webhook(app, { type: "invoice.paid", data: { object: { customer: "cus_1" } } });
+  assert.equal(stripe.calls.filter((call) => call.pathname === "/v1/subscriptions").length, reads, "other events are ignored");
+});
+
+test("Pro follows the plan's status and end, with grace; VIPs and admins always have it", async () => {
+  const { app, store, stripe } = billingApp();
+  const cookie = await member(store);
+  const now = Date.now();
+  const proWith = async (...subs) => {
+    stripe.subs.cus_1 = subs;
+    await webhook(app, changed());
+    return (await me(app, cookie)).user.pro;
+  };
+  assert.equal(await proWith(sub("active")), true);
+  assert.equal(await proWith(sub("trialing")), true);
+  assert.equal(await proWith(sub("active", now - DAY)), true, "within the grace period");
+  assert.equal(await proWith(sub("active", now - 4 * DAY)), false, "past the grace period");
+  assert.equal(await proWith(sub("past_due", now + 30 * DAY, now - DAY)), true, "a failed renewal gets the grace period");
+  assert.equal(await proWith(sub("past_due", now + 30 * DAY, now - 4 * DAY)), false, "not the whole unpaid month");
+  assert.equal(await proWith(sub("incomplete")), false);
+  assert.equal(await proWith(sub("unpaid")), false);
+  assert.equal(await proWith(), false);
+  await store.putUser({ ...(await store.getUser("amy@example.com")), vip: true });
+  assert.equal((await me(app, cookie)).user.pro, true);
+  assert.equal((await me(app, cookie)).user.subscribed, false);
+  assert.equal((await me(app, signedIn)).user.pro, true);
+});
+
+test("the weekly review needs Pro, and a subscription gets it", async () => {
+  const { app, store, stripe } = billingApp();
+  const cookie = await member(store);
+  const day = new Date().toISOString().slice(0, 10);
+  const lifts = [1, 2, 3].map((n) => ({ id: `w${n}`, kind: "workout", updatedAt: n, startedAt: Date.now() - n * 1000, finishedAt: Date.now(), date: day, exercises: [{ exerciseId: "bench", sets: [{ weight: 100, reps: 5, done: true, completedAt: Date.now() }] }] }));
+  await request(app, { method: "POST", path: "/api/sync", cookie, body: { since: 0, changes: lifts } });
+  const review = () => request(app, { method: "POST", path: "/api/coach/review", cookie, body: { consent: true } });
+  const refused = await review();
+  assert.equal(refused.status, 403);
+  assert.match(refused.body.error, /Lift Pro/);
+  assert.equal((await me(app, cookie)).coach, false);
+  stripe.subs.cus_1 = [sub("active")];
+  await webhook(app, changed());
+  assert.equal((await me(app, cookie)).coach, true);
+  assert.notEqual((await review()).status, 403);
+});
+
+test("saving a user row never undoes a plan", async () => {
+  const store = new MemoryStore();
+  await store.putUser({ email: "amy@example.com", createdAt: 1 });
+  const stale = await store.getUser("amy@example.com");
+  await store.setPlan("amy@example.com", { customer: "cus_1", status: "active", until: 123, source: "stripe" });
+  await store.putUser({ ...stale, name: "Amy" });
+  const row = await store.getUser("amy@example.com");
+  assert.deepEqual([row.name, row.stripeCustomer, row.planStatus, row.planUntil, row.planSource], ["Amy", "cus_1", "active", 123, "stripe"]);
+  assert.equal((await store.getUserByCustomer("cus_1")).email, "amy@example.com");
+});
+
+test("checkout, the portal and prices work on the web", async () => {
+  const { app, store, stripe } = billingApp();
+  const cookie = await member(store, "amy@example.com", "");
+  const post = (path, body = {}, options = {}) => request(app, { method: "POST", path, cookie, body, ...options });
+  assert.deepEqual((await request(app, { path: "/api/billing/prices", cookie })).body.prices, { monthly: { amount: 499, currency: "usd" }, yearly: { amount: 3499, currency: "usd" } });
+  assert.equal((await post("/api/billing/portal")).status, 409, "no subscription to manage yet");
+  assert.equal((await post("/api/billing/checkout", { interval: "weekly" })).status, 400);
+  assert.equal((await post("/api/billing/checkout", { interval: "yearly" }, { origin: "https://evil.example" })).status, 403);
+  const checkout = await post("/api/billing/checkout", { interval: "yearly" });
+  assert.equal(checkout.body.url, "https://checkout.example/session");
+  const session = stripe.calls.find((call) => call.pathname === "/v1/checkout/sessions").body;
+  assert.equal(session.get("customer"), "cus_new");
+  assert.equal(session.get("line_items[0][price]"), "price_year");
+  assert.equal(session.get("mode"), "subscription");
+  assert.equal((await store.getUser("amy@example.com")).stripeCustomer, "cus_new");
+  stripe.calls.length = 0;
+  await post("/api/billing/checkout", { interval: "monthly" });
+  assert.equal(stripe.calls.some((call) => call.pathname === "/v1/customers"), false, "the customer is reused");
+  assert.equal((await post("/api/billing/portal")).body.url, "https://portal.example/session");
+
+  // Back from checkout, without waiting for the webhook.
+  stripe.subs.cus_new = [sub("active")];
+  const back = await post("/api/billing/sync");
+  assert.equal(back.body.user.pro, true);
+  assert.equal((await post("/api/billing/checkout", { interval: "monthly" })).status, 409, "already subscribed");
+});
+
+test("the iOS app can't reach billing", async () => {
+  const { app, store, stripe } = billingApp();
+  await member(store);
+  const token = createSession({ email: "amy@example.com", name: "" }, SECRET);
+  const headers = { authorization: `Bearer ${token}` };
+  const asApp = (method, path, body) => request(app, { method, path, body, origin: "capacitor://localhost", headers });
+  assert.equal((await asApp("GET", "/api/billing/prices")).status, 403);
+  assert.equal((await asApp("POST", "/api/billing/checkout", { interval: "monthly" })).status, 403);
+  assert.equal((await asApp("POST", "/api/billing/portal", {})).status, 403);
+  assert.equal(stripe.calls.length, 0);
+});
+
+test("deleting an account cancels its subscription, or deletes nothing if Stripe fails", async () => {
+  const { app, store, stripe } = billingApp();
+  const cookie = await member(store);
+  stripe.fail = true;
+  const failed = await request(app, { method: "POST", path: "/api/account/delete", cookie, body: {} });
+  assert.equal(failed.status, 502);
+  assert.ok(await store.getUser("amy@example.com"), "the account stays");
+  stripe.fail = false;
+  assert.equal((await request(app, { method: "POST", path: "/api/account/delete", cookie, body: {} })).status, 200);
+  assert.ok(stripe.calls.some((call) => call.method === "DELETE" && call.pathname === "/v1/customers/cus_1"));
+  assert.equal(await store.getUser("amy@example.com"), null);
+});
+
+test("removing someone as an admin cancels their subscription too", async () => {
+  const { app, store, stripe } = billingApp();
+  await member(store);
+  const remove = () => request(app, { method: "POST", path: "/api/admin/users/remove", cookie: signedIn, body: { email: "amy@example.com" } });
+  stripe.fail = true;
+  assert.equal((await remove()).status, 502);
+  assert.ok(await store.getUser("amy@example.com"));
+  stripe.fail = false;
+  assert.equal((await remove()).status, 200);
+  assert.ok(stripe.calls.some((call) => call.method === "DELETE" && call.pathname === "/v1/customers/cus_1"));
+  assert.equal(await store.getUser("amy@example.com"), null);
+});
+
+test("Stripe ids stay out of admin and social replies", async () => {
+  const { app, store } = billingApp();
+  const cookie = await member(store);
+  await request(app, { method: "POST", path: "/api/account", cookie, body: { username: "amy_lifts" } });
+  const friend = await member(store, "ben@example.com", "");
+  await request(app, { method: "POST", path: "/api/account", cookie: friend, body: { username: "ben_lifts" } });
+  await request(app, { method: "POST", path: "/api/friends/request", cookie: friend, body: { username: "amy_lifts" } });
+  for (const reply of [await request(app, { path: "/api/admin/users", cookie: signedIn }), await request(app, { path: "/api/friends", cookie }), await me(app, cookie)]) {
+    assert.doesNotMatch(JSON.stringify(reply), /cus_1|stripeCustomer/);
   }
 });

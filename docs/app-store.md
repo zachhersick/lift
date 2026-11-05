@@ -164,7 +164,7 @@ Change it together with these answers.
 Both of these only run when the user turns them on, and the label above already
 covers the data involved (Health & Fitness, App Functionality):
 
-- **Weekly AI review (Anthropic).** VIP members only, and only after they accept
+- **Weekly AI review (Anthropic).** Lift Pro and VIP members only, and only after they accept
   the consent step in the app. Once a week the server sends Anthropic's API a
   summary of that week's training, eating and bodyweight, and stores the review
   it writes. Anthropic acts as a service provider. The consent screen is what
@@ -388,6 +388,18 @@ differently or also reads the bundle ID. After the redeploy:
     the same Apple ID starts an empty account.
 - [ ] Optional: **External Testing** for friends. The first external build goes
       through a short beta review.
+
+### Lift Pro and in-app purchase
+
+Lift Pro is sold on the web through Stripe, and the app hides every purchase
+screen and refuses the billing API. That isn't enough on its own: guideline
+3.1.3(b) lets a multiplatform app honor subscriptions bought on the website
+only when they are also available as in-app purchases within the app. So don't
+release a build while Stripe billing is on in production unless the app also
+sells Pro through Apple, with Restore Purchases and App Store Server
+Notifications writing `planSource: "apple"`. That work also changes
+`PrivacyInfo.xcprivacy` and the privacy answers above (purchase history).
+Comped VIP accounts aren't purchases.
 
 ### Submit
 

@@ -84,6 +84,7 @@ An account is a verified email address. People sign in with **Apple**, **Google*
 
 **What accounts control:**
 - **VIP**, toggled per person, adds the weekly AI review. It's written once they've logged 3 lifting sessions in the last 7 days.
+- **Lift Pro** is the paid version of the same access, sold on the web through Stripe once the `STRIPE_*` variables are set. Admins and VIPs have it free. See [Lift Pro subscriptions](#lift-pro-subscriptions).
 - **Removing someone** signs them out at once. Their data is kept, so adding them back restores it.
 - **Deleting an account** (anyone but an admin, in Settings) permanently removes its records, friendships, blocks and reports, revokes Sign in with Apple, and ends every session and ChatGPT connection from before, even if the same email signs up again.
 
@@ -144,6 +145,9 @@ Optional:
 | `MCP_TOKEN_VERSION` | Change it (e.g. `1` → `2`) to disconnect every assistant immediately. |
 | `OAUTH_REDIRECT_HOSTS` | Comma-separated hosts the connector may redirect to. Defaults to `chatgpt.com,chat.openai.com,claude.ai,localhost,127.0.0.1`. The last two are for Claude Code. The `form-action` entries in `vercel.json` must include any host you add. |
 | `ANTHROPIC_API_KEY` | Turns on the weekly AI review for VIPs: one Claude call a week each, a few cents. Without it, the rule-based Coach still works. |
+| `STRIPE_SECRET_KEY` | Stripe API key. Lift Pro is off unless all four `STRIPE_*` variables and `ANTHROPIC_API_KEY` are set. |
+| `STRIPE_WEBHOOK_SECRET` | Signing secret of the webhook endpoint below. |
+| `STRIPE_PRICE_MONTHLY`, `STRIPE_PRICE_YEARLY` | Stripe price ids for the two plans. Amounts are read from Stripe. |
 | `OPEN_SIGNUP` | `1` lets anyone with an Apple, Google or GitHub account sign in, not just invitees. Needed for the App Store. |
 
 Sessions last 30 days. Every write from the web app needs the session cookie, a JSON body and an `Origin` header that matches `APP_URL`. The iOS app instead signs in through the system browser (PKCE, back to `lift://auth`) and sends its session as a bearer token from `capacitor://localhost`, the one origin the API allows cross-site. The one exception is Apple's sign-in callback, which Apple posts from its own site; it's checked against the signed state cookie instead.
@@ -240,3 +244,14 @@ src/styles.css              Tailwind v4 theme: dark/light tokens and accent colo
 public/                     icons, manifest, theme-init.js (applies the theme before first paint), privacy/terms/support pages
 tests/                      node --test
 ```
+
+## Lift Pro subscriptions
+
+Billing is off until you set it up, and everything works as before until then.
+
+1. In Stripe, use test mode first. Create a **Lift Pro** product with a monthly and a yearly recurring price.
+2. Turn on the **Customer Portal** in Stripe's billing settings, with cancelling allowed.
+3. Add a webhook endpoint at `https://<your-app>/api/billing/webhook` for `customer.subscription.created`, `customer.subscription.updated` and `customer.subscription.deleted`.
+4. Set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_MONTHLY` and `STRIPE_PRICE_YEARLY`, and redeploy.
+
+Pro currently unlocks the weekly AI review. Don't release the iOS app with billing on until it also sells Pro through Apple in-app purchase: see `docs/app-store.md`.

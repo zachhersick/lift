@@ -67,6 +67,11 @@ export const SCHEMA = [
   "alter table lift_users add column if not exists username text",
   "create unique index if not exists lift_users_username on lift_users (username) where username is not null",
   "alter table lift_users add column if not exists apple_token text",
+  "alter table lift_users add column if not exists stripe_customer text",
+  "alter table lift_users add column if not exists plan_status text",
+  "alter table lift_users add column if not exists plan_until bigint",
+  "alter table lift_users add column if not exists plan_source text",
+  "create index if not exists lift_users_stripe_customer on lift_users (stripe_customer) where stripe_customer is not null",
   `create table if not exists lift_blocks (
     blocker text not null,
     blocked text not null,
@@ -182,7 +187,21 @@ export class MemoryStore {
   async putUser(user) {
     const row = userRow(user);
     if (row.username && [...this.users.values()].some((other) => other.username === row.username && other.email !== row.email)) throw usernameTaken();
-    this.users.set(user.email, row);
+    const { stripeCustomer, planStatus, planUntil, planSource } = this.users.get(user.email) || {};
+    this.users.set(user.email, { ...row, stripeCustomer: stripeCustomer || null, planStatus: planStatus || null, planUntil: planUntil ?? null, planSource: planSource || null });
+  }
+
+  // Only billing writes these; putUser keeps them, so a row read before a
+  // webhook arrived can't undo it.
+  async setPlan(email, { customer, status, until, source }) {
+    const user = this.users.get(email);
+    if (!user) return;
+    this.users.set(email, { ...user, stripeCustomer: customer ?? user.stripeCustomer, planStatus: status ?? user.planStatus, planUntil: until ?? user.planUntil, planSource: source ?? user.planSource });
+  }
+
+  async getUserByCustomer(customer) {
+    const user = [...this.users.values()].find((row) => row.stripeCustomer === customer);
+    return user ? { ...user } : null;
   }
 
   async getUserByUsername(username) {
@@ -357,6 +376,18 @@ export class NeonStore {
     );
   }
 
+  async setPlan(email, { customer, status, until, source }) {
+    await this.query(
+      "update lift_users set stripe_customer = coalesce($2, stripe_customer), plan_status = coalesce($3, plan_status), plan_until = coalesce($4, plan_until), plan_source = coalesce($5, plan_source) where email = $1",
+      [email, customer ?? null, status ?? null, until ?? null, source ?? null]
+    );
+  }
+
+  async getUserByCustomer(customer) {
+    const rows = await this.query("select * from lift_users where stripe_customer = $1", [customer]);
+    return rows[0] ? fromUserRow(rows[0]) : null;
+  }
+
   async getUserByUsername(username) {
     const rows = await this.query("select * from lift_users where username = $1", [username]);
     return rows[0] ? fromUserRow(rows[0]) : null;
@@ -428,4 +459,4 @@ export class NeonStore {
 }
 
 const fromFriendRow = (row) => ({ a: row.a, b: row.b, status: row.status, requestedBy: row.requested_by, createdAt: Number(row.created_at) });
-const fromUserRow = (row) => ({ email: row.email, name: row.name, username: row.username || null, vip: Boolean(row.vip), invitedBy: row.invited_by, createdAt: Number(row.created_at), lastSeenAt: row.last_seen_at == null ? null : Number(row.last_seen_at), appleToken: row.apple_token || "" });
+const fromUserRow = (row) => ({ email: row.email, name: row.name, username: row.username || null, vip: Boolean(row.vip), invitedBy: row.invited_by, createdAt: Number(row.created_at), lastSeenAt: row.last_seen_at == null ? null : Number(row.last_seen_at), appleToken: row.apple_token || "", stripeCustomer: row.stripe_customer || null, planStatus: row.plan_status || null, planUntil: row.plan_until == null ? null : Number(row.plan_until), planSource: row.plan_source || null });
