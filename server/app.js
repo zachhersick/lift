@@ -8,7 +8,8 @@
 // each other. Anyone can delete their account and everything in it. ChatGPT and
 // Claude connect through OAuth (server/oauth.js) to the MCP endpoint (server/mcp.js).
 import { randomBytes } from "node:crypto";
-import { readJsonBody, readJsonOrForm } from "./http.js";
+import { readJsonBody, readJsonOrForm, readText } from "./http.js";
+import { BILLING_EVENTS, bestPlan, billingConfig, createStripe, planActive, verifySignature } from "./billing.js";
 import {
   appleAuthorizeUrl, appleUser, checkOAuthState, clearCookie, cookie, createSession, decryptText, encryptText, githubAuthorizeUrl, githubUser,
   googleAuthorizeUrl, googleUser, NATIVE_ORIGIN, NATIVE_REDIRECT, nativeCode, newOAuthState, normalizeEmail, parseCookies, readNativeCode, readSession,
@@ -52,6 +53,8 @@ export function appConfig(env = process.env) {
     github: pair(env.GITHUB_CLIENT_ID, env.GITHUB_CLIENT_SECRET),
     // Anyone with an Apple, Google or GitHub account can sign in, not just invitees.
     openSignup: env.OPEN_SIGNUP === "1",
+    // Lift Pro subscriptions, once all the Stripe variables are set.
+    billing: billingConfig(env),
     // Local testing only: sign in without Google or GitHub. Refused on Vercel.
     devLogin: env.LIFT_DEV_LOGIN === "1" && !env.VERCEL
   };
@@ -96,13 +99,14 @@ export function cleanChanges(changes) {
   return [...byId.values()];
 }
 
-const publicUser = ({ email, name, username, admin, vip }) => ({ email, name, username: username || null, admin, vip });
+const publicUser = ({ email, name, username, admin, vip, pro, subscribed }) => ({ email, name, username: username || null, admin, vip, pro, subscribed });
 
 // `anthropic` replaces the Claude client in tests.
 export function createApp({ store, env = process.env, fetchImpl = fetch, anthropic = null }) {
   const config = appConfig(env);
   const oauth = oauthConfig(env, config);
   const reviews = Boolean(env.ANTHROPIC_API_KEY || anthropic);
+  const stripe = config.billing ? createStripe({ secretKey: config.billing.secretKey, appUrl: config.appUrl, prices: config.billing.prices, fetchImpl }) : null;
 
   // The account behind an email, if it may use Lift: an admin, someone on
   // the invite list, or anyone when sign-up is open. Checked on every
@@ -113,7 +117,9 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
     const admin = config.admins.includes(email);
     const row = await store.getUser(email);
     if (!admin && !row && !config.openSignup) return null;
-    return { email, name: row?.name || "", username: row?.username || null, admin, vip: admin || Boolean(row?.vip), row };
+    const vip = admin || Boolean(row?.vip);
+    const subscribed = planActive(row);
+    return { email, name: row?.name || "", username: row?.username || null, admin, vip, pro: vip || subscribed, subscribed, row };
   }
 
   // An account that's still there for a session or token issued at
@@ -179,11 +185,22 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
     return finishSignIn(req, res, profile);
   }
 
+  async function refreshPlan(email, customer) {
+    const { status, until } = bestPlan(await stripe.listSubscriptions(customer));
+    await store.setPlan(email, { status, until, source: "stripe" });
+  }
+
+  // Runs before an account goes, so a Stripe failure stops the deletion and
+  // nobody keeps being charged for an account that's gone.
+  async function endSubscription(row) {
+    if (stripe && row?.stripeCustomer) await stripe.deleteCustomer(row.stripeCustomer);
+  }
+
   async function people() {
     const rows = await store.listUsers();
     const listed = new Set(rows.map((row) => row.email));
     const admins = config.admins.filter((email) => !listed.has(email)).map((email) => ({ email, name: "", vip: true, invitedBy: "", createdAt: 0, lastSeenAt: null }));
-    return [...admins, ...rows].map(({ appleToken, ...row }) => ({ ...row, admin: config.admins.includes(row.email), vip: config.admins.includes(row.email) || row.vip }));
+    return [...admins, ...rows].map(({ appleToken, stripeCustomer, ...row }) => ({ ...row, admin: config.admins.includes(row.email), vip: config.admins.includes(row.email) || row.vip }));
   }
 
   // Reports with the usernames admins know people by.
@@ -310,11 +327,26 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
       return sendJson(res, reply);
     }
 
+    // Stripe says a subscription changed. Its signature is the only
+    // authentication; the plan itself is read back from Stripe.
+    if (path === "/api/billing/webhook" && req.method === "POST") {
+      if (!stripe) return sendJson(res, { ok: false, error: "Not found." }, 404);
+      const raw = await readText(req);
+      if (!verifySignature(raw, req.headers["stripe-signature"], config.billing.webhookSecret)) return sendJson(res, { ok: false, error: "Bad signature." }, 400);
+      const event = JSON.parse(raw);
+      if (BILLING_EVENTS.has(event.type)) {
+        const owner = await store.getUserByCustomer(event.data?.object?.customer);
+        if (owner) await refreshPlan(owner.email, owner.stripeCustomer);
+      }
+      return sendJson(res, { ok: true });
+    }
+
     // ---- everything else needs a signed-in session ----
     const user = await signedIn(req);
     if (path === "/api/session") {
       if (!user) return sendJson(res, { ok: false, signedIn: false, providers: config.providers });
-      return sendJson(res, { ok: true, user: publicUser(user), coach: reviews && user.vip, providers: config.providers });
+      // Pro only has the weekly review to sell so far, so it needs both.
+      return sendJson(res, { ok: true, user: publicUser(user), coach: reviews && user.pro, billing: Boolean(stripe && reviews), providers: config.providers });
     }
     if (!user) return sendJson(res, { ok: false, signedIn: false, error: "Sign in to sync." }, 401);
     if (req.method !== "GET" && !sameOrigin(req)) return sendJson(res, { ok: false, error: "Cross-site request refused." }, 403);
@@ -332,16 +364,47 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
       const reset = since > 0 && !rows.length && since > (await mine.head());
       return sendJson(res, { ok: true, accepted, records: rows.map((row) => row.doc), cursor: reset ? 0 : cursor, more: rows.length === PULL_LIMIT, reset });
     }
-    // The weekly AI review (needs ANTHROPIC_API_KEY): for VIPs, once they've
+    // The weekly AI review (needs ANTHROPIC_API_KEY): for Pro and VIPs, once they've
     // logged enough lifting that week to review, and only after they agreed
     // to their data going to Anthropic (`consent`, from settings.aiConsent).
     if (path === "/api/coach/review" && req.method === "POST") {
       if (!reviews) return sendJson(res, { ok: false, error: "Add ANTHROPIC_API_KEY to turn on weekly reviews." }, 503);
-      if (!user.vip) return sendJson(res, { ok: false, error: "Weekly reviews are for VIP members." }, 403);
+      if (!user.pro) return sendJson(res, { ok: false, error: stripe ? "Weekly reviews are part of Lift Pro." : "Weekly reviews are for VIP members." }, 403);
       if ((await readJsonBody(req, { limit: 1_000 })).consent !== true) return sendJson(res, { ok: false, error: "Turn on weekly reviews first." }, 409);
       const lifts = liftsThisWeek(await mine.listKind("workout"));
       if (lifts < REVIEW_MIN_LIFTS) return sendJson(res, { ok: false, error: `Log ${REVIEW_MIN_LIFTS} lifts this week to get your review (${lifts} so far).` }, 409);
       return sendJson(res, { ok: true, review: await writeReview({ store: mine, apiKey: env.ANTHROPIC_API_KEY, client: anthropic }) });
+    }
+
+    // ---- Lift Pro, sold on the web only ----
+    // Apple doesn't let the iOS app send people to outside checkout, so these
+    // refuse its bearer sessions as well as being hidden there.
+    if (path.startsWith("/api/billing/")) {
+      if (!stripe) return sendJson(res, { ok: false, error: "Subscriptions aren't available." }, 503);
+      if (bearerSession(req)) return sendJson(res, { ok: false, error: "Subscriptions aren't available in the app." }, 403);
+      const customer = user.row?.stripeCustomer || "";
+      if (path === "/api/billing/prices" && req.method === "GET") return sendJson(res, { ok: true, prices: await stripe.getPrices() });
+      if (path === "/api/billing/checkout" && req.method === "POST") {
+        if (user.pro) return sendJson(res, { ok: false, error: "You already have Lift Pro." }, 409);
+        const { interval } = await readJsonBody(req, { limit: 1_000 });
+        if (!["monthly", "yearly"].includes(interval)) return sendJson(res, { ok: false, error: "Pick monthly or yearly." }, 400);
+        let id = customer;
+        if (!id) {
+          id = await stripe.createCustomer(user.email);
+          await store.setPlan(user.email, { customer: id });
+        }
+        return sendJson(res, { ok: true, url: await stripe.createCheckout(id, interval) });
+      }
+      if (path === "/api/billing/portal" && req.method === "POST") {
+        if (!customer) return sendJson(res, { ok: false, error: "You don't have a subscription." }, 409);
+        return sendJson(res, { ok: true, url: await stripe.createPortal(customer) });
+      }
+      // Back from checkout: don't wait for the webhook.
+      if (path === "/api/billing/sync" && req.method === "POST") {
+        if (customer) await refreshPlan(user.email, customer);
+        return sendJson(res, { ok: true, user: publicUser(await account(user.email)) });
+      }
+      return sendJson(res, { ok: false, error: "Not found." }, 404);
     }
 
     // ---- your username and display name ----
@@ -374,6 +437,7 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
     // Apple. Admins are set in ADMIN_EMAILS, so they're removed there.
     if (path === "/api/account/delete" && req.method === "POST") {
       if (user.admin) return sendJson(res, { ok: false, error: "Admins are set in ADMIN_EMAILS. Remove yourself there first." }, 400);
+      await endSubscription(user.row);
       const appleToken = user.row?.appleToken ? decryptText(user.row.appleToken, config.sessionSecret) : "";
       if (appleToken && config.apple) await revokeApple({ token: appleToken, apple: config.apple, fetchImpl }).catch(() => false);
       await store.deleteOwner(user.email);
@@ -464,6 +528,7 @@ export function createApp({ store, env = process.env, fetchImpl = fetch, anthrop
       if (!email) return sendJson(res, { ok: false, error: "Enter a valid email." }, 400);
       if (path === "/api/admin/users/remove") {
         if (config.admins.includes(email)) return sendJson(res, { ok: false, error: "Admins are set in ADMIN_EMAILS." }, 400);
+        await endSubscription(await store.getUser(email));
         await store.removeUser(email);
       } else {
         const existing = await store.getUser(email);

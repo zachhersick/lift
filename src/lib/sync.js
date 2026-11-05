@@ -10,9 +10,10 @@ import * as db from "./db.js";
 import { notify } from "./notify";
 import { applyRemote, pending, records, setMembership, whenChanged } from "./store.js";
 
-// `user` is { email, name, admin, vip }; `coach` says whether this account
-// gets weekly reviews; `providers` are the sign-in options.
-export const sync = signal({ status: "starting", user: null, coach: false, providers: [], lastSync: null, error: "" });
+// `user` is { email, name, admin, vip, pro, subscribed }; `coach` says whether
+// this account gets weekly reviews; `billing` whether Lift Pro can be bought
+// here, which is never in the iOS app; `providers` are the sign-in options.
+export const sync = signal({ status: "starting", user: null, coach: false, billing: false, providers: [], lastSync: null, error: "" });
 
 let running = false;
 let again = false;
@@ -31,7 +32,7 @@ export async function checkSession() {
       location.reload();
       return undefined;
     }
-    set({ user: body.ok ? body.user : null, coach: Boolean(body.ok && body.coach), providers: body.providers || [], status: body.ok ? sync.value.status : "signedOut" });
+    set({ user: body.ok ? body.user : null, coach: Boolean(body.ok && body.coach), billing: Boolean(body.ok && body.billing && !native), providers: body.providers || [], status: body.ok ? sync.value.status : "signedOut" });
     if (body.ok) setMembership(body.user.vip);
     return body.ok ? body.user : null;
   } catch {

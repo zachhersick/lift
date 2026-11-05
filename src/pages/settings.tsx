@@ -1,16 +1,18 @@
 // Settings: your account (and deleting it), appearance, weekly goal,
 // nutrition, the ChatGPT connector, units, barbell and plates, rest timer,
 // backups, installing on the phone, and the privacy policy and terms.
-import { Check, Cloud, Copy, Download, FileText, Flag, LifeBuoy, LogIn, RefreshCw, Share, Shield, Sparkles, SquarePlus, Trash2, Upload, UserPlus } from "lucide-react";
+import { Check, Cloud, Copy, CreditCard, Download, FileText, Flag, LifeBuoy, LogIn, RefreshCw, Share, Shield, Sparkles, SquarePlus, Trash2, Upload, UserPlus } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { Card, Chip, Page, Row, Section, Segmented, spring, Stepper, Toggle, TopBar } from "@/components/kit";
+import { openBilling, ProSheet } from "@/components/pro-sheet";
 import { api, apiOrigin, native, postJson, signIn } from "@/lib/api.js";
 import { ask } from "@/lib/dialogs";
 import { BARS, defaultWeeklyGoal, fromAssistant, PLATES } from "@/lib/model.js";
 import { notify } from "@/lib/notify";
+import { go, route } from "@/lib/router.js";
 import { exportData, importRecords, meals, pending, saveSettings, sessions, settings, splitDays, targets } from "@/lib/store.js";
-import { deleteAccount, signOut, sync, syncNow } from "@/lib/sync.js";
+import { checkSession, deleteAccount, signOut, sync, syncNow } from "@/lib/sync.js";
 import { TINTS } from "@/lib/theme.js";
 import * as format from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
@@ -165,6 +167,20 @@ export function Settings() {
   const mealList = useValue(meals) as any[];
   const lastChat = mealList.filter(fromAssistant).sort((a, b) => (b.loggedAt || b.updatedAt) - (a.loggedAt || a.updatedAt))[0];
   const connectorUrl = `${apiOrigin}/api/mcp`;
+  const [pro, setPro] = useState(false);
+  const query = (useValue(route) as any).query as URLSearchParams;
+  const billing = query.get("billing");
+
+  // Back from Stripe Checkout: read the plan now rather than wait for the webhook.
+  useEffect(() => {
+    if (!billing) return;
+    go("settings", { replace: true });
+    if (billing !== "success") return;
+    postJson("/api/billing/sync")
+      .then(() => checkSession())
+      .then((user: any) => notify(user?.pro ? "Welcome to Lift Pro" : "Your payment is still processing. Pro will turn on shortly."))
+      .catch(() => notify("Your payment is still processing. Pro will turn on shortly."));
+  }, [billing]);
 
   const remove = async () => {
     const confirmed = await ask({
@@ -217,6 +233,7 @@ export function Settings() {
   return (
     <Page>
       <TopBar backLabel="Profile" backTo="profile" title="Settings" />
+      <ProSheet onClose={() => setPro(false)} open={pro} />
 
       <Section
         footer={state.user ? "Workouts sync a couple of seconds after each change. Signing out keeps your data on this device for when you sign back in." : "Sign in to back up your workouts and use them on other devices."}
@@ -231,7 +248,9 @@ export function Settings() {
           />
           {state.user ? (
             <>
-              <Row title="Membership" value={state.user.admin ? "Admin" : state.user.vip ? "VIP" : "Member"} />
+              <Row title="Membership" value={state.user.admin ? "Admin" : state.user.vip ? "VIP" : state.user.subscribed ? "Pro" : "Member"} />
+              {state.billing && !state.user.pro ? <Row icon={Sparkles} onClick={() => setPro(true)} title="Upgrade to Pro" tone="action" /> : null}
+              {state.user.subscribed && !native ? <Row icon={CreditCard} onClick={() => openBilling("/api/billing/portal")} title="Manage subscription" tone="action" /> : null}
               <Row disabled={state.status === "syncing"} icon={RefreshCw} onClick={syncNow} title="Sync now" tone="action" />
               <Row onClick={signOut} title="Sign out" tone="danger" />
               {state.user.admin ? null : <Row icon={Trash2} iconClass="bg-destructive/15 text-destructive" onClick={remove} title="Delete account" tone="danger" />}

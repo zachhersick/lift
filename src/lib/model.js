@@ -1819,6 +1819,11 @@ function hourIn(time, timeZone) {
 const LIFT = { bench: "b_bench-press", squat: "b_back-squat", deadlift: "b_deadlift", ohp: "b_overhead-press" };
 const plateLoad = (n) => 45 + 90 * n;
 
+// What Lift Pro includes today. A feature goes here once it's actually gated.
+export const PRO_FEATURES = [
+  { title: "Weekly AI review", detail: `Claude reads your training and eating and writes a short review, in weeks you log ${REVIEW_MIN_LIFTS} lifts.` }
+];
+
 // Badges earned from your own logs. `metric` names what's measured and `goal`
 // the line to cross; lift weights are in lb (kg logs are converted).
 export const BADGES = [

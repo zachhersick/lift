@@ -7,6 +7,7 @@ import { AlertTriangle, ArrowRight, BookOpen, CheckCircle2, Lightbulb, RefreshCw
 import { motion } from "motion/react";
 import { type ComponentType, useEffect, useRef, useState } from "react";
 import { Card, FadeIn, Section } from "@/components/kit";
+import { ProSheet } from "@/components/pro-sheet";
 import { Button } from "@/components/ui/button";
 import { fromDateKey, liftsThisWeek, REVIEW_MIN_LIFTS, VOLUME_RANGE } from "@/lib/model.js";
 import { postJson } from "@/lib/api.js";
@@ -104,6 +105,7 @@ export function WeeklyReview() {
   const enough = lifts >= REVIEW_MIN_LIFTS;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [pro, setPro] = useState(false);
   const latest = reviews[0];
   const tried = useRef(false);
 
@@ -135,6 +137,23 @@ export function WeeklyReview() {
     if (enough) write();
   };
 
+  if (state.billing && !state.user?.pro && !latest) {
+    return (
+      <FadeIn>
+        <Card className="flex flex-col gap-3 p-5">
+          <div className="flex items-center gap-2">
+            <span className="grid size-8 place-items-center rounded-xl bg-gradient-to-br from-[var(--tint)] to-[var(--tint-2)] text-white">
+              <Sparkles className="size-4" strokeWidth={2.4} />
+            </span>
+            <span className="flex-1 text-[15.5px] font-semibold">Weekly review</span>
+          </div>
+          <p className="text-[14.5px] text-muted-foreground">With Lift Pro, Claude reads your training and eating and writes you a short review each week.</p>
+          <Button className="self-start" onClick={() => setPro(true)} size="sm" variant="tinted">See Lift Pro</Button>
+        </Card>
+        <ProSheet onClose={() => setPro(false)} open={pro} />
+      </FadeIn>
+    );
+  }
   if (!state.coach && !latest) return null;
   return (
     <FadeIn>

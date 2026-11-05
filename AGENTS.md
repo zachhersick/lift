@@ -50,6 +50,7 @@ for social features, AI-sharing consent and the legal pages.
 | `src/styles.css`, `public/theme-init.js` | Theme tokens and appearance before first paint |
 | `server/app.js`, `auth.js`, `http.js`, `store.js` | API routing, accounts, invites and deletion, Apple/Google/GitHub sign-in, request validation and memory/Neon stores |
 | `server/oauth.js`, `mcp.js`, `coach.js` | Claude and ChatGPT connector (OAuth 2.1 + MCP tools) and the weekly Claude review |
+| `server/billing.js`, `src/components/pro-sheet.tsx` | Lift Pro: Stripe calls, webhook signatures and plan rules; the upgrade sheet |
 | `server/social.js` | Friend lists, the leaderboard and the share-filtered profile summary friends receive (block and report routes are in `app.js`) |
 | `public/privacy.html`, `terms.html`, `support.html` | Privacy policy, terms (zero tolerance for abuse) and support page, linked from Settings and needed by the App Store |
 | `api/index.js` | Vercel entry point for every `/api/*` and `/.well-known/*` request |
@@ -186,7 +187,19 @@ returns to the foreground, so keep in-progress work surviving a reload.
   bodyweight values, meals or notes to that summary. Badges (`BADGES`,
   `badges()`) are computed from the owner's own logs, not stored; the VIP badge
   reflects current membership.
-- The weekly AI review is for VIPs only, after `REVIEW_MIN_LIFTS` lifting sessions
+- Lift Pro is sold through Stripe on the web, and is off unless every `STRIPE_*`
+  variable is set. `user.pro` is admin, VIP or an active plan (`planActive()` in
+  `server/billing.js`); check it on the server for anything paid. The plan lives on
+  the user row (`stripe_customer`, `plan_status`, `plan_until`, `plan_source`) and only
+  `store.setPlan` writes it, never `putUser`. Webhooks must verify Stripe's signature
+  and re-read the plan from Stripe rather than trust the event. `/api/billing/*`
+  refuses iOS bearer sessions, and purchase UI stays hidden there, until the app sells
+  Pro through Apple (guideline 3.1.3(b), see `docs/app-store.md`). Deleting or removing
+  an account cancels in Stripe first, and a failure there stops the deletion. Stripe
+  ids never leave the server. List a feature in `PRO_FEATURES` only once it's gated,
+  never lock logged data, deletion, export, block or report, and keep the terms and
+  privacy policy in step.
+- The weekly AI review is for Pro and VIPs only, after `REVIEW_MIN_LIFTS` lifting sessions
   in the last 7 days (`liftsThisWeek` in `model.js`, checked on server and app),
   and only after the person agrees to their data going to Anthropic
   (`settings.aiConsent`; the request carries `consent: true` or is refused).
@@ -254,7 +267,8 @@ workflow is currently checked into this repository.
 Production requires `DATABASE_URL`, `APP_URL`, `ADMIN_EMAILS`, a `SESSION_SECRET` of
 at least 32 characters, and Google (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`)
 and/or GitHub (`GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`) OAuth. Optional:
-`ANTHROPIC_API_KEY` (weekly review), `OPEN_SIGNUP`, `MCP_TOKEN_VERSION` (bump to
+`ANTHROPIC_API_KEY` (weekly review), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
+`STRIPE_PRICE_MONTHLY` and `STRIPE_PRICE_YEARLY` (Lift Pro), `OPEN_SIGNUP`, `MCP_TOKEN_VERSION` (bump to
 disconnect ChatGPT) and `OAUTH_REDIRECT_HOSTS`. The Neon store initializes and
 migrates its schema on first use; records from before accounts go to the first
 admin. Follow the

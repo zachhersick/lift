@@ -10,7 +10,7 @@ export function httpError(status, message) {
   return error;
 }
 
-async function readText(req, limit) {
+export async function readText(req, limit = BODY_LIMIT) {
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
