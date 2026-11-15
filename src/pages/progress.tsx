@@ -1,6 +1,6 @@
 // Progress: training volume over time, bodyweight, and every exercise with
 // its trend; the exercise page swipes between charts and lists records.
-import { ArrowDownRight, ArrowRight, ArrowUpRight, ChevronRight, Dumbbell, GraduationCap, NotebookPen, Scale, Search, Sparkles, Trash2, Utensils } from "lucide-react";
+import { ArrowDownRight, ArrowRight, ArrowUpRight, ChevronRight, Dumbbell, GraduationCap, NotebookPen, Plus, Scale, Search, Trash2, Utensils } from "lucide-react";
 import { motion } from "motion/react";
 import { useMemo, useState } from "react";
 import MetricCard from "@/components/kokonutui/metric-card";
@@ -52,15 +52,15 @@ function useVolumeSeries() {
 
 function TrendBadge({ value }: { value: string }) {
   const map: Record<string, [any, string, string]> = {
-    up: [ArrowUpRight, "Up", "bg-success/15 text-success"],
-    down: [ArrowDownRight, "Down", "bg-destructive/15 text-destructive"],
-    flat: [ArrowRight, "Flat", "bg-muted text-muted-foreground"],
-    new: [Sparkles, "New", "bg-primary/15 text-primary"]
+    up: [ArrowUpRight, "Up", "text-success"],
+    down: [ArrowDownRight, "Down", "text-destructive"],
+    flat: [ArrowRight, "Flat", "text-muted-foreground"],
+    new: [Plus, "New", "text-muted-foreground"]
   };
   const [Icon, text, cls] = map[value] || map.new;
   return (
-    <span className={cn("flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[12px] font-semibold", cls)}>
-      <Icon className="size-3.5" strokeWidth={2.6} />
+    <span className={cn("flex items-center gap-1 text-[13px]", cls)}>
+      <Icon className="size-3.5" strokeWidth={1.75} />
       {text}
     </span>
   );
@@ -101,39 +101,33 @@ export function Progress() {
       ) : null}
 
       <FadeIn delay={0.05}>
-        <button className="surface flex w-full items-center gap-4 rounded-3xl p-4 text-left active:scale-[0.99]" onClick={() => go("bodyweight")} type="button">
-          <span className="grid size-11 place-items-center rounded-2xl bg-primary/15 text-primary">
-            <Scale className="size-5" strokeWidth={2.2} />
-          </span>
+        <button className="surface flex w-full items-center gap-4 rounded-2xl p-4 text-left" onClick={() => go("bodyweight")} type="button">
+          <Scale className="size-5 shrink-0 text-muted-foreground" strokeWidth={1.75} />
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="text-[13px] text-muted-foreground">Bodyweight</span>
-            <span className="text-[20px] font-semibold tracking-tight tabular">{latest ? `${format.weight(latest.weight)} ${s.unit}` : "Not logged yet"}</span>
+            <span className="text-[20px] font-medium tabular">{latest ? `${format.weight(latest.weight)} ${s.unit}` : "Not logged yet"}</span>
           </span>
           <Sparkline values={[...entries].reverse().slice(-14).map((e) => e.weight)} />
         </button>
       </FadeIn>
       <FadeIn delay={0.06}>
-        <button className="surface flex w-full items-center gap-4 rounded-3xl p-4 text-left active:scale-[0.99]" onClick={() => go("coach")} type="button">
-          <span className="grid size-11 place-items-center rounded-2xl bg-primary/15 text-primary">
-            <GraduationCap className="size-5" strokeWidth={2.2} />
-          </span>
+        <button className="surface flex w-full items-center gap-4 rounded-2xl p-4 text-left" onClick={() => go("coach")} type="button">
+          <GraduationCap className="size-5 shrink-0 text-muted-foreground" strokeWidth={1.75} />
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="text-[13px] text-muted-foreground">Coach</span>
-            <span className="text-[17px] font-semibold tracking-tight">{coachCards.length ? `${coachCards.length} ${coachCards.length === 1 ? "suggestion" : "suggestions"}` : "All good for now"}</span>
+            <span className="text-[17px] font-medium">{coachCards.length ? `${coachCards.length} ${coachCards.length === 1 ? "suggestion" : "suggestions"}` : "All good for now"}</span>
           </span>
-          <ChevronRight className="size-[18px] text-muted-foreground/60" strokeWidth={2.4} />
+          <ChevronRight className="size-[18px] text-muted-foreground/60" strokeWidth={1.75} />
         </button>
       </FadeIn>
       <FadeIn delay={0.07}>
-        <button className="surface flex w-full items-center gap-4 rounded-3xl p-4 text-left active:scale-[0.99]" onClick={() => go("nutrition")} type="button">
-          <span className="grid size-11 place-items-center rounded-2xl bg-primary/15 text-primary">
-            <Utensils className="size-5" strokeWidth={2.2} />
-          </span>
+        <button className="surface flex w-full items-center gap-4 rounded-2xl p-4 text-left" onClick={() => go("nutrition")} type="button">
+          <Utensils className="size-5 shrink-0 text-muted-foreground" strokeWidth={1.75} />
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="text-[13px] text-muted-foreground">Fuel · maintenance</span>
-            <span className="text-[20px] font-semibold tracking-tight tabular">{energy.calories ? `${energy.calories.toLocaleString()} kcal` : "Not enough data"}</span>
+            <span className="text-[20px] font-medium tabular">{energy.calories ? `${energy.calories.toLocaleString()} kcal` : "Not enough data"}</span>
           </span>
-          <ChevronRight className="size-[18px] text-muted-foreground/60" strokeWidth={2.4} />
+          <ChevronRight className="size-[18px] text-muted-foreground/60" strokeWidth={1.75} />
         </button>
       </FadeIn>
 
@@ -151,8 +145,8 @@ export function Progress() {
             ]}
           />
           <Section footer="Trend compares your best estimated 1RM over the last three sessions with the three before." title="Exercises">
-            <label className="flex h-11 items-center gap-2 rounded-2xl bg-muted px-3.5 text-muted-foreground">
-              <Search className="size-[18px]" strokeWidth={2.2} />
+            <label className="flex h-11 items-center gap-2 rounded-2xl bg-muted px-3 text-muted-foreground">
+              <Search className="size-[18px]" strokeWidth={1.75} />
               <input className="h-full min-w-0 flex-1 bg-transparent text-[16px] text-foreground outline-none placeholder:text-muted-foreground" onChange={(e) => setQuery(e.currentTarget.value)} placeholder="Search your exercises" type="search" value={query} />
             </label>
             <Card className="divide-y divide-border">
@@ -315,7 +309,7 @@ export function ExerciseDetail({ id }: { id: string }) {
 
       <Section footer="Shows on this exercise in every workout." title="Note">
         <Card>
-          <Row chevron icon={NotebookPen} iconClass="bg-amber-400/15 text-amber-500" onClick={() => setNoting(true)} title={exercise.note || "Add a note"} tone={exercise.note ? undefined : "action"} />
+          <Row chevron icon={NotebookPen} onClick={() => setNoting(true)} title={exercise.note || "Add a note"} tone={exercise.note ? undefined : "action"} />
         </Card>
       </Section>
       {!exercise.builtIn ? (

@@ -824,7 +824,7 @@ export default function ActivityTerrain({
   return (
     <div
       className={cn(
-        "surface w-full select-none rounded-3xl text-foreground",
+        "surface w-full select-none rounded-2xl text-foreground",
         className
       )}
     >
@@ -850,7 +850,7 @@ export default function ActivityTerrain({
               className={cn(
                 "rounded-full px-3 py-1 font-medium outline-none transition-colors duration-200 ease-out focus-visible:ring-2 focus-visible:ring-zinc-400",
                 flat === value
-                  ? "bg-card text-foreground shadow-sm dark:bg-white/15"
+                  ? "bg-card text-foreground shadow-sm dark:bg-accent"
                   : "text-muted-foreground"
               )}
               key={name}

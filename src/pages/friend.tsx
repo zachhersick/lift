@@ -69,7 +69,7 @@ export function ReportSheet({ username, name, open, onClose }: { username: strin
 function CompareRow({ row, them, unit }: { row: any; them: string; unit: string }) {
   const top = Math.max(row.mine, row.theirs, 1);
   const bar = (label: string, value: number, ratio: number | null, mine: boolean) => (
-    <div className="grid grid-cols-[64px_1fr_auto] items-center gap-3 text-[13.5px]">
+    <div className="grid grid-cols-[64px_1fr_auto] items-center gap-3 text-[13px]">
       <span className="truncate text-muted-foreground">{label}</span>
       <span className="h-2.5 overflow-hidden rounded-full bg-muted">
         <span className={mine ? "block h-full rounded-full bg-primary" : "block h-full rounded-full bg-muted-foreground/50"} style={{ width: `${Math.max(4, (value / top) * 100)}%` }} />
@@ -170,11 +170,11 @@ export function FriendPage({ username }: { username: string }) {
             data.recent.map((workout: any) => (
               <div className="flex flex-col gap-1 px-4 py-3" key={workout.date}>
                 <div className="flex items-baseline justify-between gap-3">
-                  <span className="truncate text-[15.5px] font-medium">{workout.name}</span>
+                  <span className="truncate text-[15px] font-medium">{workout.name}</span>
                   <span className="shrink-0 text-[13px] text-muted-foreground">{format.relativeDay(workout.date)}</span>
                 </div>
                 {workout.exercises.map((entry: any, i: number) => (
-                  <span className="truncate text-[13.5px] text-muted-foreground" key={i}>
+                  <span className="truncate text-[13px] text-muted-foreground" key={i}>
                     {entry.name} · {entry.seconds ? format.clock(entry.seconds) : entry.weight ? `${format.weight(entry.weight)} ${data.unit} × ${entry.reps}` : `${entry.reps} reps`}
                     {entry.sets > 1 ? `, ${entry.sets} sets` : ""}
                   </span>
@@ -190,8 +190,8 @@ export function FriendPage({ username }: { username: string }) {
       <Section>
         <Card className="divide-y divide-border">
           <Row onClick={remove} title="Remove friend" tone="danger" />
-          <Row icon={Flag} iconClass="bg-destructive/15 text-destructive" onClick={() => setReporting(true)} title={`Report ${first}`} tone="danger" />
-          <Row icon={Ban} iconClass="bg-destructive/15 text-destructive" onClick={block} title={`Block ${first}`} tone="danger" />
+          <Row icon={Flag} iconClass="text-destructive" onClick={() => setReporting(true)} title={`Report ${first}`} tone="danger" />
+          <Row icon={Ban} iconClass="text-destructive" onClick={block} title={`Block ${first}`} tone="danger" />
         </Card>
       </Section>
       <ReportSheet name={data.name} onClose={() => setReporting(false)} open={reporting} username={username} />

@@ -1,20 +1,18 @@
 // History: a month calendar with training days, every workout, and one
 // workout's summary compared with the last time you did that day.
 import { CalendarDays, ChevronLeft, ChevronRight, Pencil, Trophy } from "lucide-react";
-import { motion } from "motion/react";
-import { lazy, Suspense, useMemo, useState } from "react";
-import SwooshText from "@/components/kokonutui/swoosh-text";
+import { useMemo, useState } from "react";
 import { Card, Empty, FadeIn, Page, Row, Section, StatTiles, TopBar } from "@/components/kit";
+import { Barbell } from "@/components/plates";
 import { Button } from "@/components/ui/button";
 import { ask } from "@/lib/dialogs";
-import { byNewest, cardioSeconds, dateKey, e1rm, exerciseHistory, isPersonalRecord, personalRecords, previousSession, trackOf, workoutSetCount, workoutVolume } from "@/lib/model.js";
+import { barFor, byNewest, cardioSeconds, dateKey, e1rm, exerciseHistory, isPersonalRecord, personalRecords, plateBreakdown, previousSession, trackOf, workoutSetCount, workoutVolume } from "@/lib/model.js";
 import { go, route } from "@/lib/router.js";
 import { exerciseIndex, exerciseName, records, remove, sessions, settings } from "@/lib/store.js";
 import * as format from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
 import { cn } from "@/lib/utils";
 
-const MeshHero = lazy(() => import("@/components/mesh-hero"));
 
 export function History() {
   const list = useValue(sessions) as any[];
@@ -47,22 +45,22 @@ export function History() {
         </Empty>
       ) : null}
       {groups.map(([label, items], gi) => (
-        <FadeIn delay={0.05 * gi} key={label}>
+        <FadeIn key={label}>
           <Section title={label}>
             <div className="flex flex-col gap-2">
               {items.map((workout) => (
-                <button className="surface flex items-center gap-3 rounded-2xl p-4 text-left active:scale-[0.99]" key={workout.id} onClick={() => go(`history/${workout.id}`)} type="button">
-                  <span className="flex w-11 shrink-0 flex-col items-center rounded-xl bg-primary/12 py-1.5 text-primary">
-                    <span className="text-[10.5px] font-semibold uppercase">{format.date(workout.startedAt, { weekday: "short" })}</span>
-                    <span className="text-[18px] leading-none font-semibold tabular">{new Date(workout.startedAt).getDate()}</span>
+                <button className="surface flex items-center gap-3 rounded-2xl p-4 text-left transition-colors active:bg-accent" key={workout.id} onClick={() => go(`history/${workout.id}`)} type="button">
+                  <span className="flex w-10 shrink-0 flex-col items-center gap-1 border-r border-border pr-3 text-muted-foreground">
+                    <span className="text-[12px]">{format.date(workout.startedAt, { weekday: "short" })}</span>
+                    <span className="text-[20px] leading-none font-medium text-foreground tabular">{new Date(workout.startedAt).getDate()}</span>
                   </span>
                   <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-[16px] font-semibold">{workout.name}</span>
+                    <span className="truncate text-[15px] font-medium">{workout.name}</span>
                     <span className="truncate text-[13px] text-muted-foreground">
                       {format.duration(workout.finishedAt - workout.startedAt)} · {format.plural(workoutSetCount(workout), "set")} · {(workout.entries || []).slice(0, 2).map((e: any) => exerciseName(e.exerciseId)).join(", ")}
                     </span>
                   </span>
-                  <span className="shrink-0 text-[14px] font-semibold tabular">{format.volume(workoutVolume(workout), s.unit)}</span>
+                  <span className="sets shrink-0 text-[14px]">{format.volume(workoutVolume(workout), s.unit)}</span>
                 </button>
               ))}
             </div>
@@ -92,8 +90,8 @@ function Calendar({ month, setMonth, trained }: { month: number; setMonth: (v: n
         <span
           className={cn(
             "grid size-9 place-items-center rounded-full text-[15px] tabular",
-            on && "bg-gradient-to-br from-[var(--tint)] to-[var(--tint-2)] font-semibold text-white shadow-[0_6px_16px_-8px_var(--tint)]",
-            !on && key === today && "font-semibold text-primary ring-1 ring-primary/50",
+            on && "bg-primary font-medium text-primary-foreground",
+            !on && key === today && "font-medium text-primary ring-1 ring-primary/50",
             !on && key !== today && "text-foreground/80"
           )}
         >
@@ -106,21 +104,21 @@ function Calendar({ month, setMonth, trained }: { month: number; setMonth: (v: n
   return (
     <Card className="p-4">
       <div className="mb-3 flex items-center justify-between px-1">
-        <p className="text-[16px] font-semibold">
+        <p className="text-[16px] font-medium">
           {format.date(month, { month: "long", year: "numeric" })} <span className="font-normal text-muted-foreground">· {format.plural(count, "training day")}</span>
         </p>
         <div className="flex gap-1">
           <button aria-label="Previous month" className="grid size-8 place-items-center rounded-full bg-muted text-primary active:bg-accent" onClick={() => setMonth(new Date(year, m - 1, 1).getTime())} type="button">
-            <ChevronLeft className="size-4" strokeWidth={2.8} />
+            <ChevronLeft className="size-4" strokeWidth={1.75} />
           </button>
           <button aria-label="Next month" className="grid size-8 place-items-center rounded-full bg-muted text-primary active:bg-accent disabled:opacity-30" disabled={isCurrent} onClick={() => setMonth(new Date(year, m + 1, 1).getTime())} type="button">
-            <ChevronRight className="size-4" strokeWidth={2.8} />
+            <ChevronRight className="size-4" strokeWidth={1.75} />
           </button>
         </div>
       </div>
       <div className="grid grid-cols-7 text-center">
         {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => (
-          <span className="pb-1 text-[12px] font-semibold text-muted-foreground" key={i}>
+          <span className="pb-1 text-[12px] font-medium text-muted-foreground" key={i}>
             {d}
           </span>
         ))}
@@ -130,11 +128,47 @@ function Calendar({ month, setMonth, trained }: { month: number; setMonth: (v: n
   );
 }
 
+// The card after finishing: the heaviest barbell PR loaded on the bar, or
+// how the session compares with the last time.
+function Finished({ workout, prs, previous, volume }: { workout: any; prs: any[]; previous: any; volume: number }) {
+  const s = useValue(settings) as any;
+  const index = useValue(exerciseIndex) as Map<string, any>;
+  const loaded = prs
+    .map((pr) => ({ ...pr, exercise: index.get(pr.exerciseId) }))
+    .filter((pr) => trackOf(pr.exercise) === "strength" && ["barbell", "plate loaded"].includes(pr.exercise?.equipment) && pr.set.weight > 0)
+    .sort((a, b) => b.set.weight - a.set.weight)[0];
+  const load = loaded ? plateBreakdown(loaded.set.weight, { bar: barFor(loaded.exercise.equipment, s.barWeight), plates: s.plates }) : null;
+  const before = previous ? workoutVolume(previous) : 0;
+  return (
+    <section aria-label="Workout finished" className="surface flex flex-col gap-3 rounded-2xl p-5">
+      <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
+        {prs.length ? <Trophy className="size-4 text-pr" strokeWidth={1.75} /> : null}
+        <span>Workout finished</span>
+      </div>
+      <h2 className="text-[28px] leading-tight font-semibold">{prs.length ? (prs.length === 1 ? "New PR" : `${prs.length} PRs`) : "Done"}</h2>
+      {load && load.perSide.length ? (
+        <figure className="-mx-1 flex flex-col gap-1">
+          <Barbell perSide={load.perSide} plates={s.plates} />
+          <figcaption className="flex items-baseline justify-between px-1 text-[13px] text-muted-foreground">
+            <span className="truncate">{loaded.exercise.name}</span>
+            <span className="sets shrink-0 text-foreground">
+              {format.shortSet(loaded.set, "strength")} <span className="text-muted-foreground">{s.unit}</span>
+            </span>
+          </figcaption>
+        </figure>
+      ) : null}
+      <p className="text-[14px] text-muted-foreground">
+        {previous ? `Volume ${volume >= before ? "up" : "down"} ${Math.abs(Math.round(((volume - before) / (before || 1)) * 100))}% vs your last ${workout.name}` : "Next time, these are the numbers to beat"}
+      </p>
+    </section>
+  );
+}
+
 function Delta({ now, before, unit = "", percent = false, neutral = false }: { now: number; before: number; unit?: string; percent?: boolean; neutral?: boolean }) {
   const diff = now - before;
   if (Math.abs(diff) < 0.5) return <span className="text-[15px] text-muted-foreground">Same</span>;
   const text = percent && before ? `${diff > 0 ? "+" : ""}${Math.round((diff / before) * 100)}%` : `${diff > 0 ? "+" : "−"}${format.weight(Math.abs(Math.round(diff)))}${unit}`;
-  return <span className={cn("text-[15px] font-semibold tabular", neutral ? "text-muted-foreground" : diff > 0 ? "text-success" : "text-destructive")}>{text}</span>;
+  return <span className={cn("text-[15px] font-medium tabular", neutral ? "text-muted-foreground" : diff > 0 ? "text-success" : "text-destructive")}>{text}</span>;
 }
 
 export function WorkoutDetail({ id }: { id: string }) {
@@ -188,39 +222,12 @@ export function WorkoutDetail({ id }: { id: string }) {
         title={workout.name}
         trailing={
           <button aria-label="Edit workout" className="grid size-9 place-items-center rounded-full bg-muted text-primary active:bg-accent" onClick={() => go(`workout/${id}`)} type="button">
-            <Pencil className="size-4" strokeWidth={2.4} />
+            <Pencil className="size-4" strokeWidth={1.75} />
           </button>
         }
       />
 
-      {justFinished ? (
-        <motion.section
-          animate={{ opacity: 1, scale: 1 }}
-          className="relative isolate overflow-hidden rounded-[32px] px-6 py-10 text-center text-white ring-1 ring-white/10"
-          initial={{ opacity: 0, scale: 0.96 }}
-          transition={{ type: "spring", stiffness: 240, damping: 24 }}
-        >
-          <div className="absolute inset-0 -z-10 bg-zinc-950 bg-[radial-gradient(100%_80%_at_50%_0%,var(--tint),transparent_70%)]" />
-          <Suspense fallback={null}>
-            <MeshHero className="absolute inset-0 -z-10" intensity={1.2} />
-          </Suspense>
-          <div className="absolute inset-0 -z-10 bg-black/35" />
-          <motion.span
-            animate={{ scale: 1, rotate: 0 }}
-            className={cn("mx-auto mb-4 grid size-16 place-items-center rounded-full shadow-2xl", prs.length ? "bg-gradient-to-br from-amber-300 to-orange-500" : "bg-white text-zinc-950")}
-            initial={{ scale: 0, rotate: -30 }}
-            transition={{ type: "spring", stiffness: 300, damping: 16, delay: 0.15 }}
-          >
-            {prs.length ? <Trophy className="size-8" strokeWidth={2.2} /> : <span className="text-[28px]">✓</span>}
-          </motion.span>
-          <SwooshText accent="var(--tint)" as="h2" className="text-[40px] leading-none text-white" depth={10} length={0.16} text={prs.length ? (prs.length === 1 ? "New PR" : `${prs.length} PRs`) : "Done"} />
-          <p className="mt-3 text-[15px] text-white/80">
-            {previous
-              ? `Volume ${volume >= workoutVolume(previous) ? "up" : "down"} ${Math.abs(Math.round(((volume - workoutVolume(previous)) / (workoutVolume(previous) || 1)) * 100))}% from your last ${workout.name}.`
-              : "Next time, these are the numbers to beat."}
-          </p>
-        </motion.section>
-      ) : null}
+      {justFinished ? <Finished previous={previous} prs={prs} volume={volume} workout={workout} /> : null}
 
       <StatTiles
         items={[
@@ -251,7 +258,7 @@ export function WorkoutDetail({ id }: { id: string }) {
         <Section title="Personal records">
           <Card className="divide-y divide-border">
             {prs.map((pr) => (
-              <Row icon={Trophy} iconClass="bg-gradient-to-br from-amber-300 to-orange-500 text-white" key={pr.set.id} subtitle={trackFor(pr.exerciseId) === "strength" ? `e1RM ${format.weight(Math.round(e1rm(pr.set.weight, pr.set.reps)))} ${s.unit}` : format.describeSet(pr.set, trackFor(pr.exerciseId), s.unit)} title={exerciseName(pr.exerciseId)} value={format.shortSet(pr.set, trackFor(pr.exerciseId))} />
+              <Row icon={Trophy} iconClass="text-pr" key={pr.set.id} subtitle={trackFor(pr.exerciseId) === "strength" ? `e1RM ${format.weight(Math.round(e1rm(pr.set.weight, pr.set.reps)))} ${s.unit}` : format.describeSet(pr.set, trackFor(pr.exerciseId), s.unit)} title={exerciseName(pr.exerciseId)} value={format.shortSet(pr.set, trackFor(pr.exerciseId))} />
             ))}
           </Card>
         </Section>
@@ -266,16 +273,16 @@ export function WorkoutDetail({ id }: { id: string }) {
                 if (set.type !== "warmup") n += 1;
                 return (
                   <div className="flex items-center gap-3 px-4 py-3" key={set.id}>
-                    <span className={cn("grid size-8 place-items-center rounded-lg bg-muted text-[13px] font-semibold tabular", set.type === "warmup" && "text-amber-500", set.type === "drop" && "text-violet-400", set.type === "failure" && "text-red-400")}>
+                    <span className={cn("sets grid size-8 place-items-center rounded-md bg-muted text-[13px]", set.type === "warmup" && "text-pr", set.type === "drop" && "text-primary", set.type === "failure" && "text-destructive")}>
                       {set.type === "warmup" ? "W" : set.type === "drop" ? "D" : set.type === "failure" ? "F" : n}
                     </span>
-                    <span className="flex-1 text-[15.5px] tabular">{format.describeSet(set, trackFor(entry.exerciseId), s.unit)}</span>
+                    <span className="sets flex-1 text-[15px]">{format.describeSet(set, trackFor(entry.exerciseId), s.unit)}</span>
                     {prIds.has(set.id) ? (
-                      <span className="flex items-center gap-1 rounded-full bg-amber-400/15 px-2 py-0.5 text-[12px] font-bold text-amber-500">
-                        <Trophy className="size-3.5" strokeWidth={2.6} /> PR
+                      <span className="flex items-center gap-1 text-[13px] text-pr">
+                        <Trophy className="size-3.5" strokeWidth={1.75} /> PR
                       </span>
                     ) : trackFor(entry.exerciseId) === "strength" && set.type !== "warmup" && set.weight > 0 ? (
-                      <span className="text-[13px] text-muted-foreground tabular">e1RM {format.weight(Math.round(e1rm(set.weight, set.reps)))}</span>
+                      <span className="sets text-[13px] text-muted-foreground">e1RM {format.weight(Math.round(e1rm(set.weight, set.reps)))}</span>
                     ) : null}
                   </div>
                 );

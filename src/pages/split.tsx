@@ -2,7 +2,7 @@
 // (drag to reorder) with the weekly sets it gives each muscle, and the editor
 // for one day's exercises with sets, rep range, rest and supersets.
 import { signal } from "@preact/signals-core";
-import { Check, GripVertical, ListOrdered, Moon, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
+import { Check, GripVertical, ListOrdered, MessageSquareText, Moon, Pencil, Plus, Trash2 } from "lucide-react";
 import { Reorder, useDragControls } from "motion/react";
 import { type ReactNode, useEffect, useState } from "react";
 import WheelPicker from "@/components/kokonutui/wheel-picker";
@@ -50,8 +50,8 @@ const ASSISTANTS: Record<string, string> = { chatgpt: "ChatGPT", claude: "Claude
 
 function CurrentBadge() {
   return (
-    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-[12px] font-semibold text-primary-foreground">
-      <Check className="size-3.5" strokeWidth={3} /> Current
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-[12px] font-medium text-primary-foreground">
+      <Check className="size-3.5" strokeWidth={2} /> Current
     </span>
   );
 }
@@ -122,12 +122,12 @@ export function Split() {
       </Section>
       {!shown.current ? (
         <Card className="flex flex-col gap-3 p-4">
-          <p className="flex items-start gap-2 text-[14.5px] text-muted-foreground">
-            {fromAssistant(shown) ? <Sparkles className="mt-0.5 size-4 shrink-0 text-primary" strokeWidth={2.2} /> : null}
-            <span><b className="font-semibold text-foreground">{shown.name}</b> isn't current. Today keeps following {current.name} until you switch.</span>
+          <p className="flex items-start gap-2 text-[14px] text-muted-foreground">
+            {fromAssistant(shown) ? <MessageSquareText className="mt-0.5 size-4 shrink-0 text-muted-foreground" strokeWidth={1.75} /> : null}
+            <span><b className="font-medium text-foreground">{shown.name}</b> isn't current. Today keeps following {current.name} until you switch.</span>
           </p>
           <Button onClick={makeCurrent}>
-            <Check className="size-4" strokeWidth={2.6} /> Make current
+            <Check className="size-4" strokeWidth={1.75} /> Make current
           </Button>
         </Card>
       ) : null}
@@ -137,14 +137,14 @@ export function Split() {
         </Empty>
       ) : (
         <Section footer="Drag to reorder. After the last day it starts over. Doing a different day than suggested moves the rotation along." title={all.length > 1 ? `${shown.name}: rotation` : "Rotation"}>
-          <Reorder.Group as="div" axis="y" className="surface divide-y divide-border overflow-hidden rounded-3xl" onReorder={setOrder} values={order}>
+          <Reorder.Group as="div" axis="y" className="surface divide-y divide-border overflow-hidden rounded-2xl" onReorder={setOrder} values={order}>
             {order.map((day: any) => {
               const last = lastDoneAt(day.id, done);
               const isNext = next?.day.id === day.id;
               return (
                 <DragRow key={day.id} onDragEnd={persist} value={day}>
                   <Row onClick={() => go(`split/${day.id}`)} subtitle={`${day.rest ? "Rest day" : format.plural(day.exercises?.length || 0, "exercise")}${last ? ` · ${format.relativeDay(last)}` : ""}`} title={day.name}>
-                    {isNext ? <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[12px] font-semibold text-primary">Next</span> : null}
+                    {isNext ? <span className="text-[13px] text-primary">Next</span> : null}
                   </Row>
                 </DragRow>
               );
@@ -163,9 +163,9 @@ export function Split() {
       ) : null}
       <Card className="divide-y divide-border">
         <Row icon={Plus} onClick={async () => go(`split/${(await addDay({ splitId: shown.id })).id}`)} title="Add training day" tone="action" />
-        <Row icon={Moon} iconClass="bg-violet-500/15 text-violet-400" onClick={() => addDay({ rest: true, splitId: shown.id })} title="Add rest day" tone="action" />
+        <Row icon={Moon} onClick={() => addDay({ rest: true, splitId: shown.id })} title="Add rest day" tone="action" />
         <Row icon={Pencil} onClick={() => setNaming("rename")} title="Rename split" tone="action" />
-        {!shown.current ? <Row icon={Trash2} iconClass="bg-destructive/15 text-destructive" onClick={del} title="Delete split" tone="danger" /> : null}
+        {!shown.current ? <Row icon={Trash2} iconClass="text-destructive" onClick={del} title="Delete split" tone="danger" /> : null}
       </Card>
 
       <NameSheet initial={naming === "rename" ? shown.name : ""} onClose={() => setNaming(null)} onSave={saveName} open={naming !== null} title={naming === "new" ? "New split" : "Rename split"} />
@@ -204,7 +204,7 @@ function NameSheet({ open, initial, title, onClose, onSave }: { open: boolean; i
         <Row title="Name">
           <input
             aria-label="Split name"
-            className="w-44 bg-transparent text-right text-[15.5px] text-muted-foreground outline-none"
+            className="w-44 bg-transparent text-right text-[15px] text-muted-foreground outline-none"
             maxLength={60}
             onChange={(e) => setName(e.currentTarget.value)}
             onKeyDown={(e) => e.key === "Enter" && submit()}
@@ -258,7 +258,7 @@ export function DayEditor({ id }: { id: string }) {
         <Row title="Name">
           <input
             aria-label="Day name"
-            className="w-44 bg-transparent text-right text-[15.5px] text-muted-foreground outline-none"
+            className="w-44 bg-transparent text-right text-[15px] text-muted-foreground outline-none"
             onBlur={() => name.trim() && name.trim() !== day.name && change((d) => (d.name = name.trim()))}
             onChange={(e) => setName(e.currentTarget.value)}
             placeholder="Push, Pull, Legs…"
@@ -275,7 +275,7 @@ export function DayEditor({ id }: { id: string }) {
       ) : (
         <Section footer="Tap an exercise for sets, rep range, rest and supersets. Drag the grip to reorder." title="Exercises">
           {order.length ? (
-            <Reorder.Group as="div" axis="y" className="surface divide-y divide-border overflow-hidden rounded-3xl" onReorder={setOrder} values={order}>
+            <Reorder.Group as="div" axis="y" className="surface divide-y divide-border overflow-hidden rounded-2xl" onReorder={setOrder} values={order}>
               {order.map((item, index) => (
                 <DragRow key={item.key} onDragEnd={persistOrder} value={item}>
                   <Row
@@ -284,7 +284,7 @@ export function DayEditor({ id }: { id: string }) {
                     title={
                       <span className="flex items-center gap-2">
                         {labels[index] ? (
-                          <span className="rounded-md bg-primary/15 px-1.5 py-0.5 text-[11px] font-bold text-primary">
+                          <span className="sets rounded-[4px] bg-muted px-1 text-[12px] text-muted-foreground">
                             {labels[index].group}
                             {labels[index].position}
                           </span>
@@ -298,7 +298,7 @@ export function DayEditor({ id }: { id: string }) {
             </Reorder.Group>
           ) : null}
           <Button onClick={() => setAdding(true)} variant="tinted">
-            <Plus className="size-4" strokeWidth={2.6} /> Add exercise
+            <Plus className="size-4" strokeWidth={1.75} /> Add exercise
           </Button>
         </Section>
       )}

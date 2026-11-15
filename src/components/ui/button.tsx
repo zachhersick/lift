@@ -4,12 +4,12 @@ import { cn } from "@/lib/utils"
 import { Slot } from "radix-ui"
 
 const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 rounded-full text-[15px] font-semibold tracking-tight active:scale-[0.97] whitespace-nowrap transition-all outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "inline-flex shrink-0 items-center justify-center gap-2 rounded-[10px] text-[15px] font-medium active:scale-[0.98] whitespace-nowrap transition-[color,background-color,border-color,opacity,transform] duration-150 ease-out outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground shadow-[0_10px_30px_-12px_var(--tint)] hover:brightness-110",
-        tinted: "bg-primary/15 text-primary hover:bg-primary/20",
+        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        tinted: "bg-secondary text-foreground ring-1 ring-border ring-inset hover:bg-accent",
         destructive:
           "bg-destructive/12 text-destructive hover:bg-destructive/20",
         outline:
@@ -23,8 +23,8 @@ const buttonVariants = cva(
       size: {
         default: "h-11 px-5 has-[>svg]:px-4",
         xs: "h-6 gap-1 rounded-md px-2 text-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-9 gap-1.5 px-3.5 text-sm has-[>svg]:px-3",
-        lg: "h-14 rounded-2xl px-6 text-base has-[>svg]:px-5",
+        sm: "h-9 gap-1.5 px-3 text-sm has-[>svg]:px-3",
+        lg: "h-12 px-5 text-[16px] has-[>svg]:px-5",
         icon: "size-10",
         "icon-xs": "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3",
         "icon-sm": "size-8",

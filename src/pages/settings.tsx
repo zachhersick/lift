@@ -1,7 +1,7 @@
 // Settings: your account (and deleting it), appearance, weekly goal,
 // nutrition, the ChatGPT connector, units, barbell and plates, rest timer,
 // backups, installing on the phone, and the privacy policy and terms.
-import { Check, Cloud, Copy, CreditCard, Download, FileText, Flag, LifeBuoy, LogIn, RefreshCw, Share, Shield, Sparkles, SquarePlus, Trash2, Upload, UserPlus } from "lucide-react";
+import { Check, Cloud, Copy, CreditCard, Download, FileText, Flag, LifeBuoy, LogIn, RefreshCw, Plug, Share, Shield, SquarePlus, Star, Trash2, Upload, UserPlus } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { Card, Chip, Page, Row, Section, Segmented, spring, Stepper, Toggle, TopBar } from "@/components/kit";
@@ -13,7 +13,7 @@ import { notify } from "@/lib/notify";
 import { go, route } from "@/lib/router.js";
 import { exportData, importRecords, meals, pending, saveSettings, sessions, settings, splitDays, targets } from "@/lib/store.js";
 import { checkSession, deleteAccount, signOut, sync, syncNow } from "@/lib/sync.js";
-import { TINTS } from "@/lib/theme.js";
+import { isDark, TINTS } from "@/lib/theme.js";
 import * as format from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
 import { GOAL_LABEL } from "@/pages/nutrition";
@@ -57,12 +57,12 @@ function Reports() {
         {reports.map((report) => (
           <Row
             icon={Flag}
-            iconClass="bg-destructive/15 text-destructive"
+            iconClass="text-destructive"
             key={report.id}
             subtitle={[report.reported, `by @${report.reporterUsername || report.reporter}`, report.note, format.ago(report.createdAt)].filter(Boolean).join(" · ")}
             title={`@${report.reportedUsername || "?"} · ${REASONS[report.reason] || report.reason}`}
           >
-            <button className="h-8 rounded-full bg-muted px-3 text-[13.5px] font-medium text-muted-foreground active:bg-accent" onClick={() => load("/api/admin/reports/dismiss", { id: report.id })} type="button">
+            <button className="h-8 rounded-full bg-muted px-3 text-[13px] font-medium text-muted-foreground active:bg-accent" onClick={() => load("/api/admin/reports/dismiss", { id: report.id })} type="button">
               Dismiss
             </button>
           </Row>
@@ -116,7 +116,7 @@ function People() {
             aria-label="Email to invite"
             autoCapitalize="none"
             autoComplete="off"
-            className="w-52 bg-transparent text-right text-[15.5px] text-muted-foreground outline-none"
+            className="w-52 bg-transparent text-right text-[15px] text-muted-foreground outline-none"
             inputMode="email"
             onChange={(e) => setEmail(e.currentTarget.value)}
             placeholder="friend@example.com"
@@ -138,7 +138,7 @@ function People() {
               title={`${user.name || user.email}${user.email === me?.email ? " (you)" : ""}`}
             >
               {user.admin ? (
-                <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[12px] font-semibold text-primary">VIP</span>
+                <span className="text-[13px] text-muted-foreground">VIP</span>
               ) : (
                 <>
                   <Toggle checked={user.vip} label={`VIP for ${user.email}`} onChange={(value) => run(() => call("/api/admin/users", { email: user.email, vip: value }))} />
@@ -242,18 +242,18 @@ export function Settings() {
         <Card className="divide-y divide-border">
           <Row
             icon={Cloud}
-            iconClass={state.status === "synced" ? "bg-success/15 text-success" : state.status === "error" ? "bg-destructive/15 text-destructive" : "bg-muted text-muted-foreground"}
+            iconClass={state.status === "synced" ? "text-success" : state.status === "error" ? "text-destructive" : undefined}
             subtitle={`${STATUS[state.status] || ""}${state.status === "synced" && state.lastSync ? ` · ${format.ago(state.lastSync)}` : ""}${waiting ? ` · ${format.plural(waiting, "change")} waiting` : ""}`}
             title={state.user ? state.user.email : "Not signed in"}
           />
           {state.user ? (
             <>
               <Row title="Membership" value={state.user.admin ? "Admin" : state.user.vip ? "VIP" : state.user.subscribed ? "Pro" : "Member"} />
-              {state.billing && !state.user.pro ? <Row icon={Sparkles} onClick={() => setPro(true)} title="Upgrade to Pro" tone="action" /> : null}
+              {state.billing && !state.user.pro ? <Row icon={Star} onClick={() => setPro(true)} title="Upgrade to Pro" tone="action" /> : null}
               {state.user.subscribed && !native ? <Row icon={CreditCard} onClick={() => openBilling("/api/billing/portal")} title="Manage subscription" tone="action" /> : null}
               <Row disabled={state.status === "syncing"} icon={RefreshCw} onClick={syncNow} title="Sync now" tone="action" />
               <Row onClick={signOut} title="Sign out" tone="danger" />
-              {state.user.admin ? null : <Row icon={Trash2} iconClass="bg-destructive/15 text-destructive" onClick={remove} title="Delete account" tone="danger" />}
+              {state.user.admin ? null : <Row icon={Trash2} iconClass="text-destructive" onClick={remove} title="Delete account" tone="danger" />}
             </>
           ) : state.providers?.length ? (
             state.providers.map((provider: string) => <Row icon={LogIn} key={provider} onClick={() => signIn(provider)} title={`Continue with ${PROVIDERS[provider] || provider}`} tone="action" />)
@@ -287,6 +287,7 @@ export function Settings() {
             <div className="flex justify-between" role="radiogroup">
               {TINTS.map((tint: any) => {
                 const on = s.tint === tint.id;
+                const dark = isDark(s.theme);
                 return (
                   <button
                     aria-checked={on}
@@ -298,8 +299,8 @@ export function Settings() {
                     type="button"
                   >
                     {on ? <motion.span className="absolute inset-0 rounded-full ring-2 ring-foreground/70" layoutId="tint-ring" transition={spring} /> : null}
-                    <span className="grid size-8 place-items-center rounded-full text-white shadow-md" style={{ background: `linear-gradient(135deg, ${tint.colors[0]}, ${tint.colors[1]})` }}>
-                      {on ? <Check className="size-4" strokeWidth={3} /> : null}
+                    <span className="grid size-8 place-items-center rounded-full text-white dark:text-[#0f0f10]" style={{ background: tint.colors[dark ? 1 : 0] }}>
+                      {on ? <Check className="size-4" strokeWidth={2} /> : null}
                     </span>
                   </button>
                 );
@@ -309,7 +310,7 @@ export function Settings() {
         </Card>
       </Section>
 
-      <Section footer={s.weeklyGoal ? "Your weekly workouts ring fills at this many." : `Automatic: your rotation fits ${autoGoal} training days a week.`} title="Weekly goal">
+      <Section footer={s.weeklyGoal ? "Today counts your workouts this week against this many." : `Automatic: your rotation fits ${autoGoal} training days a week.`} title="Weekly goal">
         <Card className="divide-y divide-border">
           <Row title="Workouts per week">
             <Stepper label="workouts per week" max={14} min={1} onChange={(weeklyGoal) => saveSettings({ weeklyGoal })} value={s.weeklyGoal || autoGoal} />
@@ -342,7 +343,7 @@ export function Settings() {
       >
         <Card className="divide-y divide-border">
           <Row
-            icon={Sparkles}
+            icon={Plug}
             label="Copy connector URL"
             onClick={async () => {
               try {
@@ -354,7 +355,7 @@ export function Settings() {
             }}
             subtitle={<span className="select-all">{connectorUrl}</span>}
             title="Connector URL"
-            value={<Copy className="size-4" strokeWidth={2.2} />}
+            value={<Copy className="size-4" strokeWidth={1.75} />}
           />
           <Row subtitle={lastChat ? `${lastChat.name} · ${format.ago(lastChat.loggedAt || lastChat.updatedAt)}` : "Nothing yet"} title="Last meal from an assistant" />
         </Card>
@@ -374,11 +375,11 @@ export function Settings() {
       <Section footer="Used by the plate calculator and barbell warm-ups. Plate-loaded machines use the same plates with no bar. Turn off plates your gym doesn't have." title="Barbell">
         <Card className="flex flex-col gap-4 p-4">
           <div className="flex items-center justify-between gap-3">
-            <span className="text-[15.5px] font-medium">Bar</span>
+            <span className="text-[15px] font-medium">Bar</span>
             <Segmented label="Bar weight" onChange={(barWeight) => saveSettings({ barWeight })} options={BARS[s.unit].map((v: number) => ({ value: v, label: format.weight(v) }))} size="sm" value={s.barWeight} />
           </div>
           <div className="flex flex-col gap-2">
-            <span className="text-[15.5px] font-medium">Plates ({s.unit})</span>
+            <span className="text-[15px] font-medium">Plates ({s.unit})</span>
             <div className="flex flex-wrap gap-2">
               {PLATES[s.unit].map((plate: number) => (
                 <Chip key={plate} on={s.plates.includes(plate)} onClick={() => togglePlate(plate)}>

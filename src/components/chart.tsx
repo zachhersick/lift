@@ -1,5 +1,5 @@
-// A line chart in the style of modern health apps: the line draws in, the
-// area fades under it, and you scrub to read any point. `secondary` adds a
+// A line chart: one accent line over a muted grid, a faint area under it,
+// and you scrub to read any point. `secondary` adds a
 // faint second series (for example a moving average).
 import NumberFlow from "@number-flow/react";
 import { motion } from "motion/react";
@@ -78,10 +78,10 @@ export function LineChart({ points, secondary = [], unit = "", caption = "Latest
   return (
     <div className="flex flex-col gap-2">
       <div className="flex min-h-[64px] flex-col px-1">
-        <span className="text-[12px] font-semibold tracking-wide text-muted-foreground uppercase">{active === null ? caption : format.date(point.x)}</span>
+        <span className="text-[13px] text-muted-foreground">{active === null ? caption : format.date(point.x)}</span>
         <span className="flex items-baseline gap-1">
-          <NumberFlow className="text-[34px] leading-[1.15] font-semibold tracking-tight" format={{ maximumFractionDigits: decimals }} value={point.y} willChange />
-          <span className="text-[15px] font-medium text-muted-foreground">{unit}</span>
+          <NumberFlow className="text-[34px] leading-[1.15] font-medium tabular" format={{ maximumFractionDigits: decimals }} value={point.y} willChange />
+          <span className="text-[15px] text-muted-foreground">{unit}</span>
         </span>
         <span className="text-[13px] text-muted-foreground">{active === null ? format.date(point.x) : point.note || ""}</span>
       </div>
@@ -97,23 +97,19 @@ export function LineChart({ points, secondary = [], unit = "", caption = "Latest
       >
         <defs>
           <linearGradient id={`${id}-area`} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0" stopColor="var(--tint)" stopOpacity="0.32" />
+            <stop offset="0" stopColor="var(--tint)" stopOpacity="0.14" />
             <stop offset="1" stopColor="var(--tint)" stopOpacity="0" />
-          </linearGradient>
-          <linearGradient id={`${id}-line`} x1="0" x2="1" y1="0" y2="0">
-            <stop offset="0" stopColor="var(--tint-2)" />
-            <stop offset="1" stopColor="var(--tint)" />
           </linearGradient>
         </defs>
         {g.ticks.map((tick) => (
           <g key={tick}>
             <line stroke="var(--border)" x1={pad.l} x2={W - pad.r + 4} y1={g.sy(tick)} y2={g.sy(tick)} />
-            <text className="fill-muted-foreground text-[10.5px]" x={W - pad.r + 8} y={g.sy(tick) + 3.5}>
+            <text className="sets fill-muted-foreground text-[10px]" x={W - pad.r + 8} y={g.sy(tick) + 3.5}>
               {format.weight(Math.round(tick))}
             </text>
           </g>
         ))}
-        <motion.path animate={{ opacity: 1 }} d={g.area} fill={`url(#${id}-area)`} initial={{ opacity: 0 }} transition={{ duration: 0.8, delay: 0.3 }} />
+        <motion.path animate={{ opacity: 1 }} d={g.area} fill={`url(#${id}-area)`} initial={{ opacity: 0 }} transition={{ duration: 0.4, delay: 0.3 }} />
         {g.second ? <path d={g.second} fill="none" stroke="var(--muted-foreground)" strokeDasharray="3 4" strokeOpacity="0.6" strokeWidth="1.5" /> : null}
         <motion.path
           animate={{ pathLength: 1 }}
@@ -121,19 +117,19 @@ export function LineChart({ points, secondary = [], unit = "", caption = "Latest
           fill="none"
           initial={{ pathLength: 0 }}
           key={g.line}
-          stroke={`url(#${id}-line)`}
+          stroke="var(--tint)"
           strokeLinecap="round"
           strokeLinejoin="round"
-          strokeWidth="3"
-          transition={{ duration: 0.9, ease: [0.23, 1, 0.32, 1] }}
+          strokeWidth="2.5"
+          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
         />
         {active !== null ? <line stroke="var(--muted-foreground)" strokeOpacity="0.5" x1={g.coords[shown][0]} x2={g.coords[shown][0]} y1={pad.t} y2={H - pad.b} /> : null}
-        <motion.circle animate={{ cx: g.coords[shown][0], cy: g.coords[shown][1] }} fill="var(--card)" r="5.5" stroke="var(--tint)" strokeWidth="3" transition={{ type: "spring", stiffness: 500, damping: 40 }} />
-        <text className="fill-muted-foreground text-[10.5px]" x={pad.l} y={H - 5}>
+        <motion.circle animate={{ cx: g.coords[shown][0], cy: g.coords[shown][1] }} fill="var(--card)" r="5" stroke="var(--tint)" strokeWidth="2.5" transition={{ duration: 0.15, ease: [0.22, 1, 0.36, 1] }} />
+        <text className="sets fill-muted-foreground text-[10px]" x={pad.l} y={H - 5}>
           {format.shortDate(g.x0)}
         </text>
         {g.x1 !== g.x0 ? (
-          <text className="fill-muted-foreground text-[10.5px]" textAnchor="end" x={W - pad.r} y={H - 5}>
+          <text className="sets fill-muted-foreground text-[10px]" textAnchor="end" x={W - pad.r} y={H - 5}>
             {format.shortDate(g.x1)}
           </text>
         ) : null}
@@ -143,20 +139,13 @@ export function LineChart({ points, secondary = [], unit = "", caption = "Latest
 }
 
 export function Sparkline({ values, width = 64, height = 26 }: { values: number[]; width?: number; height?: number }) {
-  const id = useId();
   if (values.length < 2) return <svg aria-hidden="true" height={height} width={width} />;
   const min = Math.min(...values);
   const span = Math.max(...values) - min || 1;
   const d = values.map((v, i) => `${i ? "L" : "M"}${((i / (values.length - 1)) * (width - 4) + 2).toFixed(1)},${(height - 3 - ((v - min) / span) * (height - 6)).toFixed(1)}`).join("");
   return (
     <svg aria-hidden="true" height={height} viewBox={`0 0 ${width} ${height}`} width={width}>
-      <defs>
-        <linearGradient id={id} x1="0" x2="1">
-          <stop offset="0" stopColor="var(--tint-2)" />
-          <stop offset="1" stopColor="var(--tint)" />
-        </linearGradient>
-      </defs>
-      <path d={d} fill="none" stroke={`url(#${id})`} strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+      <path d={d} fill="none" stroke="var(--tint)" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.75" />
     </svg>
   );
 }

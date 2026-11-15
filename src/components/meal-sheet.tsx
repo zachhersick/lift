@@ -2,7 +2,7 @@
 // estimate can be fixed. The number pad types into whichever value is picked:
 // calories and macros, or any micronutrient under "Micronutrients". A
 // micronutrient left blank is unknown, not zero.
-import { ChevronDown, Sparkles, Trash2 } from "lucide-react";
+import { ChevronDown, MessageSquareText, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Card, Row, Sheet, SheetAction } from "@/components/kit";
 import { Key, KeyGrid } from "@/components/keypad";
@@ -36,13 +36,13 @@ function Tile({ value, on, text: shown, small, onPick }: { value: Value; on: boo
     <button
       aria-checked={on}
       aria-label={value.label}
-      className={cn("flex min-w-0 flex-col items-center gap-0.5 rounded-2xl bg-muted px-1 ring-2 ring-transparent transition-colors", small ? "py-2" : "py-2.5", on && "bg-primary/12 ring-primary")}
+      className={cn("flex min-w-0 flex-col items-center gap-0.5 rounded-xl bg-muted px-1 ring-2 ring-transparent transition-colors", small ? "py-2" : "py-2.5", on && "bg-card ring-primary")}
       onClick={onPick}
       role="radio"
       type="button"
     >
       <span className={cn("max-w-full truncate font-medium text-muted-foreground", small ? "text-[11px]" : "text-[12px]")}>{value.label}</span>
-      <span className={cn("leading-tight font-semibold tabular", small ? "text-[16px]" : "text-[20px]", shown === "" && "text-muted-foreground/40")}>{shown || (small ? "–" : "0")}</span>
+      <span className={cn("leading-tight font-medium tabular", small ? "text-[16px]" : "text-[20px]", shown === "" && "text-muted-foreground/40")}>{shown || (small ? "–" : "0")}</span>
       <span className="text-[11px] text-muted-foreground">{value.unit}</span>
     </button>
   );
@@ -129,14 +129,14 @@ export function MealSheet({ open, onClose, meal = null, date }: { open: boolean;
           />
         </Row>
         <Row className="border-t border-border" title="Date">
-          <input aria-label="Date" className="bg-transparent text-right text-[15.5px] text-primary outline-none" max={dateKey()} onChange={(e) => e.currentTarget.value && setDay(e.currentTarget.value)} type="date" value={day} />
+          <input aria-label="Date" className="bg-transparent text-right text-[15px] text-primary outline-none" max={dateKey()} onChange={(e) => e.currentTarget.value && setDay(e.currentTarget.value)} type="date" value={day} />
         </Row>
       </Card>
 
       {meal?.items?.length ? (
         <Card className="flex flex-col gap-1.5 p-4 text-[14px]">
-          <span className="flex items-center gap-1.5 text-[12.5px] font-medium text-muted-foreground">
-            {fromAssistant(meal) ? <Sparkles className="size-3.5" strokeWidth={2.4} /> : null}
+          <span className="flex items-center gap-1.5 text-[12px] font-medium text-muted-foreground">
+            {fromAssistant(meal) ? <MessageSquareText className="size-3.5" strokeWidth={1.75} /> : null}
             {fromAssistant(meal) ? `Estimated by ${meal.source === "claude" ? "Claude" : "ChatGPT"}` : "Items"}
           </span>
           {meal.items.map((item: any, i: number) => (
@@ -165,7 +165,7 @@ export function MealSheet({ open, onClose, meal = null, date }: { open: boolean;
           type="button"
         >
           <span>Micronutrients{MICRO_VALUES.some((v) => values[v.key] !== "") ? ` · ${MICRO_VALUES.filter((v) => values[v.key] !== "").length} logged` : ""}</span>
-          <ChevronDown className={cn("size-4 transition-transform", more && "rotate-180")} strokeWidth={2.6} />
+          <ChevronDown className={cn("size-4 transition-transform", more && "rotate-180")} strokeWidth={1.75} />
         </button>
         {more ? (
           <div className="grid grid-cols-3 gap-2" role="radiogroup">

@@ -3,7 +3,7 @@
 // weekly review Claude writes on the server when ANTHROPIC_API_KEY is set,
 // once you've agreed to your data going to Anthropic (settings.aiConsent);
 // and the sets-per-muscle bars against the evidence-based weekly range.
-import { AlertTriangle, ArrowRight, BookOpen, CheckCircle2, Lightbulb, RefreshCw, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowRight, BookOpen, CheckCircle2, Lightbulb, NotebookPen, RefreshCw } from "lucide-react";
 import { motion } from "motion/react";
 import { type ComponentType, useEffect, useRef, useState } from "react";
 import { Card, FadeIn, Section } from "@/components/kit";
@@ -20,31 +20,29 @@ import { cn } from "@/lib/utils";
 type Insight = { id: string; tone: "warn" | "info" | "good"; area?: string; title: string; body: string; action?: string; evidence?: string; source?: string };
 
 const TONES: Record<string, { icon: ComponentType<{ className?: string; strokeWidth?: number }>; cls: string }> = {
-  warn: { icon: AlertTriangle, cls: "bg-pr/15 text-pr" },
-  info: { icon: Lightbulb, cls: "bg-primary/15 text-primary" },
-  good: { icon: CheckCircle2, cls: "bg-success/15 text-success" }
+  warn: { icon: AlertTriangle, cls: "text-pr" },
+  info: { icon: Lightbulb, cls: "text-muted-foreground" },
+  good: { icon: CheckCircle2, cls: "text-success" }
 };
 
 export function InsightCard({ card, className }: { card: Insight; className?: string }) {
   const { icon: Icon, cls } = TONES[card.tone];
   return (
     <Card className={cn("flex gap-3 p-4", className)}>
-      <span className={cn("grid size-9 shrink-0 place-items-center rounded-xl", cls)}>
-        <Icon className="size-[18px]" strokeWidth={2.2} />
-      </span>
+      <Icon className={cn("mt-0.5 size-[18px] shrink-0", cls)} strokeWidth={1.75} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <h3 className="text-[15.5px] leading-snug font-semibold">{card.title}</h3>
+        <h3 className="text-[15px] leading-snug font-medium">{card.title}</h3>
         <p className="text-[14px] leading-snug text-muted-foreground">{card.body}</p>
         {card.action ? (
-          <p className="mt-1 flex items-start gap-1.5 text-[14px] leading-snug font-medium text-primary">
-            <ArrowRight className="mt-[3px] size-3.5 shrink-0" strokeWidth={2.6} />
+          <p className="mt-1 flex items-start gap-1.5 text-[14px] leading-snug text-foreground">
+            <ArrowRight className="mt-[3px] size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.75} />
             {card.action}
           </p>
         ) : null}
-        {card.evidence ? <p className="text-[12px] text-muted-foreground/80">Based on {card.evidence}</p> : null}
+        {card.evidence ? <p className="text-[12px] text-muted-foreground">Based on {card.evidence}</p> : null}
         {card.source ? (
-          <p className="flex items-start gap-1 text-[12px] text-muted-foreground/80">
-            <BookOpen className="mt-[2px] size-3 shrink-0" strokeWidth={2.4} />
+          <p className="flex items-start gap-1 text-[12px] text-muted-foreground">
+            <BookOpen className="mt-[2px] size-3 shrink-0" strokeWidth={1.75} />
             {card.source}
           </p>
         ) : null}
@@ -73,7 +71,7 @@ export function CoachStrip() {
 function ReviewText({ text }: { text: string }) {
   const blocks = text.split(/\n\s*\n/).map((block) => block.split("\n").filter((line) => line.trim()));
   return (
-    <div className="flex flex-col gap-2.5 text-[14.5px] leading-relaxed">
+    <div className="flex flex-col gap-2.5 text-[14px] leading-relaxed">
       {blocks.map((lines, i) => (
         <div className="flex flex-col gap-1" key={i}>
           {lines.map((line, j) =>
@@ -83,7 +81,7 @@ function ReviewText({ text }: { text: string }) {
                 <span>{line.replace(/^\s*[-•]\s/, "")}</span>
               </p>
             ) : (
-              <p className={/^This week:?$/i.test(line.trim()) ? "mt-1 font-semibold" : undefined} key={j}>
+              <p className={/^This week:?$/i.test(line.trim()) ? "mt-1 font-medium" : undefined} key={j}>
                 {line}
               </p>
             )
@@ -142,12 +140,10 @@ export function WeeklyReview() {
       <FadeIn>
         <Card className="flex flex-col gap-3 p-5">
           <div className="flex items-center gap-2">
-            <span className="grid size-8 place-items-center rounded-xl bg-gradient-to-br from-[var(--tint)] to-[var(--tint-2)] text-white">
-              <Sparkles className="size-4" strokeWidth={2.4} />
-            </span>
-            <span className="flex-1 text-[15.5px] font-semibold">Weekly review</span>
+            <NotebookPen className="size-[18px] text-muted-foreground" strokeWidth={1.75} />
+            <span className="flex-1 text-[15px] font-medium">Weekly review</span>
           </div>
-          <p className="text-[14.5px] text-muted-foreground">With Lift Pro, Claude reads your training and eating and writes you a short review each week.</p>
+          <p className="text-[14px] text-muted-foreground">With Lift Pro, Claude reads your training and eating and writes you a short review each week.</p>
           <Button className="self-start" onClick={() => setPro(true)} size="sm" variant="tinted">See Lift Pro</Button>
         </Card>
         <ProSheet onClose={() => setPro(false)} open={pro} />
@@ -159,17 +155,15 @@ export function WeeklyReview() {
     <FadeIn>
       <Card className="flex flex-col gap-3 p-5">
         <div className="flex items-center gap-2">
-          <span className="grid size-8 place-items-center rounded-xl bg-gradient-to-br from-[var(--tint)] to-[var(--tint-2)] text-white">
-            <Sparkles className="size-4" strokeWidth={2.4} />
-          </span>
-          <span className="flex-1 text-[15.5px] font-semibold">Weekly review</span>
+          <NotebookPen className="size-[18px] text-muted-foreground" strokeWidth={1.75} />
+          <span className="flex-1 text-[15px] font-medium">Weekly review</span>
           {latest ? <span className="text-[13px] text-muted-foreground">{format.relativeDay(fromDateKey(latest.date))}</span> : null}
         </div>
-        {busy && !latest ? <p className="text-[14.5px] text-muted-foreground">Reading your last six weeks…</p> : null}
-        {latest ? <ReviewText text={latest.text} /> : !busy ? <p className="text-[14.5px] text-muted-foreground">Claude reads your training, meals and weigh-ins and writes what to change this week.</p> : null}
-        {error ? <p className="text-[13.5px] text-destructive">{error}</p> : null}
+        {busy && !latest ? <p className="text-[14px] text-muted-foreground">Reading your last six weeks…</p> : null}
+        {latest ? <ReviewText text={latest.text} /> : !busy ? <p className="text-[14px] text-muted-foreground">Claude reads your training, meals and weigh-ins and writes what to change this week.</p> : null}
+        {error ? <p className="text-[13px] text-destructive">{error}</p> : null}
         {state.coach && !consent ? (
-          <div className="flex flex-col gap-2 rounded-2xl bg-muted/60 p-3 text-[13.5px] leading-snug text-muted-foreground">
+          <div className="flex flex-col gap-2 rounded-xl bg-muted p-3 text-[13px] leading-snug text-muted-foreground">
             <p>
               To write it, Lift sends a summary of your last six weeks (workouts, meals, weigh-ins and targets, no email or name) to Anthropic's Claude. Anthropic doesn't train on it. See the{" "}
               <a className="text-primary underline" href="/privacy.html">
@@ -178,12 +172,12 @@ export function WeeklyReview() {
               .
             </p>
             <Button onClick={agree} size="sm" variant="tinted">
-              <Sparkles className="size-4" /> Agree and turn on reviews
+              Agree and turn on reviews
             </Button>
           </div>
         ) : null}
         {state.coach && consent && !enough ? (
-          <p className="text-[13.5px] text-muted-foreground">
+          <p className="text-[13px] text-muted-foreground">
             Log {REVIEW_MIN_LIFTS} lifts this week for {latest ? "a new" : "your"} review ({lifts}/{REVIEW_MIN_LIFTS}).
           </p>
         ) : null}
@@ -207,7 +201,7 @@ export function CoachSection() {
       {nutrition.map((card) => (
         <InsightCard card={card} key={card.id} />
       ))}
-      {!nutrition.length ? <Card className="p-4 text-[14.5px] text-muted-foreground">Log a week of meals and weigh-ins and the Coach starts connecting them with your training.</Card> : null}
+      {!nutrition.length ? <Card className="p-4 text-[14px] text-muted-foreground">Log a week of meals and weigh-ins and the Coach starts connecting them with your training.</Card> : null}
     </Section>
   );
 }
@@ -220,28 +214,28 @@ export function MuscleBars({ rows }: { rows: { muscle: string; sets: number; aft
   const max = Math.max(high + 4, ...rows.map((r) => Math.max(r.sets, r.after ?? 0)));
   const half = (n: number) => Math.round(n * 2) / 2;
   return (
-    <Card className="flex flex-col gap-3.5 p-5">
+    <Card className="flex flex-col gap-3 p-5">
       {rows.map((row, i) => (
-        <div className="grid grid-cols-[86px_1fr_minmax(36px,auto)] items-center gap-3 text-[14.5px]" key={row.muscle}>
+        <div className="grid grid-cols-[86px_1fr_minmax(36px,auto)] items-center gap-3 text-[14px]" key={row.muscle}>
           <span className="truncate">{format.capitalize(row.muscle)}</span>
-          <span className="relative h-2.5 overflow-hidden rounded-full bg-muted">
-            <span className="absolute inset-y-0 bg-success/25" style={{ left: `${(low / max) * 100}%`, width: `${((high - low) / max) * 100}%` }} />
+          <span className="relative h-2 overflow-hidden rounded-full bg-muted">
+            <span className="absolute inset-y-0 bg-success/20" style={{ left: `${(low / max) * 100}%`, width: `${((high - low) / max) * 100}%` }} />
             {row.after !== undefined ? (
               <motion.span
                 animate={{ width: `${(row.after / max) * 100}%` }}
                 className="absolute inset-y-0 left-0 rounded-full bg-primary/30"
                 initial={{ width: 0 }}
-                transition={{ type: "spring", stiffness: 120, damping: 20, delay: 0.25 + i * 0.04 }}
+                transition={{ duration: 0.36, ease: [0.22, 1, 0.36, 1], delay: 0.25 + i * 0.04 }}
               />
             ) : null}
             <motion.span
               animate={{ width: `${(row.sets / max) * 100}%` }}
-              className={cn("absolute inset-y-0 left-0 rounded-full", row.sets < low ? "bg-pr" : "bg-gradient-to-r from-[var(--tint-2)] to-[var(--tint)]")}
+              className={cn("absolute inset-y-0 left-0 rounded-full", row.sets < low ? "bg-pr" : "bg-primary")}
               initial={{ width: 0 }}
-              transition={{ type: "spring", stiffness: 120, damping: 20, delay: 0.05 + i * 0.04 }}
+              transition={{ duration: 0.36, ease: [0.22, 1, 0.36, 1], delay: 0.05 + i * 0.04 }}
             />
           </span>
-          <span className={cn("text-right font-semibold tabular", row.sets < low && row.after === undefined && "text-pr")}>
+          <span className={cn("text-right font-medium tabular", row.sets < low && row.after === undefined && "text-pr")}>
             {row.after !== undefined && half(row.after) !== half(row.sets) ? (
               <>
                 <span className={cn(row.sets < low && "text-pr")}>{half(row.sets)}</span>

@@ -36,7 +36,7 @@ export function Barbell({ perSide, plates }: { perSide: number[]; plates: number
           initial={{ x: W, opacity: 0 }}
           key={r.key}
           rx="4"
-          transition={{ type: "spring", stiffness: 300, damping: 26, delay: r.i * 0.06 }}
+          transition={{ duration: 0.36, ease: [0.22, 1, 0.36, 1], delay: Math.min(r.i, 5) * 0.05 }}
           width={r.width}
           y={r.y}
         />

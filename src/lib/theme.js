@@ -1,13 +1,15 @@
 // Appearance: light/dark/system and the accent. Saved with the synced
 // settings and mirrored in localStorage, so public/theme-init.js can apply
 // it before the first paint.
+// One flat accent per tint: [light mode, dark mode]. Keep in step with the
+// data-tint rules in src/styles.css.
 export const TINTS = [
-  { id: "blue", label: "Blue", colors: ["#3b82f6", "#8b5cf6", "#06b6d4"] },
-  { id: "orange", label: "Orange", colors: ["#f97316", "#ef4444", "#f59e0b"] },
-  { id: "green", label: "Green", colors: ["#22c55e", "#14b8a6", "#84cc16"] },
-  { id: "violet", label: "Violet", colors: ["#8b5cf6", "#ec4899", "#6366f1"] },
-  { id: "pink", label: "Pink", colors: ["#ec4899", "#f43f5e", "#a855f7"] },
-  { id: "teal", label: "Teal", colors: ["#14b8a6", "#3b82f6", "#22d3ee"] }
+  { id: "blue", label: "Blue", colors: ["#2563eb", "#60a5fa"] },
+  { id: "orange", label: "Orange", colors: ["#c2410c", "#fb923c"] },
+  { id: "green", label: "Green", colors: ["#15803d", "#4ade80"] },
+  { id: "violet", label: "Violet", colors: ["#7c3aed", "#a78bfa"] },
+  { id: "pink", label: "Pink", colors: ["#db2777", "#f472b6"] },
+  { id: "teal", label: "Teal", colors: ["#0f766e", "#2dd4bf"] }
 ];
 
 const KEY = "lift-appearance";
@@ -17,8 +19,9 @@ export function isDark(theme) {
   return theme === "dark" || (theme !== "light" && Boolean(media?.matches));
 }
 
-export function tintColors(id) {
-  return (TINTS.find((tint) => tint.id === id) || TINTS[0]).colors;
+export function tintColor(id, dark) {
+  const { colors } = TINTS.find((tint) => tint.id === id) || TINTS[0];
+  return dark ? colors[1] : colors[0];
 }
 
 export function applyAppearance({ theme = "system", tint = "blue" } = {}) {
@@ -26,7 +29,7 @@ export function applyAppearance({ theme = "system", tint = "blue" } = {}) {
   const dark = isDark(theme);
   root.classList.toggle("dark", dark);
   root.dataset.tint = TINTS.some((item) => item.id === tint) ? tint : "blue";
-  for (const meta of document.querySelectorAll('meta[name="theme-color"]')) meta.setAttribute("content", dark ? "#07080a" : "#f5f6f8");
+  for (const meta of document.querySelectorAll('meta[name="theme-color"]')) meta.setAttribute("content", dark ? "#141415" : "#fafafa");
   try {
     localStorage.setItem(KEY, JSON.stringify({ theme, tint }));
   } catch {}

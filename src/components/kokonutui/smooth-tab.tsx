@@ -593,7 +593,7 @@ export default function SmoothTab({
       </div>
 
       <div
-        className="surface relative touch-pan-y select-none overflow-hidden rounded-3xl data-dragging:cursor-grabbing"
+        className="surface relative touch-pan-y select-none overflow-hidden rounded-2xl data-dragging:cursor-grabbing"
         onClickCapture={(e) => {
           if (suppressClick.current) {
             suppressClick.current = false;

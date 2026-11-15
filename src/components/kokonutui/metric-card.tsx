@@ -38,8 +38,8 @@ const DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
 // Swatches for the breakdown, darkest first.
 const SWATCHES = [
   "bg-[var(--tint)]",
-  "bg-[var(--tint-2)]",
-  "bg-[var(--tint-3)]",
+  "bg-foreground/45",
+  "bg-foreground/20",
   "bg-zinc-400 dark:bg-zinc-500",
 ];
 
@@ -614,7 +614,7 @@ export default function MetricCard({
   return (
     <div
       className={cn(
-        "surface w-full select-none rounded-3xl p-5 text-foreground",
+        "surface w-full select-none rounded-2xl p-5 text-foreground",
         className
       )}
     >
@@ -654,7 +654,7 @@ export default function MetricCard({
         </div>
       </div>
 
-      <p className="mt-3 font-semibold text-4xl tracking-tight">
+      <p className="mt-3 font-medium text-[34px] leading-[1.15] tabular-nums">
         <span className="sr-only">{formatted}</span>
         <RollingNumber value={formatted} />
       </p>

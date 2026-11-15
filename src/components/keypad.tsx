@@ -18,10 +18,10 @@ export function Key({ children, onPress, variant = "digit", label, disabled }: {
     <motion.button
       aria-label={label}
       className={cn(
-        "grid h-[52px] place-items-center rounded-2xl select-none disabled:opacity-0",
-        variant === "digit" && "bg-card text-[26px] font-medium shadow-[0_1px_0_rgba(0,0,0,0.25)] ring-1 ring-border dark:bg-white/[0.07]",
-        variant === "fn" && "bg-muted text-[15px] font-semibold text-foreground",
-        variant === "go" && "bg-primary text-[16px] font-semibold text-primary-foreground shadow-[0_10px_30px_-12px_var(--tint)]"
+        "grid h-[52px] place-items-center rounded-xl select-none disabled:opacity-0",
+        variant === "digit" && "bg-card text-[26px] tabular ring-1 ring-border dark:bg-accent dark:ring-0",
+        variant === "fn" && "bg-muted text-[15px] font-medium text-foreground",
+        variant === "go" && "bg-primary text-[16px] font-medium text-primary-foreground"
       )}
       disabled={disabled}
       onClick={() => {
@@ -97,7 +97,7 @@ export function Keypad() {
             <motion.div
               animate={{ y: 0 }}
               aria-label="Number pad"
-              className="glass pb-safe pointer-events-auto rounded-t-[28px] border-b-0 px-3 pt-3 shadow-[0_-12px_40px_-20px_rgba(0,0,0,0.5)]"
+              className="pb-safe pointer-events-auto rounded-t-[20px] border border-b-0 border-border bg-bar px-3 pt-3 shadow-[0_-8px_24px_rgba(0,0,0,0.08)]"
               exit={{ y: "110%" }}
               initial={{ y: "110%" }}
               role="group"
@@ -106,14 +106,14 @@ export function Keypad() {
               <div className="mx-auto max-w-xl">
                 <div className="flex items-center gap-2 px-1 pb-3">
                   <p className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
-                    <span className="font-semibold text-foreground">{title[field]}</span>
+                    <span className="font-medium text-foreground">{title[field]}</span>
                     {" · "}
                     {found.set.type === "warmup" ? "Warm-up" : `Set ${found.entry.sets.slice(0, found.setIndex + 1).filter((x: any) => x.type !== "warmup").length}`}
                     {" · "}
                     {exerciseName(found.entry.exerciseId)}
                   </p>
                   <button aria-label="Hide number pad" className="grid size-8 place-items-center rounded-full bg-muted text-muted-foreground" onClick={closePad} type="button">
-                    <ChevronDown className="size-4" strokeWidth={2.8} />
+                    <ChevronDown className="size-4" strokeWidth={1.75} />
                   </button>
                 </div>
                 <KeyGrid
