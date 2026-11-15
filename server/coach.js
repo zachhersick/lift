@@ -2,7 +2,7 @@
 // connector, plus the Coach's own rule cards, and writes a short review.
 // It's saved as a coachReview record, so it syncs and stays readable offline.
 import Anthropic from "@anthropic-ai/sdk";
-import { BUILT_IN } from "../src/lib/exercises.js";
+import { indexExercises } from "../src/lib/exercises.js";
 import { coachingContext, dateKeyIn, findCurrentSplit, insights } from "../src/lib/model.js";
 import { httpError } from "./http.js";
 
@@ -13,13 +13,6 @@ const SYSTEM = `You're the coach inside Lift, a workout and nutrition tracker. O
 Write it the way a good coach talks to an athlete they know: direct, specific, encouraging without hype. Ground every point in the numbers given, and keep advice within mainstream sports-science evidence: about 10–20 hard sets per muscle a week (setsPerMuscle counts indirect work as half a set), training each muscle about twice a week, taking sets close to failure, 2–3 minutes' rest on compound lifts, 1.6–2.2 g/kg of protein, gaining about 0.25–0.5% of bodyweight a week on a lean bulk or losing 0.5–1% on a cut, a deload when several lifts drop together, and 150+ minutes of cardio a week for health. Don't guess at anything the data doesn't show, and say plainly when too little was logged to judge. The point of the review is connecting eating and training: whether intake supported strength progress, whether the weight trend fits the goal, what to change so the lifts keep going up.
 
 Format: plain text, no markdown headings, bold or tables. Open with one sentence on how the week went. Then two to four short paragraphs or "- " bullets on what's working and what's holding progress back. End with a line "This week:" followed by two or three "- " bullets, each a concrete action with a number (kcal, grams, weight, sets or reps). Stay under 220 words. Use the unit field (lb or kg) for weights. If the data points to very low intake or fast weight loss, say so plainly and suggest checking in with a professional.`;
-
-// Every exercise by id: the library with your stored ones on top.
-export function indexExercises(exercises) {
-  const exerciseIndex = new Map(BUILT_IN.map((exercise) => [exercise.id, exercise]));
-  for (const record of exercises) exerciseIndex.set(record.id, { ...exerciseIndex.get(record.id), ...record });
-  return exerciseIndex;
-}
 
 // Everything the Coach reads, straight from the store. Only the current
 // split's days: the others aren't what you're training.

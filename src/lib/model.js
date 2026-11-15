@@ -55,6 +55,7 @@ export {
   newEntry,
   workoutFromDay,
   newer,
+  keepIfSame,
   dateKey,
   fromDateKey
 } from "./model/core.js";

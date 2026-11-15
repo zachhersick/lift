@@ -153,6 +153,14 @@ export const slug = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").rep
 
 export const BUILT_IN = LIST.map(([name, muscle, equipment, track = "strength"]) => ({ id: `b_${slug(name)}`, kind: "exercise", name, muscle, equipment, track, builtIn: true }));
 
+// Every exercise by id: the library with stored records (your own exercises
+// and edits to built-ins) on top. Shared by the app's store and the server.
+export function indexExercises(stored = []) {
+  const index = new Map(BUILT_IN.map((exercise) => [exercise.id, exercise]));
+  for (const record of stored) index.set(record.id, { ...index.get(record.id), ...record });
+  return index;
+}
+
 const ex = (name) => `b_${slug(name)}`;
 const item = (name, targetSets, repMin, repMax, restSec) => ({ exerciseId: ex(name), targetSets, repMin, repMax, restSec });
 

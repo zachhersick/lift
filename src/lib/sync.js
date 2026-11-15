@@ -73,7 +73,7 @@ export async function syncNow() {
       await db.setMeta("cursor", body.cursor ?? since);
       more = Boolean(body.more);
     }
-    pending.value = (await db.loadOutbox()).length;
+    pending.value = await db.outboxCount();
     const lastSync = Date.now();
     await db.setMeta("lastSync", lastSync);
     set({ status: "synced", lastSync, error: "" });

@@ -344,5 +344,10 @@ export function fromDateKey(key) {
   return new Date(y, m - 1, d).getTime();
 }
 
+// `previous` when `next` holds the same items in the same order, so a
+// computed signal can hand back the array it already had and spare whatever
+// depends on it from recomputing.
+export const keepIfSame = (previous, next) => (previous.length === next.length && previous.every((item, i) => item === next[i]) ? previous : next);
+
 // Average of a non-empty list.
 export const mean = (list) => list.reduce((sum, n) => sum + n, 0) / list.length;

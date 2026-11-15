@@ -5,9 +5,9 @@
 // picks it up on its next sync. Logged workouts stay out of reach, and a new
 // split waits in the Split tab: only you can make one current.
 import { createHash } from "node:crypto";
-import { EQUIPMENT, MUSCLES } from "../src/lib/exercises.js";
+import { EQUIPMENT, indexExercises, MUSCLES } from "../src/lib/exercises.js";
 import { coachingContext, dateKeyIn, dayTotals, energyPlan, listSplits, live, MAIN_SPLIT, MICROS, muscleGroup, nextSplitDay, supersetLabels, trackOf, TRACKS, uid } from "../src/lib/model.js";
-import { indexExercises, loadTrainingData } from "./coach.js";
+import { loadTrainingData } from "./coach.js";
 
 // Newest first: a client asking for something else gets the first.
 const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
