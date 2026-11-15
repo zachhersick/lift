@@ -2,7 +2,7 @@
 // rows, segmented controls, toggles, steppers, sheets and empty states.
 import { ChevronLeft, ChevronRight, Minus, Plus, X } from "lucide-react";
 import { AnimatePresence, motion, useMotionValueEvent, useScroll } from "motion/react";
-import { type ComponentType, type ReactNode, useId, useState } from "react";
+import { type ComponentType, type ReactNode, useEffect, useId, useState } from "react";
 import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from "@/components/ui/drawer";
 import { back } from "@/lib/router.js";
 import { haptic } from "@/lib/haptics.js";
@@ -15,8 +15,10 @@ export const softSpring = { duration: 0.36, ease } as const;
 
 // ---------- page frame ----------
 
-export function Page({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn("mx-auto flex w-full max-w-xl flex-col gap-8 px-4 pb-36", className)}>{children}</div>;
+/** The page column: phone width, wider beside the sidebar, and the full
+ * content area for dashboards (`wide`). */
+export function Page({ children, className, wide }: { children: ReactNode; className?: string; wide?: boolean }) {
+  return <div className={cn("mx-auto flex w-full max-w-xl flex-col gap-8 px-4 pb-36 lg:px-8 lg:pb-16", wide ? "lg:max-w-[1360px]" : "lg:max-w-3xl", className)}>{children}</div>;
 }
 
 /** Large title that hands off to a compact bar once it scrolls away. */
@@ -44,7 +46,7 @@ export function TopBar({
   useMotionValueEvent(scrollY, "change", (y) => large && setCompact(y > 56));
   return (
     <>
-      <header className="pt-safe sticky top-0 z-30 -mx-4">
+      <header className="pt-safe sticky top-0 z-30 -mx-4 lg:-mx-8">
         <motion.div
           animate={{ opacity: compact ? 1 : 0 }}
           className="pointer-events-none absolute inset-0 border-b border-border bg-background"
@@ -309,7 +311,7 @@ export function Sheet({
 }) {
   return (
     <Drawer onOpenChange={(next) => !next && onClose()} open={open}>
-      <DrawerContent className={cn("rounded-t-[20px]! border-border bg-popover pb-safe outline-none", tall ? "h-[92dvh] max-h-[92dvh]!" : "max-h-[92dvh]!")}>
+      <DrawerContent className={cn("rounded-t-[20px]! border-border bg-popover pb-safe outline-none lg:right-auto! lg:left-[calc(50%-160px)]! lg:w-[560px] lg:border-x", tall ? "h-[92dvh] max-h-[92dvh]!" : "max-h-[92dvh]!")}>
         <div className="grid h-12 shrink-0 grid-cols-[1fr_auto_1fr] items-center px-3">
           <div className="justify-self-start">{left}</div>
           <DrawerTitle className="max-w-[55vw] truncate text-center text-[15px] font-medium">{title}</DrawerTitle>
@@ -374,6 +376,19 @@ export function StatTiles({ items, className }: { items: { label: string; value:
       ))}
     </div>
   );
+}
+
+/** True beside the sidebar (Tailwind's lg, 1024px and up). */
+export function useWide() {
+  const query = "(min-width: 1024px)";
+  const [wide, setWide] = useState(() => typeof window !== "undefined" && window.matchMedia(query).matches);
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const onChange = () => setWide(media.matches);
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+  return wide;
 }
 
 export function FadeIn({ children, delay = 0, className }: { children: ReactNode; delay?: number; className?: string }) {
