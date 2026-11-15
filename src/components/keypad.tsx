@@ -91,13 +91,13 @@ export function Keypad() {
   // no transformed ancestor can re-anchor it either.
   return createPortal(
     <>
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50">
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 lg:left-60">
         <AnimatePresence>
           {open && target && found ? (
             <motion.div
               animate={{ y: 0 }}
               aria-label="Number pad"
-              className="pb-safe pointer-events-auto rounded-t-[20px] border border-b-0 border-border bg-bar px-3 pt-3 shadow-[0_-8px_24px_rgba(0,0,0,0.08)]"
+              className="pb-safe pointer-events-auto rounded-t-[20px] border border-b-0 border-border bg-bar px-3 pt-3 shadow-[0_-8px_24px_rgba(0,0,0,0.08)] lg:mx-auto lg:max-w-2xl"
               exit={{ y: "110%" }}
               initial={{ y: "110%" }}
               role="group"
