@@ -2,8 +2,8 @@
 // change and queued for sync. Pages read the computed views below and write
 // through save/update/remove.
 import { computed, signal } from "@preact/signals-core";
-import { BUILT_IN } from "./exercises.js";
-import { badges, BARS, bodyweightId, dateKey, energyPlan, finished, insights, listSplits, live, MAIN_SPLIT_NAME, newer, PLATES, profileSummary, uid } from "./model.js";
+import { BUILT_IN, indexExercises } from "./exercises.js";
+import { badges, BARS, bodyweightId, dateKey, energyPlan, finished, insights, keepIfSame, listSplits, live, MAIN_SPLIT_NAME, newer, PLATES, profileSummary, uid } from "./model.js";
 import * as db from "./db.js";
 import { databaseName } from "./account.js";
 
@@ -18,7 +18,23 @@ export function whenChanged(fn) {
   onLocalChange = fn;
 }
 
-const ofKind = (kind) => computed(() => [...records.value.values()].filter((record) => record.kind === kind));
+// Records by kind, in one pass over everything. Each kind's list keeps its
+// previous array while none of its records changed, so saving a meal doesn't
+// recompute views that only read workouts, and the other way round.
+const byKind = computed(() => {
+  const groups = new Map();
+  for (const record of records.value.values()) {
+    const list = groups.get(record.kind);
+    if (list) list.push(record);
+    else groups.set(record.kind, [record]);
+  }
+  return groups;
+});
+const ofKind = (kind) => {
+  let last = [];
+  return computed(() => (last = keepIfSame(last, byKind.value.get(kind) || [])));
+};
+const settingsRecord = computed(() => records.value.get("settings"));
 
 const storedExercises = ofKind("exercise");
 const splitRecords = ofKind("split");
@@ -30,7 +46,7 @@ const reviewsAll = ofKind("coachReview");
 
 // Bar and plates default to the unit's standard set until you change them.
 export const settings = computed(() => {
-  const stored = { ...DEFAULT_SETTINGS, ...(records.value.get("settings") || {}) };
+  const stored = { ...DEFAULT_SETTINGS, ...(settingsRecord.value || {}) };
   const unit = stored.unit === "kg" ? "kg" : "lb";
   const tint = stored.tint === "indigo" ? "violet" : stored.tint;
   return { ...stored, tint, unit, barWeight: stored.barWeight ?? BARS[unit][0], plates: stored.plates?.length ? stored.plates : PLATES[unit] };
@@ -47,11 +63,7 @@ export const sessions = computed(() => finishedWorkouts.value.filter((workout) =
 export const activeWorkout = computed(() => workouts.value.filter((workout) => !workout.finishedAt).sort((a, b) => b.startedAt - a.startedAt)[0] || null);
 
 // Every exercise by id, deleted ones included so old workouts keep their names.
-export const exerciseIndex = computed(() => {
-  const index = new Map(BUILT_IN.map((exercise) => [exercise.id, exercise]));
-  for (const record of storedExercises.value) index.set(record.id, { ...index.get(record.id), ...record });
-  return index;
-});
+export const exerciseIndex = computed(() => indexExercises(storedExercises.value));
 export const exercises = computed(() => [...exerciseIndex.value.values()].filter((exercise) => !exercise.deleted).sort((a, b) => a.name.localeCompare(b.name)));
 
 // Logged bodyweight, newest first.
@@ -139,7 +151,7 @@ export function exerciseName(id) {
 export async function load() {
   const list = await db.loadRecords();
   records.value = new Map(list.map((record) => [record.id, record]));
-  pending.value = (await db.loadOutbox()).length;
+  pending.value = await db.outboxCount();
   loaded.value = true;
 }
 
@@ -154,7 +166,7 @@ export async function saveMany(list) {
   for (const record of stamped) next.set(record.id, record);
   records.value = next;
   await db.putRecords(stamped, { outbox: true });
-  pending.value = (await db.loadOutbox()).length;
+  pending.value = await db.outboxCount();
   onLocalChange();
   return stamped;
 }
@@ -202,7 +214,7 @@ export async function importRecords(list) {
   for (const record of accepted) next.set(record.id, record);
   records.value = next;
   await db.putRecords(accepted, { outbox: true });
-  pending.value = (await db.loadOutbox()).length;
+  pending.value = await db.outboxCount();
   onLocalChange();
   return accepted.length;
 }

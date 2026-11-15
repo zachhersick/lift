@@ -5,9 +5,9 @@
 // picks it up on its next sync. Logged workouts stay out of reach, and a new
 // split waits in the Split tab: only you can make one current.
 import { createHash } from "node:crypto";
-import { EQUIPMENT, MUSCLES } from "../src/lib/exercises.js";
+import { EQUIPMENT, indexExercises, MUSCLES } from "../src/lib/exercises.js";
 import { coachingContext, dateKeyIn, dayTotals, energyPlan, listSplits, live, MAIN_SPLIT, MICROS, muscleGroup, nextSplitDay, supersetLabels, trackOf, TRACKS, uid } from "../src/lib/model.js";
-import { indexExercises, loadTrainingData } from "./coach.js";
+import { loadTrainingData } from "./coach.js";
 
 // Newest first: a client asking for something else gets the first.
 const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -315,7 +315,7 @@ const publicMeal = (meal) => ({ id: meal.id, date: meal.date, name: meal.name, e
 // `app` is the assistant the connection approved (see tokenPair in oauth.js).
 export function createMcp({ store, app = null }) {
   async function data() {
-    const [meals, bodyweights, settingsDoc] = await Promise.all([store.listKind("meal"), store.listKind("bodyweight"), store.get("settings")]);
+    const [{ meal: meals, bodyweight: bodyweights }, settingsDoc] = await Promise.all([store.listKinds(["meal", "bodyweight"]), store.get("settings")]);
     return { meals, bodyweights, settings: settingsDoc || {}, timeZone: settingsDoc?.timeZone || "UTC" };
   }
 
@@ -358,7 +358,7 @@ export function createMcp({ store, app = null }) {
   }
 
   async function splitData() {
-    const [splits, days, settings, exercises] = await Promise.all([store.listKind("split"), store.listKind("splitDay"), store.get("settings"), store.listKind("exercise")]);
+    const [{ split: splits, splitDay: days, exercise: exercises }, settings] = await Promise.all([store.listKinds(["split", "splitDay", "exercise"]), store.get("settings")]);
     return { splits: listSplits(splits, days, settings || {}), defaultRest: settings?.defaultRest ?? 120, exercises: indexExercises(exercises) };
   }
 

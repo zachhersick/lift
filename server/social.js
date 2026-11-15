@@ -14,9 +14,11 @@ export const displayName = (user) => user?.name || (user?.username ? `@${user.us
 // server's own use; `publicPeople` drops it before anything is sent.
 export async function friendships(store, email, account) {
   const out = { friends: [], incoming: [], outgoing: [] };
-  for (const row of await store.listFriendships(email)) {
+  const rows = await store.listFriendships(email);
+  const users = await Promise.all(rows.map((row) => account(row.a === email ? row.b : row.a)));
+  for (const [i, row] of rows.entries()) {
     const other = row.a === email ? row.b : row.a;
-    const user = await account(other);
+    const user = users[i];
     if (!user) continue;
     const person = { email: other, username: user.username || null, name: displayName(user), vip: user.vip, since: row.createdAt };
     if (row.status === "accepted") out.friends.push(person);

@@ -31,7 +31,7 @@ for social features, AI-sharing consent and the legal pages.
 
 | Location | Responsibility |
 | --- | --- |
-| `src/main.tsx`, `src/App.tsx` | Startup, appearance, sync, service worker and app shell |
+| `src/main.tsx`, `src/App.tsx` | Startup, appearance, sync, service worker and app shell: `pageFor()` maps a route to a page, `TABS` is the phone tab bar and `SIDE` the desktop sidebar |
 | `src/pages/` | Today, workout, history, progress, bodyweight, nutrition (Fuel), split and settings screens |
 | `src/pages/profile.tsx`, `friend.tsx`, `src/components/badges.tsx`, `account-sheet.tsx`, `src/lib/social.js` | Profile tab (stats, pinned lift, badges, friends, leaderboard, sharing), a friend's profile and lift comparison, the username sheet, and the friends API client |
 | `src/pages/coach.tsx`, `src/components/insights.tsx` | Coach tab (split analyzer, cards by area, sets per muscle, sources), Coach cards and weekly AI review |
@@ -40,26 +40,30 @@ for social features, AI-sharing consent and the legal pages.
 | `src/components/keypad.tsx`, `plates.tsx`, `src/lib/keypad.js` | Workout number pad and plate calculator |
 | `src/components/kit.tsx` | Shared page, card, row, sheet and motion primitives |
 | `src/components/ui/`, `src/components/kokonutui/` | Existing UI components styled for Lift |
-| `src/lib/model.js` | Pure training, progression, history, plate, statistics, nutrition and Coach logic (shared with the server) |
-| `src/lib/exercises.js` | Built-in exercise library, starter split templates, `MUSCLE_GROUPS`, `MUSCLES` and `EQUIPMENT` |
+| `src/lib/model.js` | The public index of Lift's pure logic (shared with the server and tests): it re-exports by name from the modules below, so import from it, never from a module |
+| `src/lib/model/core.js`, `plates.js`, `workout.js`, `volume.js` | Records, splits and rotation, tracking types, history, PRs, progression, dates and `newer()`; plate math and warm-ups; supersets, focus steps and `splitDiff`; muscles, weekly sets, streaks and rings |
+| `src/lib/model/nutrition.js`, `coach.js`, `analyzer.js`, `social.js` | Meals, micronutrients, weight trend, maintenance and targets; `coachingContext()` and `insights()`; `analyzeSplit()`/`applySplitEdit()`; units, `PRO_FEATURES`, badges, `profileSummary()`, leaderboard and name checks |
+| `src/lib/exercises.js` | Built-in exercise library, starter split templates, `MUSCLE_GROUPS`, `MUSCLES`, `EQUIPMENT` and `indexExercises()` (library plus stored overrides, used by the store, the Coach and the connector) |
 | `src/lib/timer.js`, `set-timer.js`, `format.js` | Rest and set timers, number and date formatting |
-| `src/lib/store.js`, `db.js`, `sync.js`, `account.js` | Signals, IndexedDB records/outbox (one database per account), server synchronization |
+| `src/lib/store.js`, `db.js`, `sync.js`, `account.js` | Signals, IndexedDB records/outbox (one database per account), server synchronization. Each kind's view keeps its array while its records are unchanged (`keepIfSame`), so a save only recomputes views of that kind |
 | `src/lib/api.js` | Every API call: same-origin cookie fetch on the web, `VITE_API_URL` plus a bearer token in the iOS app, and native sign-in (PKCE, `lift://auth`) |
 | `src/lib/native.js`, `capacitor.config.ts`, `ios/`, `scripts/build-ios.mjs` | The iOS app (Capacitor 8, SPM): browser sign-in and `lift://` links, Keychain token, haptics, rest-timer notifications; iPhone-only; `Info.plist` has the URL scheme and export compliance, and `PrivacyInfo.xcprivacy` must match the App Store privacy answers in `docs/app-store.md` |
 | `src/lib/actions.js`, `router.js` | Shared actions and hash navigation |
 | `src/styles.css`, `public/theme-init.js` | Theme tokens and appearance before first paint |
-| `server/app.js`, `auth.js`, `http.js`, `store.js` | API routing, accounts, invites and deletion, Apple/Google/GitHub sign-in, request validation and memory/Neon stores |
+| `server/app.js`, `auth.js`, `http.js`, `store.js` | API routing, accounts, invites and deletion, Apple/Google/GitHub sign-in, request validation and memory/Neon stores. `forOwner(email)` gives `get`, `listKind`, `listKinds` (several kinds in one query), `upsert`, `changesSince` and `head`; `loadTrainingData()` in `coach.js` reads everything the Coach needs |
 | `server/oauth.js`, `mcp.js`, `coach.js` | Claude and ChatGPT connector (OAuth 2.1 + MCP tools) and the weekly Claude review |
 | `server/billing.js`, `src/components/pro-sheet.tsx` | Lift Pro: Stripe calls, webhook signatures and plan rules; the upgrade sheet |
 | `server/social.js` | Friend lists, the leaderboard and the share-filtered profile summary friends receive (block and report routes are in `app.js`) |
 | `public/privacy.html`, `terms.html`, `support.html` | Privacy policy, terms (zero tolerance for abuse) and support page, linked from Settings and needed by the App Store |
 | `api/index.js` | Vercel entry point for every `/api/*` and `/.well-known/*` request |
 | `tests/model.test.js`, `tests/app.test.js` | Domain logic and API/auth/sync tests |
-| `vite.config.ts`, `vercel.json` | Local API integration, PWA build and deployment configuration |
+| `vite.config.ts`, `vercel.json` | Local API integration, PWA build, the `vendor` chunk and deployment configuration |
+| `scripts/typecheck.mjs`, `check-docs.mjs` | The type-error ratchet and the check that every path in this file exists |
 | `assets/icon.svg`, `scripts/build-icons.mjs` | Source icon and PNG generation (web icons, plus the opaque iOS app icon and launch splash) |
 | `.claude/launch.json` | Preview configurations `lift` (dev) and `lift-preview`, both on port 4330 |
 
-Paths abbreviated within a row are relative to the same directory as its first path.
+A bare file name in a row is in the same directory as the path before it (or the
+repository root). `npm.cmd run check:docs` checks every path here.
 
 ## Setup and commands
 
@@ -71,9 +75,12 @@ On Windows PowerShell use `npm.cmd`; elsewhere use `npm`.
 | --- | --- |
 | Install locked dependencies in a fresh checkout | `npm.cmd ci` |
 | Start development with hot reload | `npm.cmd run dev` |
+| Run everything before handing off: tests, docs paths, typecheck, build | `npm.cmd run check` |
 | Run all tests | `npm.cmd test` |
 | Run only domain tests | `node --test tests/model.test.js` |
 | Run only API tests | `node --test tests/app.test.js` |
+| Type-check (fails only on new errors; `-- --update` locks in fixes) | `npm.cmd run typecheck` |
+| Check that every path in `AGENTS.md` exists | `npm.cmd run check:docs` |
 | Build production assets into `dist/` | `npm.cmd run build` |
 | Serve the production build locally | `npm.cmd run preview` |
 | Regenerate PNG icons after editing the SVG | `npm.cmd run build:icons` |
@@ -103,7 +110,11 @@ returns to the foreground, so keep in-progress work surviving a reload.
 - Match nearby code: ES modules, two-space indentation, semicolons and usually
   double quotes. UI is TSX; domain and server logic are JavaScript.
 - Use the existing `@/` alias for `src` imports in UI code and retain explicit
-  `.js` extensions in Node-consumed modules. Keep pure logic in `model.js`.
+  `.js` extensions in Node-consumed modules. Keep pure logic in the matching
+  `src/lib/model/` module and add each new public name to the list in
+  `model.js` (a helper only siblings use stays out of it). Modules import
+  each other in one direction (core ← volume ← nutrition ← coach ← analyzer,
+  social); don't add a cycle.
 - Read signals through the existing `useValue` hook in React. Write records
   through the store's save/update/remove APIs so persistence and sync stay intact.
 - Reuse `kit.tsx`, UI components, theme tokens and existing motion patterns.
@@ -113,6 +124,51 @@ returns to the foreground, so keep in-progress work surviving a reload.
   output. Regenerate public PNG icons only when their source changes.
 - Line endings are mixed (some files CRLF, some LF, with `core.autocrlf=true`).
   Keep each file's existing endings when editing or appending.
+
+## How to add a feature
+
+Each recipe names the files to touch and the tests to add. Read the invariants
+below for whatever area you touch.
+
+- **A new record kind** (something that syncs, like `meal`): add it to `KINDS`
+  in `server/app.js` (`cleanChanges` drops unknown kinds) and give it a stable
+  id, `kind`, `updatedAt` and `deleted` tombstones. Add a view in
+  `src/lib/store.js` with `ofKind("<kind>")` plus `live()`, and write through
+  `save`/`update`/`remove`. Both stores and the backup take it unchanged.
+  Add the server's reads to `loadTrainingData()` only if the Coach needs it,
+  and decide whether `profileSummary()` may see it (usually not). Tests: a sync
+  round trip in `tests/app.test.js` and the pure logic in
+  `tests/model.test.js`.
+- **A new MCP tool**: add the schema to `TOOLS` and the handler to `tools` in
+  `createMcp()` (`server/mcp.js`), using `store` (already owner-scoped) and
+  `toolError` for bad input. If it widens access, list it in the approval
+  page in `server/oauth.js` and gate it like `SPLIT_TOOLS`, so connections
+  that approved less don't get it. Never touch logged workouts. Records it
+  writes need the app's format and `source` set to the assistant. Tests: call
+  it through `/api/mcp` in `tests/app.test.js`, including a missing-approval
+  case if gated.
+- **A new Pro gate**: check `user.pro` on the server route (see
+  `/api/coach/review` in `server/app.js`) and return 403 otherwise. Hide or
+  explain the feature in the UI from the session's `user.pro`, and add it to
+  `PRO_FEATURES` (`src/lib/model/social.js`) only once it's gated, which
+  shows it in `src/components/pro-sheet.tsx`. Update the terms and privacy
+  pages. Never gate logged data, export, deletion, block or report. Tests: the
+  403 for a free account and success for a VIP/subscriber in
+  `tests/app.test.js`.
+- **A new page**: add the component under `src/pages/`, a branch in
+  `pageFor()` in `src/App.tsx`, and, if it needs a tab, entries in `TABS`
+  (phone) and `SIDE` (desktop) with `match` lists. Add the route to the list
+  at the top of `src/lib/router.js`. Build it from `kit.tsx` and read signals
+  with `useValue`. Check it in a browser at 375×812 and at desktop width in
+  both themes.
+- **A Coach rule**: add the check inside `insights()` in
+  `src/lib/model/coach.js`, returning a card with `area`, `tone`, `source`
+  and copy grounded in published evidence or labelled as your own data. Add
+  the source to `SOURCES`, the reference list in `src/pages/coach.tsx`. Tests: in
+  `tests/model.test.js`, a case where it fires, one where it stays quiet, and
+  that it carries its area and source. The weekly review gets the cards from `insights()`
+  (`server/coach.js`); assistants see only `coachingContext()`, so add the
+  numbers there too if they should know.
 
 ## Data and security invariants
 
@@ -221,11 +277,11 @@ returns to the foreground, so keep in-progress work surviving a reload.
 - Plate math (`plateBreakdown`, `roundLoadable`, `warmupSets`) covers `barbell`
   and `plate loaded` equipment; `barFor()` gives plate-loaded exercises no bar.
   Check these helpers when adding to `EQUIPMENT`.
-- Coach rules live in `insights()` in `model.js`; every card carries an `area`
+- Coach rules live in `insights()` in `src/lib/model/coach.js`; every card carries an `area`
   (training, nutrition, recovery) and a `source`. Keep new rules grounded in
   published evidence or label them as patterns in the user's own data, and keep
   the reference list on the Coach page in step.
-- The split analyzer is `analyzeSplit()` in `model.js`: pure and deterministic, no
+- The split analyzer is `analyzeSplit()` in `src/lib/model/analyzer.js`: pure and deterministic, no
   API. Its suggestions carry an `edit` applied with `applySplitEdit()` through the
   store's `update`, so split edits sync like any other change. Each rule names
   its source; keep them evidence-based and in the Coach page's reference list.
@@ -239,9 +295,12 @@ Tests use `node:test` and `node:assert/strict`; add cases to the relevant existi
 and fake requests/configuration, so they do not require OAuth or Neon credentials.
 
 Run the relevant test file while iterating. Before handing off application code,
-run `npm.cmd test` and `npm.cmd run build`. Documentation-only edits need link,
-path and command checks. There is no configured lint, formatting, coverage or
-typecheck script; Vite's build is not a TypeScript typecheck.
+run `npm.cmd run check` (tests, `check:docs`, `typecheck`, build).
+Documentation-only edits need `npm.cmd run check:docs` plus link and command
+checks. `typecheck` is a ratchet: the UI has known type errors counted per file
+in `scripts/typecheck.mjs`, and it fails only when a file gets more. When you fix
+some, run `npm.cmd run typecheck -- --update`. There is no lint, formatting or
+coverage script.
 
 For UI changes, also inspect the affected flow in a browser at mobile size.
 Storage, sync and PWA changes need appropriate offline/reload/reconnect checks;

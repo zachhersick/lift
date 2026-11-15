@@ -98,9 +98,18 @@ function scoped(store, owner) {
     changesSince: (since, limit) => store.changesSinceFor(owner, since, limit),
     head: () => store.headFor(owner),
     get: (id) => store.getFor(owner, id),
-    listKind: (kind) => store.listKindFor(owner, kind)
+    listKind: (kind) => store.listKindFor(owner, kind),
+    listKinds: (kinds) => store.listKindsFor(owner, kinds)
   };
 }
+
+// Live records of several kinds from one query, as { kind: [docs] } with an
+// entry (maybe empty) for every kind asked for.
+const groupKinds = (kinds, rows) => {
+  const out = Object.fromEntries(kinds.map((kind) => [kind, []]));
+  for (const { kind, doc } of rows) out[kind]?.push(doc);
+  return out;
+};
 
 // A friendship's key: the two emails in sorted order.
 export const friendPair = (x, y) => (x < y ? [x, y] : [y, x]);
@@ -164,6 +173,11 @@ export class MemoryStore {
   // Live (not deleted) records of one kind.
   async listKindFor(owner, kind) {
     return this.mine(owner).filter((row) => row.doc.kind === kind && !row.doc.deleted).map((row) => structuredClone(row.doc));
+  }
+
+  async listKindsFor(owner, kinds) {
+    const rows = this.mine(owner).filter((row) => kinds.includes(row.doc.kind) && !row.doc.deleted);
+    return groupKinds(kinds, rows.map((row) => ({ kind: row.doc.kind, doc: structuredClone(row.doc) })));
   }
 
   // True the first time a key is claimed, false on every later try.
@@ -350,6 +364,10 @@ export class NeonStore {
   async listKindFor(owner, kind) {
     const rows = await this.query("select doc from lift_records where owner = $1 and kind = $2 and not deleted", [owner, kind]);
     return rows.map((row) => row.doc);
+  }
+
+  async listKindsFor(owner, kinds) {
+    return groupKinds(kinds, await this.query("select kind, doc from lift_records where owner = $1 and kind = any($2::text[]) and not deleted", [owner, kinds]));
   }
 
   async claim(key, expiresAt, now = Date.now()) {

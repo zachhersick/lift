@@ -44,8 +44,6 @@ function open() {
   return opening;
 }
 
-export const persistent = async () => Boolean(await open());
-
 function done(tx) {
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve();
@@ -91,6 +89,17 @@ export async function loadOutbox() {
   const db = await open();
   if (!db) return [...memory.outbox.values()];
   return all(db.transaction("outbox").objectStore("outbox"));
+}
+
+// How many changes are waiting to sync, without reading them.
+export async function outboxCount() {
+  const db = await open();
+  if (!db) return memory.outbox.size;
+  return new Promise((resolve, reject) => {
+    const request = db.transaction("outbox").objectStore("outbox").count();
+    request.onsuccess = () => resolve(request.result || 0);
+    request.onerror = () => reject(request.error);
+  });
 }
 
 // Drops outbox entries the server now has, unless they were edited again
