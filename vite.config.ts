@@ -54,5 +54,18 @@ export default defineConfig({
   ],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   server: { port: 4330, strictPort: true },
-  build: { target: "es2022", chunkSizeWarningLimit: 700 }
+  build: {
+    target: "es2022",
+    chunkSizeWarningLimit: 700,
+    rolldownOptions: {
+      output: {
+        // Libraries the app loads up front get their own chunk, so a deploy
+        // that only changes Lift's code leaves them cached. Capacitor and
+        // workbox stay out: they're imported on demand.
+        codeSplitting: {
+          groups: [{ name: "vendor", test: /node_modules[\\/](react|react-dom|scheduler|motion|motion-dom|motion-utils|framer-motion|radix-ui|@radix-ui|vaul|lucide-react|@number-flow|number-flow|esm-env|@preact|clsx|tailwind-merge|class-variance-authority)[\\/]/ }]
+        }
+      }
+    }
+  }
 });
