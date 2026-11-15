@@ -1,22 +1,22 @@
 // Settings: your account (and deleting it), appearance, weekly goal,
 // nutrition, the ChatGPT connector, units, barbell and plates, rest timer,
 // backups, installing on the phone, and the privacy policy and terms.
-import { Check, Cloud, Copy, CreditCard, Download, FileText, Flag, LifeBuoy, LogIn, RefreshCw, Plug, Share, Shield, SquarePlus, Star, Trash2, Upload, UserPlus } from "lucide-react";
+import { Check, Cloud, CreditCard, Download, FileText, Flag, LifeBuoy, LogIn, RefreshCw, Share, Shield, SquarePlus, Star, Trash2, Upload, UserPlus } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { Card, Chip, Page, Row, Section, Segmented, spring, Stepper, Toggle, TopBar } from "@/components/kit";
 import { openBilling, ProSheet } from "@/components/pro-sheet";
-import { api, apiOrigin, native, postJson, signIn } from "@/lib/api.js";
+import { api, native, postJson, signIn } from "@/lib/api.js";
 import { ask } from "@/lib/dialogs";
-import { BARS, defaultWeeklyGoal, fromAssistant, PLATES } from "@/lib/model.js";
+import { BARS, defaultWeeklyGoal, PLATES } from "@/lib/model.js";
 import { notify } from "@/lib/notify";
 import { go, route } from "@/lib/router.js";
-import { exportData, importRecords, meals, pending, saveSettings, sessions, settings, splitDays, targets } from "@/lib/store.js";
+import { exportData, importRecords, pending, saveSettings, sessions, settings, splitDays, targets } from "@/lib/store.js";
 import { checkSession, deleteAccount, signOut, sync, syncNow } from "@/lib/sync.js";
 import { isDark, TINTS } from "@/lib/theme.js";
 import * as format from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
-import { GOAL_LABEL } from "@/pages/nutrition";
+import { ConnectPanel, GOAL_LABEL } from "@/pages/nutrition";
 
 const STATUS: Record<string, string> = {
   starting: "Checking…",
@@ -164,9 +164,6 @@ export function Settings() {
   const file = useRef<HTMLInputElement>(null);
   const autoGoal = defaultWeeklyGoal(days);
   const t = useValue(targets) as any;
-  const mealList = useValue(meals) as any[];
-  const lastChat = mealList.filter(fromAssistant).sort((a, b) => (b.loggedAt || b.updatedAt) - (a.loggedAt || a.updatedAt))[0];
-  const connectorUrl = `${apiOrigin}/api/mcp`;
   const [pro, setPro] = useState(false);
   const query = (useValue(route) as any).query as URLSearchParams;
   const billing = query.get("billing");
@@ -337,29 +334,7 @@ export function Settings() {
         </Card>
       </Section>
 
-      <Section
-        footer="In Claude open Customize → Connectors and add a custom connector. In ChatGPT open Settings → Apps & Connectors → Advanced, turn on Developer mode and create a connector with OAuth. Paste this URL and approve. Then ask it to log meals or build you a split."
-        title="AI assistants"
-      >
-        <Card className="divide-y divide-border">
-          <Row
-            icon={Plug}
-            label="Copy connector URL"
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(connectorUrl);
-                notify("Connector URL copied");
-              } catch {
-                notify("Couldn't copy. Select the URL instead", { status: "error" });
-              }
-            }}
-            subtitle={<span className="select-all">{connectorUrl}</span>}
-            title="Connector URL"
-            value={<Copy className="size-4" strokeWidth={1.75} />}
-          />
-          <Row subtitle={lastChat ? `${lastChat.name} · ${format.ago(lastChat.loggedAt || lastChat.updatedAt)}` : "Nothing yet"} title="Last meal from an assistant" />
-        </Card>
-      </Section>
+      <ConnectPanel />
 
       <Section footer="The progression hint adds this once you reach the top of your rep range. The ± keys use it too." title="Weights">
         <Card className="divide-y divide-border">

@@ -2,14 +2,16 @@
 // your goal, micronutrients against their Daily Values, the maintenance Lift
 // works out from your log and weigh-ins, the last two weeks of calories and
 // the Coach.
-import { ChevronLeft, ChevronRight, MessageSquareText, Plus, Utensils } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Copy, MessageSquareText, Plus, Utensils } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import { CoachSection } from "@/components/insights";
 import { MealSheet } from "@/components/meal-sheet";
-import { Card, Empty, FadeIn, Page, Row, Section, Segmented, StatTiles, TopBar } from "@/components/kit";
+import { Card, Empty, FadeIn, Page, Row, Section, Segmented, StatTiles, TopBar, useWide } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { dailyIntake, dateKey, dayTotals, fromAssistant, fromDateKey, MICROS, microAverages, RATE_BANDS, rateStatus, shiftDateKey, weightRate } from "@/lib/model.js";
+import { apiOrigin } from "@/lib/api.js";
+import { notify } from "@/lib/notify";
 import { bodyweights, maintenance, meals, settings, targets } from "@/lib/store.js";
 import { syncNow } from "@/lib/sync.js";
 import * as format from "@/lib/format.js";
@@ -78,8 +80,8 @@ function DaySummary({ totals, compact = false }: { totals: any; compact?: boolea
           <span className={cn("text-[13px] font-medium", left < 0 ? "text-pr" : "text-muted-foreground")}>{left >= 0 ? `${kcal(left)} kcal left` : `${kcal(-left)} kcal over`}</span>
         ) : null}
         <MacroBar color="var(--tint)" label="Protein" target={t.protein} value={totals.protein} />
-        <MacroBar color="color-mix(in oklab, var(--foreground) 45%, transparent)" label="Carbs" target={t.carbs} value={totals.carbs} />
-        <MacroBar color="color-mix(in oklab, var(--foreground) 25%, transparent)" label="Fat" target={t.fat} value={totals.fat} />
+        <MacroBar color="var(--carbs)" label="Carbs" target={t.carbs} value={totals.carbs} />
+        <MacroBar color="var(--fat)" label="Fat" target={t.fat} value={totals.fat} />
       </div>
     </div>
   );
@@ -269,6 +271,76 @@ function MaintenanceCard() {
   );
 }
 
+const ASSISTANT: Record<string, string> = { claude: "Claude", chatgpt: "ChatGPT" };
+const STEPS: Record<string, string[]> = {
+  claude: ["In Claude, open Customize → Connectors", "Add a custom connector and paste the URL", "Approve Lift, then ask Claude to log what you ate"],
+  chatgpt: ["In ChatGPT, open Settings → Apps & Connectors → Advanced and turn on Developer mode", "Create a connector with OAuth and paste the URL", "Approve Lift, then ask ChatGPT to log what you ate"]
+};
+
+// Connect Claude or ChatGPT: the connector URL, the steps for each app and
+// whether a meal has come in from one yet. Setup only; the connector's
+// sign-in and permissions live on the server.
+export function ConnectPanel() {
+  const list = useValue(meals) as any[];
+  const [app, setApp] = useState<"claude" | "chatgpt">("claude");
+  const [copied, setCopied] = useState(false);
+  const url = `${apiOrigin}/api/mcp`;
+  const last = list.filter(fromAssistant).sort((a, b) => (b.loggedAt || b.updatedAt || 0) - (a.loggedAt || a.updatedAt || 0))[0];
+  const when = last ? last.loggedAt || last.updatedAt : 0;
+  const recent = when && Date.now() - when < 7 * 86_400_000;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      notify("Couldn't copy. Select the URL instead", { status: "error" });
+    }
+  };
+  return (
+    <Section footer="Assistants can log and edit meals and build splits. They never see or change your logged workouts." title="Log from an assistant">
+      <Card className="flex flex-col gap-5 p-5">
+        <div className="flex items-center gap-3">
+          <span aria-hidden="true" className={cn("size-2 shrink-0 rounded-full", recent ? "bg-success" : last ? "bg-pr" : "bg-muted-foreground/40")} />
+          <p className="min-w-0 flex-1 text-[14px]">
+            {last ? (
+              <>
+                <span className="font-medium">{ASSISTANT[last.source] || "An assistant"}</span>
+                <span className="text-muted-foreground"> logged {last.name} {format.ago(when).replace(/^[A-Z]/, (c) => c.toLowerCase())}</span>
+              </>
+            ) : (
+              <span className="text-muted-foreground">No meals from an assistant yet</span>
+            )}
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <span className="text-[13px] text-muted-foreground">Connector URL</span>
+          <div className="flex items-center gap-2">
+            <code className="sets min-w-0 flex-1 truncate rounded-[10px] bg-muted px-3 py-2 text-[13px] select-all">{url}</code>
+            <Button aria-label="Copy connector URL" onClick={copy} size="sm" variant="tinted">
+              {copied ? <Check className="size-4 text-success" strokeWidth={1.75} /> : <Copy className="size-4" strokeWidth={1.75} />}
+              {copied ? "Copied" : "Copy"}
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <Segmented label="Assistant" onChange={setApp} options={[{ value: "claude", label: "Claude" }, { value: "chatgpt", label: "ChatGPT" }]} size="sm" value={app} />
+          <ol className="flex flex-col gap-2">
+            {STEPS[app].map((step, i) => (
+              <li className="flex gap-3 text-[14px] leading-5" key={step}>
+                <span className="sets grid size-5 shrink-0 place-items-center rounded-full bg-primary text-[11px] text-primary-foreground">{i + 1}</span>
+                <span>{step}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </Card>
+    </Section>
+  );
+}
+
 export function NutritionPage() {
   const list = useValue(meals) as any[];
   const t = useValue(targets) as any;
@@ -286,13 +358,79 @@ export function NutritionPage() {
   const week = Array.from({ length: 7 }, (_, i) => intake.get(shiftDateKey(today, -i - 1))).filter(Boolean) as any[];
   const avg = week.length ? week.reduce((sum, d) => sum + d.calories, 0) / week.length : null;
   const proteinDays = t.protein ? week.filter((d) => d.protein >= t.protein * 0.9).length : null;
+  const wide = useWide();
   const label = day === today ? "Today" : day === shiftDateKey(today, -1) ? "Yesterday" : format.date(fromDateKey(day), { weekday: "long", month: "short", day: "numeric" });
 
+  const dayView = (
+    <FadeIn className="flex flex-col gap-3">
+      <div className="flex items-center justify-between px-1">
+        <button aria-label="Previous day" className="grid size-9 place-items-center rounded-full bg-muted active:bg-accent" onClick={() => setDay(shiftDateKey(day, -1))} type="button">
+          <ChevronLeft className="size-5" strokeWidth={1.75} />
+        </button>
+        <span className="text-[16px] font-medium">{label}</span>
+        <button aria-label="Next day" className="grid size-9 place-items-center rounded-full bg-muted active:bg-accent disabled:opacity-30" disabled={day >= today} onClick={() => setDay(shiftDateKey(day, 1))} type="button">
+          <ChevronRight className="size-5" strokeWidth={1.75} />
+        </button>
+      </div>
+      <Card>
+        <DaySummary totals={totals} />
+      </Card>
+    </FadeIn>
+  );
+  const mealsView = (
+    <Section title="Meals">
+      {todays.length ? (
+        <Card className="divide-y divide-border">
+          {[...todays].sort((a, b) => (a.eatenAt || 0) - (b.eatenAt || 0)).map((m) => (
+            <Row
+              chevron
+              icon={fromAssistant(m) ? MessageSquareText : Utensils}
+              key={m.id}
+              onClick={() => setSheet(m)}
+              subtitle={`${m.eatenAt ? `${format.time(m.eatenAt)} · ` : ""}P ${Math.round(m.protein || 0)} · C ${Math.round(m.carbs || 0)} · F ${Math.round(m.fat || 0)}`}
+              title={m.name}
+              value={`${kcal(m.calories)}`}
+            />
+          ))}
+        </Card>
+      ) : (
+        <Card>
+          <Row icon={Plus} onClick={() => setSheet("new")} title={`Add a meal for ${label.toLowerCase() === "today" ? "today" : label}`} tone="action" />
+        </Card>
+      )}
+    </Section>
+  );
+  const microView = (
+    <Micronutrients day={day} />
+  );
+  const weeksView = (
+    <Section action={<span>tap a day</span>} footer="Dashed days weren't logged, so they're left out of averages instead of counting as zero." title="Last 2 weeks">
+      <Card>
+        <CalorieBars end={today} onSelect={setDay} selected={day} />
+      </Card>
+      <StatTiles
+        items={[
+          { label: "7-day avg", value: kcal(avg), unit: avg == null ? undefined : "kcal" },
+          { label: "Protein hit", value: proteinDays == null || !week.length ? "—" : `${proteinDays}/${week.length}`, sub: "logged days" },
+          { label: "Logged", value: `${week.length}/7`, sub: "last 7 days" }
+        ]}
+      />
+    </Section>
+  );
+  const energyView = (
+    <Section footer="Maintenance is average intake minus the energy that went into or came out of your bodyweight. It sharpens as you log." title="Energy balance">
+      <MaintenanceCard />
+    </Section>
+  );
+  const coachView = (
+    <CoachSection />
+  );
+
   return (
-    <Page>
+    <Page wide>
       <TopBar
         backLabel="Today"
-        backTo="today"
+        backTo={wide ? undefined : "today"}
         title="Fuel"
         trailing={
           <button aria-label="Add meal" className="grid size-9 place-items-center rounded-full bg-primary text-primary-foreground" onClick={() => setSheet("new")} type="button">
@@ -303,67 +441,35 @@ export function NutritionPage() {
 
       {!list.length ? (
         <Empty action={<Button onClick={() => setSheet("new")} variant="tinted">Add a meal</Button>} icon={Utensils} title="No meals yet">
-          Connect Claude or ChatGPT from Settings and every meal you confirm in the chat lands here. You can also add meals by hand.
+          Connect Claude or ChatGPT below and every meal you confirm in the chat lands here. You can also add meals by hand.
         </Empty>
       ) : null}
 
-      <FadeIn className="flex flex-col gap-3">
-        <div className="flex items-center justify-between px-1">
-          <button aria-label="Previous day" className="grid size-9 place-items-center rounded-full bg-muted active:bg-accent" onClick={() => setDay(shiftDateKey(day, -1))} type="button">
-            <ChevronLeft className="size-5" strokeWidth={1.75} />
-          </button>
-          <span className="text-[16px] font-medium">{label}</span>
-          <button aria-label="Next day" className="grid size-9 place-items-center rounded-full bg-muted active:bg-accent disabled:opacity-30" disabled={day >= today} onClick={() => setDay(shiftDateKey(day, 1))} type="button">
-            <ChevronRight className="size-5" strokeWidth={1.75} />
-          </button>
+      {wide ? (
+        <div className="grid grid-cols-12 items-start gap-6">
+          <div className="col-span-7 flex flex-col gap-8">
+            {dayView}
+            {mealsView}
+            {weeksView}
+          </div>
+          <div className="col-span-5 flex flex-col gap-8">
+            <ConnectPanel />
+            {energyView}
+            {microView}
+            {coachView}
+          </div>
         </div>
-        <Card>
-          <DaySummary totals={totals} />
-        </Card>
-      </FadeIn>
-
-      <Section title="Meals">
-        {todays.length ? (
-          <Card className="divide-y divide-border">
-            {[...todays].sort((a, b) => (a.eatenAt || 0) - (b.eatenAt || 0)).map((m) => (
-              <Row
-                chevron
-                icon={fromAssistant(m) ? MessageSquareText : Utensils}
-                key={m.id}
-                onClick={() => setSheet(m)}
-                subtitle={`${m.eatenAt ? `${format.time(m.eatenAt)} · ` : ""}P ${Math.round(m.protein || 0)} · C ${Math.round(m.carbs || 0)} · F ${Math.round(m.fat || 0)}`}
-                title={m.name}
-                value={`${kcal(m.calories)}`}
-              />
-            ))}
-          </Card>
-        ) : (
-          <Card>
-            <Row icon={Plus} onClick={() => setSheet("new")} title={`Add a meal for ${label.toLowerCase() === "today" ? "today" : label}`} tone="action" />
-          </Card>
-        )}
-      </Section>
-
-      <Micronutrients day={day} />
-
-      <Section action={<span>tap a day</span>} footer="Dashed days weren't logged, so they're left out of averages instead of counting as zero." title="Last 2 weeks">
-        <Card>
-          <CalorieBars end={today} onSelect={setDay} selected={day} />
-        </Card>
-        <StatTiles
-          items={[
-            { label: "7-day avg", value: kcal(avg), unit: avg == null ? undefined : "kcal" },
-            { label: "Protein hit", value: proteinDays == null || !week.length ? "—" : `${proteinDays}/${week.length}`, sub: "logged days" },
-            { label: "Logged", value: `${week.length}/7`, sub: "last 7 days" }
-          ]}
-        />
-      </Section>
-
-      <Section footer="Maintenance is average intake minus the energy that went into or came out of your bodyweight. It sharpens as you log." title="Energy balance">
-        <MaintenanceCard />
-      </Section>
-
-      <CoachSection />
+      ) : (
+        <>
+          {dayView}
+          {mealsView}
+          <ConnectPanel />
+          {microView}
+          {weeksView}
+          {energyView}
+          {coachView}
+        </>
+      )}
 
       <MealSheet date={day} meal={sheet && sheet !== "new" ? sheet : null} onClose={() => setSheet(null)} open={sheet !== null} />
     </Page>

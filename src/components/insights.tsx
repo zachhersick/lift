@@ -52,17 +52,25 @@ export function InsightCard({ card, className }: { card: Insight; className?: st
 }
 
 // On Today: the week in one line and the cards in a swipeable row.
-export function CoachStrip() {
+export function CoachStrip({ grid = false }: { grid?: boolean }) {
   const { headline, cards } = useValue(coach) as { headline: Insight | null; cards: Insight[] };
   if (!cards.length) return null;
   return (
     <Section action={<a className="text-primary" href="#/coach">All</a>} title="Coach">
       {headline ? <p className="-mt-1 px-1 text-[14px] text-muted-foreground">{headline.title}</p> : null}
+      {grid ? (
+        <div className="grid items-start gap-3 xl:grid-cols-2">
+          {cards.slice(0, 4).map((card) => (
+            <InsightCard card={card} key={card.id} />
+          ))}
+        </div>
+      ) : (
       <div className="no-scrollbar -mx-4 flex snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 pb-1">
         {cards.map((card) => (
           <InsightCard className="w-[85%] max-w-sm shrink-0 snap-start" card={card} key={card.id} />
         ))}
       </div>
+      )}
     </Section>
   );
 }

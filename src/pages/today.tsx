@@ -5,7 +5,7 @@ import { Cloud, Moon, Play, Scale, Trophy } from "lucide-react";
 import { type CSSProperties, useMemo, useState } from "react";
 import ActivityTerrain from "@/components/kokonutui/activity-terrain";
 import { Sparkline } from "@/components/chart";
-import { Card, FadeIn, Page, Row, Section, Sheet, StatTiles, TopBar, motion, softSpring } from "@/components/kit";
+import { Card, FadeIn, Page, Row, Section, Sheet, StatTiles, TopBar, motion, softSpring, useWide } from "@/components/kit";
 import { Barbell } from "@/components/plates";
 import { Button } from "@/components/ui/button";
 import { applyTemplate, logRest, startWorkout } from "@/lib/actions.js";
@@ -23,6 +23,7 @@ import { isDark, tintColor } from "@/lib/theme.js";
 import { now } from "@/lib/timer.js";
 import * as format from "@/lib/format.js";
 import { useValue } from "@/lib/use-signal";
+import { cn } from "@/lib/utils";
 import { BodyweightSheet } from "./bodyweight";
 import { CoachStrip } from "@/components/insights";
 import { FuelCard } from "./nutrition";
@@ -38,20 +39,42 @@ export function Today() {
   const [choosing, setChoosing] = useState(false);
   const [weighing, setWeighing] = useState(false);
   const next = nextSplitDay(days, done);
+  const wide = useWide();
 
   return (
-    <Page>
+    <Page wide>
       <TopBar eyebrow={format.date(Date.now(), { weekday: "long" })} title="Today">
         <h1 className="text-[34px] leading-[1.15] font-semibold tracking-[-0.01em]">{format.date(Date.now(), { month: "long", day: "numeric" })}</h1>
       </TopBar>
 
-      <FadeIn className="flex flex-col gap-8">
-        {syncState.status === "signedOut" ? (
-          <Card>
-            <Row chevron href={native ? "#/settings" : "/api/auth/login"} icon={Cloud} subtitle="Sign in to sync your phone and computer" title="Back up your workouts" />
-          </Card>
-        ) : null}
+      {syncState.status === "signedOut" ? (
+        <Card>
+          <Row chevron href={native ? "#/settings" : "/api/auth/login"} icon={Cloud} subtitle="Sign in to sync your phone and computer" title="Back up your workouts" />
+        </Card>
+      ) : null}
 
+      {wide ? (
+        // Beside the sidebar: the next session and its context on the left,
+        // the week's numbers on the right. The running workout lives in the
+        // sidebar here.
+        <FadeIn className="grid grid-cols-12 items-start gap-6">
+          <div className="col-span-7 flex flex-col gap-6">
+            {!days.length ? <SetupSplit /> : next ? <UpNext blocked={Boolean(active)} days={days} next={next} onChoose={() => setChoosing(true)} /> : null}
+            <WeeklyVolume />
+            <CoachStrip grid />
+            <Consistency />
+          </div>
+          <div className="col-span-5 flex flex-col gap-6">
+            <ThisWeek />
+            {days.length ? <Rotation days={days} next={next} /> : null}
+            <FuelCard />
+            <BodyCard onLog={() => setWeighing(true)} />
+            <MuscleVolume />
+            <RecentPRs />
+          </div>
+        </FadeIn>
+      ) : (
+      <FadeIn className="flex flex-col gap-8">
         {active ? (
           <button className="surface flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition-colors active:bg-accent" onClick={() => go(`workout/${active.id}`)} type="button">
             <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-success" />
@@ -73,6 +96,7 @@ export function Today() {
         <BodyCard onLog={() => setWeighing(true)} />
         <RecentPRs />
       </FadeIn>
+      )}
 
       <Sheet onClose={() => setChoosing(false)} open={choosing} title="Choose a day">
         <Card className="divide-y divide-border">
@@ -153,7 +177,7 @@ function UpNext({ next, days, onChoose, blocked }: { next: any; days: any[]; onC
       </div>
 
       {load && load.perSide.length ? (
-        <figure className="-mx-1 flex flex-col gap-1">
+        <figure className="-mx-1 flex flex-col gap-1 lg:max-w-[420px]">
           <Barbell perSide={load.perSide} plates={s.plates} />
           <figcaption className="flex items-baseline justify-between px-1 text-[13px] text-muted-foreground">
             <span className="truncate">{lead.exercise.name}, last top set</span>
@@ -247,6 +271,88 @@ function ThisWeek() {
           { label: "Cardio", value: Math.round(week.now.cardioMinutes), unit: "min", sub: `${Math.round(week.last.cardioMinutes)} last week` }
         ]}
       />
+    </Section>
+  );
+}
+
+// Wide screens: training volume for the last eight weeks, this week in the
+// accent and the rest in a neutral step.
+function WeeklyVolume() {
+  const list = useValue(sessions) as any[];
+  const s = useValue(settings) as any;
+  const index = useValue(exerciseIndex) as Map<string, any>;
+  const weeks = useMemo(() => {
+    const out = [];
+    let from = startOfWeek();
+    for (let i = 0; i < 8; i += 1) {
+      const to: number = i === 0 ? Infinity : out[out.length - 1].from;
+      out.push({ from, to, ...weekSummary(list, from, to, index) });
+      from = startOfWeek(from - 3 * 86_400_000);
+    }
+    return out.reverse();
+  }, [list, index]);
+  const top = Math.max(1, ...weeks.map((w) => w.volume));
+  const current = weeks[weeks.length - 1];
+  const previous = weeks[weeks.length - 2];
+  const average = weeks.slice(0, -1).reduce((sum, w) => sum + w.volume, 0) / Math.max(1, weeks.length - 1);
+  return (
+    <Section action={<span>Last 8 weeks</span>} title="Weekly volume">
+      <Card className="flex flex-col gap-5 p-5">
+        <div className="flex items-end justify-between gap-6">
+          <div className="flex flex-col">
+            <span className="text-[13px] text-muted-foreground">This week so far</span>
+            <span className="text-[34px] leading-[1.15] font-medium tabular">
+              {format.volume(current.volume, "").trim()}
+              <span className="ml-1 text-[15px] font-normal text-muted-foreground">{s.unit}</span>
+            </span>
+          </div>
+          <dl className="grid grid-cols-2 gap-x-6 text-right text-[13px]">
+            <dt className="text-muted-foreground">Last week</dt>
+            <dt className="text-muted-foreground">8-week average</dt>
+            <dd className="sets text-[15px]">{format.volume(previous.volume, s.unit)}</dd>
+            <dd className="sets text-[15px]">{format.volume(average, s.unit)}</dd>
+          </dl>
+        </div>
+        <div aria-label={`Weekly volume, ${weeks.map((w) => format.volume(w.volume, s.unit)).join(", ")}`} className="grid h-40 grid-cols-8 items-end gap-3" role="img">
+          {weeks.map((w, i) => (
+            <div className="flex h-full flex-col justify-end gap-2" key={w.from}>
+              <span className="relative flex flex-1 items-end">
+                <span className="absolute inset-x-0 top-[calc(100%-var(--avg))] border-t border-dashed border-border" style={{ "--avg": `${(average / top) * 100}%` } as CSSProperties} />
+                <motion.span
+                  animate={{ scaleY: 1 }}
+                  className={cn("w-full origin-bottom rounded-t-md", i === weeks.length - 1 ? "bg-primary" : "bg-foreground/15")}
+                  initial={{ scaleY: 0 }}
+                  style={{ height: `${Math.max(2, (w.volume / top) * 100)}%` }}
+                  transition={{ ...softSpring, delay: Math.min(i, 5) * 0.04 }}
+                />
+              </span>
+              <span className="sets text-center text-[11px] whitespace-nowrap text-muted-foreground">{format.date(w.from, { month: "numeric", day: "numeric" })}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </Section>
+  );
+}
+
+// Wide screens: the whole rotation, with the next day marked.
+function Rotation({ days, next }: { days: any[]; next: any }) {
+  const done = useValue(finishedWorkouts) as any[];
+  return (
+    <Section action={<a className="text-primary" href="#/split">Edit</a>} title="Rotation">
+      <Card className="divide-y divide-border">
+        {orderedDays(days).map((day: any, i: number) => {
+          const last = lastDoneAt(day.id, done);
+          const isNext = next?.day.id === day.id;
+          return (
+            <a className="flex h-12 items-center gap-3 px-4 transition-colors hover:bg-accent/60" href={`#/split/${day.id}`} key={day.id}>
+              <span className={cn("sets w-5 text-[13px]", isNext ? "text-primary" : "text-muted-foreground")}>{i + 1}</span>
+              <span className={cn("flex-1 truncate text-[15px]", isNext && "font-medium")}>{day.name}{day.rest && !/rest/i.test(day.name) ? <span className="text-muted-foreground"> · rest</span> : null}</span>
+              {isNext ? <span className="text-[13px] text-primary">Next</span> : <span className="text-[13px] text-muted-foreground">{last ? format.relativeDay(last) : "Not yet"}</span>}
+            </a>
+          );
+        })}
+      </Card>
     </Section>
   );
 }

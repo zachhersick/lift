@@ -33,6 +33,8 @@
   --ring: var(--tint);
   --success: #16a34a;
   --pr: #b45309;
+  --carbs: #0e7490;
+  --fat: #be123c;
   --bar: #ffffff;
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.05);
   color-scheme: light;
@@ -56,6 +58,8 @@
   --input: rgba(237, 237, 237, 0.12);
   --success: #4cc38a;
   --pr: #f5b14c;
+  --carbs: #22d3ee;
+  --fat: #fb7185;
   --bar: #0f0f10;
   --shadow-card: none;
   color-scheme: dark;
@@ -99,6 +103,8 @@
   --color-ring: var(--ring);
   --color-success: var(--success);
   --color-pr: var(--pr);
+  --color-carbs: var(--carbs);
+  --color-fat: var(--fat);
   --color-tint: var(--tint);
   --color-bar: var(--bar);
   --radius-sm: 6px;

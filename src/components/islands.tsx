@@ -168,7 +168,7 @@ export function Islands() {
   const tasks = useValue(notices);
   // Static fixed shell, animated children, portaled to <body>: see Keypad.
   return createPortal(
-    <div className="pt-safe pointer-events-none fixed inset-x-0 top-0 z-[60] flex flex-col items-center gap-2 px-4 pt-2">
+    <div className="pt-safe pointer-events-none fixed inset-x-0 top-0 z-[60] flex flex-col items-center gap-2 px-4 pt-2 lg:left-60">
       <SetTimerIsland />
       <RestIsland />
       <div className="pointer-events-auto">
