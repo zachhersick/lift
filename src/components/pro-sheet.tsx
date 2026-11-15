@@ -1,6 +1,6 @@
 // Lift Pro: what it includes, Stripe's current prices, and the way to Stripe
 // Checkout. Web only: the iOS app never shows this (see sync.billing).
-import { Sparkles } from "lucide-react";
+import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Card, Row, Section, Sheet } from "./kit";
 import { api, postJson } from "@/lib/api.js";
@@ -52,9 +52,7 @@ export function ProSheet({ open, onClose }: { open: boolean; onClose: () => void
           <Card className="divide-y divide-border">
             {PRO_FEATURES.map((feature: any) => (
               <div className="flex gap-3 p-4" key={feature.title}>
-                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-primary/15 text-primary">
-                  <Sparkles className="size-[18px]" />
-                </span>
+                <Check className="mt-0.5 size-[18px] shrink-0 text-primary" strokeWidth={1.75} />
                 <div className="min-w-0">
                   <div className="text-[16px] font-medium">{feature.title}</div>
                   <p className="text-[14px] text-muted-foreground">{feature.detail}</p>

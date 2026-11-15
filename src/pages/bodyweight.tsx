@@ -58,12 +58,12 @@ export function BodyweightSheet({ open, onClose, entry = null }: { open: boolean
       title={entry ? "Edit weigh-in" : "Log bodyweight"}
     >
       <div className="py-2 text-center">
-        <span className={text ? "text-[60px] leading-none font-semibold tracking-tight tabular" : "text-[60px] leading-none font-semibold tracking-tight text-muted-foreground/40 tabular"}>{text || placeholder}</span>
+        <span className={text ? "text-[60px] leading-none font-medium tabular" : "text-[60px] leading-none font-medium text-muted-foreground/40 tabular"}>{text || placeholder}</span>
         <span className="ml-2 text-[22px] font-medium text-muted-foreground">{s.unit}</span>
       </div>
       <Card>
         <Row title="Date">
-          <input aria-label="Date" className="bg-transparent text-right text-[15.5px] text-primary outline-none" max={dateKey()} onChange={(e) => e.currentTarget.value && setDate(e.currentTarget.value)} type="date" value={date} />
+          <input aria-label="Date" className="bg-transparent text-right text-[15px] text-primary outline-none" max={dateKey()} onChange={(e) => e.currentTarget.value && setDate(e.currentTarget.value)} type="date" value={date} />
         </Row>
       </Card>
       <KeyGrid
@@ -126,7 +126,7 @@ export function BodyweightPage() {
         title="Bodyweight"
         trailing={
           <button aria-label="Log bodyweight" className="grid size-9 place-items-center rounded-full bg-primary text-primary-foreground" onClick={() => setSheet("new")} type="button">
-            <Plus className="size-5" strokeWidth={2.6} />
+            <Plus className="size-5" strokeWidth={1.75} />
           </button>
         }
       />

@@ -35,20 +35,20 @@ function Leaderboard({ pinnedKey }: { pinnedKey: string }) {
   const rows = (list: any[], text: (row: any) => string) =>
     list.map((row, i) => (
       <div className={cn("grid grid-cols-[28px_1fr_auto] items-center gap-2 px-4 py-2.5 text-[15px]", row.me && "bg-primary/8")} key={`${row.username}-${i}`}>
-        <span className="text-[13px] font-semibold text-muted-foreground tabular">{i + 1}</span>
-        <span className={cn("truncate", row.me && "font-semibold text-primary")}>{row.me ? "You" : row.name}</span>
+        <span className="text-[13px] font-medium text-muted-foreground tabular">{i + 1}</span>
+        <span className={cn("truncate", row.me && "font-medium text-primary")}>{row.me ? "You" : row.name}</span>
         <span className="tabular text-muted-foreground">{text(row)}</span>
       </div>
     ));
   return (
     <Section footer={board.lift ? "Lift ranks use best estimated 1RM in your unit, from friends who share their lifts or pinned the same one." : "Pin a lift to rank it here too."} title="Leaderboard">
       <Card className="divide-y divide-border">
-        <div className="px-4 pt-3 pb-1 text-[13px] font-semibold text-muted-foreground">Workouts this week</div>
+        <div className="px-4 pt-3 pb-1 text-[13px] font-medium text-muted-foreground">Workouts this week</div>
         {rows(board.week, (row) => String(row.value))}
       </Card>
       {board.lift ? (
         <Card className="divide-y divide-border">
-          <div className="px-4 pt-3 pb-1 text-[13px] font-semibold text-muted-foreground">{board.lift.name || "Pinned lift"}</div>
+          <div className="px-4 pt-3 pb-1 text-[13px] font-medium text-muted-foreground">{board.lift.name || "Pinned lift"}</div>
           {board.lift.rows.length ? rows(board.lift.rows, (row) => `${format.weight(Math.round(row.value))} ${board.lift.unit}`) : <Row subtitle="No one has logged it yet." title="Nothing to rank" />}
         </Card>
       ) : null}
@@ -100,16 +100,16 @@ function Friends({ pinnedKey }: { pinnedKey: string }) {
             {lists.incoming.map((person) => (
               <Row key={person.username || person.name} subtitle={handle(person)} title={person.name}>
                 <button aria-label={`Report ${person.name}`} className="grid size-9 place-items-center rounded-full bg-muted text-destructive active:bg-accent" disabled={busy || !person.username} onClick={() => setReporting(person)} type="button">
-                  <Flag className="size-[17px]" strokeWidth={2.4} />
+                  <Flag className="size-[17px]" strokeWidth={1.75} />
                 </button>
                 <button aria-label={`Block ${person.name}`} className="grid size-9 place-items-center rounded-full bg-muted text-destructive active:bg-accent" disabled={busy || !person.username} onClick={() => block(person)} type="button">
-                  <Ban className="size-[17px]" strokeWidth={2.4} />
+                  <Ban className="size-[17px]" strokeWidth={1.75} />
                 </button>
                 <button aria-label={`Decline ${person.name}`} className="grid size-9 place-items-center rounded-full bg-muted text-muted-foreground active:bg-accent" disabled={busy || !person.username} onClick={() => run("/api/friends/remove", { username: person.username })} type="button">
-                  <X className="size-[18px]" strokeWidth={2.4} />
+                  <X className="size-[18px]" strokeWidth={1.75} />
                 </button>
                 <button aria-label={`Accept ${person.name}`} className="grid size-9 place-items-center rounded-full bg-primary text-primary-foreground active:opacity-80" disabled={busy || !person.username} onClick={() => run("/api/friends/accept", { username: person.username }, `You and ${person.name} are friends`)} type="button">
-                  <Check className="size-[18px]" strokeWidth={2.6} />
+                  <Check className="size-[18px]" strokeWidth={1.75} />
                 </button>
               </Row>
             ))}
@@ -128,7 +128,7 @@ function Friends({ pinnedKey }: { pinnedKey: string }) {
           )}
           {lists?.outgoing.map((person) => (
             <Row key={person.username || person.name} subtitle={`${handle(person)} · request sent`} title={person.name}>
-              <button className="h-8 rounded-full bg-muted px-3 text-[13.5px] font-medium text-muted-foreground active:bg-accent" disabled={busy || !person.username} onClick={() => run("/api/friends/remove", { username: person.username }, "Request cancelled")} type="button">
+              <button className="h-8 rounded-full bg-muted px-3 text-[13px] font-medium text-muted-foreground active:bg-accent" disabled={busy || !person.username} onClick={() => run("/api/friends/remove", { username: person.username }, "Request cancelled")} type="button">
                 Cancel
               </button>
             </Row>
@@ -139,7 +139,7 @@ function Friends({ pinnedKey }: { pinnedKey: string }) {
               autoCapitalize="none"
               autoComplete="off"
               autoCorrect="off"
-              className="w-48 bg-transparent text-right text-[15.5px] text-muted-foreground outline-none"
+              className="w-48 bg-transparent text-right text-[15px] text-muted-foreground outline-none"
               onChange={(e) => setName(e.currentTarget.value)}
               onKeyDown={(e) => e.key === "Enter" && !usernameProblem(wanted) && add()}
               placeholder="@username"
@@ -156,7 +156,7 @@ function Friends({ pinnedKey }: { pinnedKey: string }) {
           <Card className="divide-y divide-border">
             {lists.blocked.map((person) => (
               <Row key={person.username} subtitle={`@${person.username}`} title={person.name}>
-                <button className="h-8 rounded-full bg-muted px-3 text-[13.5px] font-medium text-primary active:bg-accent" disabled={busy} onClick={() => run("/api/friends/unblock", { username: person.username }, `Unblocked ${person.name}`)} type="button">
+                <button className="h-8 rounded-full bg-muted px-3 text-[13px] font-medium text-primary active:bg-accent" disabled={busy} onClick={() => run("/api/friends/unblock", { username: person.username }, `Unblocked ${person.name}`)} type="button">
                   Unblock
                 </button>
               </Row>
@@ -192,7 +192,7 @@ export function ProfilePage() {
         title="Profile"
         trailing={
           <a aria-label="Settings" className="grid size-10 place-items-center rounded-full text-primary active:opacity-60" href="#/settings">
-            <Settings2 className="size-[22px]" strokeWidth={2.2} />
+            <Settings2 className="size-[22px]" strokeWidth={1.75} />
           </a>
         }
       />
@@ -200,7 +200,7 @@ export function ProfilePage() {
         action={
           user ? (
             <button aria-label="Edit profile" className="grid size-10 shrink-0 place-items-center rounded-full bg-muted text-primary active:bg-accent" onClick={() => setEditing(true)} type="button">
-              <Pencil className="size-[18px]" strokeWidth={2.2} />
+              <Pencil className="size-[18px]" strokeWidth={1.75} />
             </button>
           ) : null
         }
@@ -212,11 +212,11 @@ export function ProfilePage() {
       <Section footer="Friends always see your pinned lift." title="Pinned lift">
         {mine.pinned ? (
           <PinnedLift pinned={mine.pinned} unit={mine.unit}>
-            <button className="h-8 rounded-full bg-muted px-3 text-[13.5px] font-medium text-primary active:bg-accent" onClick={() => setPicking(true)} type="button">
+            <button className="h-8 rounded-full bg-muted px-3 text-[13px] font-medium text-primary active:bg-accent" onClick={() => setPicking(true)} type="button">
               Change
             </button>
             <button aria-label="Unpin lift" className="grid size-8 place-items-center rounded-full bg-muted text-muted-foreground active:bg-accent" onClick={() => saveSettings({ pinnedLift: null })} type="button">
-              <X className="size-4" strokeWidth={2.4} />
+              <X className="size-4" strokeWidth={1.75} />
             </button>
           </PinnedLift>
         ) : (

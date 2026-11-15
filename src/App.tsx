@@ -1,4 +1,4 @@
-// App shell: routes with page transitions, the floating tab bar, the bar that
+// App shell: routes with page transitions, the tab bar, the bar that
 // returns you to a running workout, islands, the number pad and dialogs.
 import { CalendarDays, ChevronUp, Dumbbell, GraduationCap, ListOrdered, TrendingUp, UserRound } from "lucide-react";
 import { AnimatePresence, motion, MotionConfig } from "motion/react";
@@ -8,7 +8,7 @@ import { AccountSheet } from "@/components/account-sheet";
 import { AlertHost } from "@/components/alert-host";
 import { Islands } from "@/components/islands";
 import { Keypad } from "@/components/keypad";
-import { spring } from "@/components/kit";
+import { ease, spring } from "@/components/kit";
 import { pad } from "@/lib/keypad.js";
 import { go, route } from "@/lib/router.js";
 import { activeWorkout, loaded } from "@/lib/store.js";
@@ -56,16 +56,16 @@ function pageFor(page: string, id: string | null): ReactNode {
 function TabBar() {
   const { page } = useValue(route) as { page: string };
   return (
-    <nav aria-label="Main" className="pb-safe pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 [transform:translateZ(0)]">
-      <div className="glass pointer-events-auto mb-3 flex w-full max-w-md items-center justify-between rounded-full p-1.5 shadow-[0_16px_40px_-16px_rgba(0,0,0,0.55)]">
+    <nav aria-label="Main" className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-border bg-bar [transform:translateZ(0)]">
+      <div className="mx-auto flex w-full max-w-xl items-center justify-between px-2">
         {TABS.map((tab) => {
           const on = tab.match.includes(page);
           const Icon = tab.icon;
           return (
-            <a aria-current={on ? "page" : undefined} className={cn("relative flex h-12 flex-1 flex-col items-center justify-center gap-0.5 rounded-full text-[10.5px] font-medium", on ? "text-primary" : "text-muted-foreground")} href={`#/${tab.page}`} key={tab.page}>
-              {on ? <motion.span className="absolute inset-0 rounded-full bg-primary/14" layoutId="tab-pill" transition={spring} /> : null}
-              <Icon className="relative size-[21px]" strokeWidth={on ? 2.4 : 2} />
-              <span className="relative">{tab.label}</span>
+            <a aria-current={on ? "page" : undefined} className={cn("relative flex h-14 flex-1 flex-col items-center justify-center gap-1 rounded-[10px] text-[11px] transition-colors", on ? "text-primary" : "text-muted-foreground")} href={`#/${tab.page}`} key={tab.page}>
+              {on ? <motion.span className="absolute inset-x-4 top-0 h-0.5 rounded-full bg-primary" layoutId="tab-mark" transition={spring} /> : null}
+              <Icon className="size-5" strokeWidth={1.75} />
+              <span>{tab.label}</span>
             </a>
           );
         })}
@@ -82,20 +82,17 @@ function MiniPlayer() {
       {active ? (
         <motion.button
           animate={{ y: 0, opacity: 1 }}
-          className="glass pointer-events-auto mx-auto flex w-full max-w-md items-center gap-3 rounded-2xl px-4 py-3 text-left shadow-lg"
+          className="pointer-events-auto mx-auto flex w-full max-w-md items-center gap-3 rounded-2xl border border-border bg-popover px-4 py-3 text-left shadow-[0_8px_24px_rgba(0,0,0,0.12)]"
           exit={{ y: 24, opacity: 0 }}
           initial={{ y: 24, opacity: 0 }}
           onClick={() => go(`workout/${active.id}`)}
           transition={spring}
           type="button"
         >
-          <span className="relative flex size-2.5">
-            <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-60" />
-            <span className="relative inline-flex size-2.5 rounded-full bg-success" />
-          </span>
-          <span className="min-w-0 flex-1 truncate text-[15px] font-semibold">{active.name}</span>
-          <span className="text-[14px] text-muted-foreground tabular">{format.clock((tick - active.startedAt) / 1000)}</span>
-          <ChevronUp className="size-4 text-muted-foreground" strokeWidth={2.6} />
+          <span aria-hidden="true" className="size-2 rounded-full bg-success" />
+          <span className="min-w-0 flex-1 truncate text-[15px] font-medium">{active.name}</span>
+          <span className="sets text-[14px] text-muted-foreground">{format.clock((tick - active.startedAt) / 1000)}</span>
+          <ChevronUp className="size-4 text-muted-foreground" strokeWidth={1.75} />
         </motion.button>
       ) : null}
     </AnimatePresence>
@@ -122,12 +119,12 @@ export default function App() {
     <MotionConfig reducedMotion="user">
       <AnimatePresence initial={false} mode="popLayout">
         <motion.main
-          animate={{ opacity: 1, x: 0, scale: 1 }}
+          animate={{ opacity: 1, x: 0 }}
           className={cn("relative min-h-dvh", keypadOpen && "pb-[340px]")}
-          exit={{ opacity: 0, x: depth ? -24 * direction : 0, scale: depth ? 1 : 0.985 }}
-          initial={{ opacity: 0, x: depth ? 40 * direction : 0, scale: depth ? 1 : 0.985 }}
+          exit={{ opacity: 0, x: depth ? -12 * direction : 0 }}
+          initial={{ opacity: 0, x: depth ? 24 * direction : 0 }}
           key={key}
-          transition={{ type: "spring", stiffness: 380, damping: 36 }}
+          transition={{ duration: 0.24, ease }}
         >
           {pageFor(r.page, r.id)}
         </motion.main>
@@ -139,7 +136,7 @@ export default function App() {
       {createPortal(
         <>
           {!inWorkout && r.page !== "today" ? (
-            <div className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+84px)] z-30 px-4 [transform:translateZ(0)]">
+            <div className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+68px)] z-30 px-4 [transform:translateZ(0)]">
               <MiniPlayer />
             </div>
           ) : null}

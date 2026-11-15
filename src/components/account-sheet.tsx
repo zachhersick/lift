@@ -53,7 +53,7 @@ export function AccountSheet({ open, onClose, required = false }: { open: boolea
       <Section footer={error || problem || "3–20 lowercase letters, numbers, _ or ."} title="Username">
         <Card>
           <label className="flex min-h-14 items-center gap-2 px-4">
-            <AtSign className="size-[18px] shrink-0 text-muted-foreground" strokeWidth={2.2} />
+            <AtSign className="size-[18px] shrink-0 text-muted-foreground" strokeWidth={1.75} />
             <input
               aria-label="Username"
               autoCapitalize="none"

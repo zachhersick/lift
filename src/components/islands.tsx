@@ -14,7 +14,7 @@ import { finishSetTimer } from "@/lib/logging.js";
 import { useValue } from "@/lib/use-signal";
 import { cn } from "@/lib/utils";
 
-const MORPH = { type: "spring", duration: 0.45, bounce: 0.18 } as const;
+const MORPH = { duration: 0.36, ease: [0.22, 1, 0.36, 1] } as const;
 
 function Ring({ fraction, done, size = 22 }: { fraction: number; done?: boolean; size?: number }) {
   const r = size / 2 - 2.5;
@@ -70,7 +70,7 @@ export function RestIsland() {
           transition={MORPH}
         >
           <motion.div
-            className={cn("overflow-hidden bg-zinc-950 text-white shadow-2xl shadow-black/40 ring-1 ring-white/10", done && "ring-emerald-400/40")}
+            className={cn("overflow-hidden bg-zinc-950 text-white shadow-[0_8px_24px_rgba(0,0,0,0.25)] ring-1 ring-white/10", done && "ring-success/50")}
             layout
             style={{ borderRadius: open ? 28 : 22 }}
             transition={MORPH}
@@ -81,18 +81,18 @@ export function RestIsland() {
                   <Ring fraction={fraction} size={44} />
                   <span className="flex flex-col">
                     <span className="text-[12px] font-medium text-white/55">Resting</span>
-                    <Clock className="text-[30px] leading-none font-semibold" seconds={left} />
+                    <Clock className="text-[30px] leading-none font-medium" seconds={left} />
                   </span>
                 </button>
                 <div className="grid grid-cols-3 gap-2">
-                  <button className="h-11 rounded-2xl bg-white/10 text-[15px] font-semibold active:bg-white/20" onClick={() => adjustRest(-15)} type="button">
+                  <button className="h-11 rounded-2xl bg-white/10 text-[15px] font-medium active:bg-white/20" onClick={() => adjustRest(-15)} type="button">
                     −15s
                   </button>
-                  <button className="h-11 rounded-2xl bg-white/10 text-[15px] font-semibold active:bg-white/20" onClick={() => adjustRest(15)} type="button">
+                  <button className="h-11 rounded-2xl bg-white/10 text-[15px] font-medium active:bg-white/20" onClick={() => adjustRest(15)} type="button">
                     +15s
                   </button>
                   <button
-                    className="h-11 rounded-2xl bg-[var(--tint)] text-[15px] font-semibold"
+                    className="h-11 rounded-2xl bg-[var(--tint)] text-[15px] font-medium"
                     onClick={() => {
                       setOpen(false);
                       stopRest();
@@ -111,9 +111,9 @@ export function RestIsland() {
                 onClick={() => (done ? stopRest() : setOpen(true))}
                 type="button"
               >
-                {done ? <Timer className="size-[18px] text-emerald-400" strokeWidth={2.4} /> : <Ring fraction={fraction} />}
+                {done ? <Timer className="size-[18px] text-emerald-400" strokeWidth={1.75} /> : <Ring fraction={fraction} />}
                 <span className="text-[13px] font-medium text-white/60">{done ? "Rest over" : "Rest"}</span>
-                {done ? <span className="text-[15px] font-semibold">Next set</span> : <Clock className="min-w-12 text-[17px] font-semibold" seconds={left} />}
+                {done ? <span className="text-[15px] font-medium">Next set</span> : <Clock className="min-w-12 text-[17px] font-medium" seconds={left} />}
               </motion.button>
             )}
           </motion.div>
@@ -137,7 +137,7 @@ export function SetTimerIsland() {
   return (
     <motion.div
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      className="pointer-events-auto w-[min(92vw,360px)] overflow-hidden rounded-[28px] bg-zinc-950 p-4 text-white shadow-2xl shadow-black/40 ring-1 ring-white/10"
+      className="pointer-events-auto w-[min(92vw,360px)] overflow-hidden rounded-[20px] bg-zinc-950 p-4 text-white shadow-[0_8px_24px_rgba(0,0,0,0.25)] ring-1 ring-white/10"
       initial={{ opacity: 0, y: -12, scale: 0.9 }}
       layout
       transition={MORPH}
@@ -148,15 +148,15 @@ export function SetTimerIsland() {
           <span className="truncate text-[12px] font-medium text-white/55">
             {timer.name} · {remaining === null ? "Stopwatch" : over ? "Past target" : "Countdown"}
           </span>
-          <span className={cn("flex items-baseline text-[30px] leading-none font-semibold", over && "text-emerald-400")}>
+          <span className={cn("flex items-baseline text-[30px] leading-none font-medium", over && "text-emerald-400")}>
             {over ? "+" : ""}
             <Clock seconds={shown} />
           </span>
         </div>
         <button aria-label="Cancel timer" className="grid size-9 place-items-center rounded-full bg-white/10 text-white/70 active:bg-white/20" onClick={cancelSetTimer} type="button">
-          <X className="size-4" strokeWidth={2.6} />
+          <X className="size-4" strokeWidth={1.75} />
         </button>
-        <button className="h-11 rounded-2xl bg-[var(--tint)] px-4 text-[15px] font-semibold" onClick={() => finishSetTimer()} type="button">
+        <button className="h-11 rounded-2xl bg-[var(--tint)] px-4 text-[15px] font-medium" onClick={() => finishSetTimer()} type="button">
           Stop
         </button>
       </div>

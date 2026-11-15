@@ -68,20 +68,20 @@ function Suggestion({ suggestion, onApply }: { suggestion: any; onApply: () => v
   const { item } = suggestion;
   const detail = suggestion.kind === "add" ? [`New: ${item.targetSets} × ${repsText([item.repMin, item.repMax])}`, `rest ${format.rest(item.restSec)}`] : suggestion.changes.map(changeText);
   return (
-    <motion.div className="flex gap-3 px-4 py-3.5" exit={{ opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0 }} layout transition={softSpring}>
+    <motion.div className="flex gap-3 px-4 py-3" exit={{ opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0 }} layout transition={softSpring}>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="text-[11.5px] font-semibold tracking-wide text-muted-foreground uppercase">{TOPIC[suggestion.priority]}</span>
-        <h4 className="text-[15.5px] leading-snug font-semibold">{suggestion.kind === "add" ? `Add ${suggestion.name}` : suggestion.name}</h4>
+        <span className="text-[12px] font-medium text-muted-foreground">{TOPIC[suggestion.priority]}</span>
+        <h4 className="text-[15px] leading-snug font-medium">{suggestion.kind === "add" ? `Add ${suggestion.name}` : suggestion.name}</h4>
         <div className="flex flex-wrap gap-1.5">
           {detail.map((text: string) => (
-            <span className="rounded-md bg-primary/12 px-1.5 py-0.5 text-[13px] font-semibold text-primary tabular" key={text}>
+            <span className="sets rounded-[4px] bg-muted px-1.5 py-0.5 text-[13px]" key={text}>
               {text}
             </span>
           ))}
         </div>
-        <p className="text-[13.5px] leading-snug text-muted-foreground">{suggestion.why}</p>
+        <p className="text-[13px] leading-snug text-muted-foreground">{suggestion.why}</p>
         <p className="flex items-start gap-1 text-[12px] text-muted-foreground/80">
-          <BookOpen className="mt-[2px] size-3 shrink-0" strokeWidth={2.4} />
+          <BookOpen className="mt-[2px] size-3 shrink-0" strokeWidth={1.75} />
           {suggestion.source}
         </p>
       </div>
@@ -154,30 +154,28 @@ function SplitAnalysis() {
 
   return (
     <Section
-      action={phase === "done" && result.suggestions.length ? <button className="font-semibold text-primary" onClick={applyAll} type="button">Apply all</button> : null}
+      action={phase === "done" && result.suggestions.length ? <button className="font-medium text-primary" onClick={applyAll} type="button">Apply all</button> : null}
       footer={phase === "done" ? "Each change comes from a published finding (listed under The science). Applying edits your split; past workouts stay as logged." : undefined}
       title="Split analysis"
     >
       {phase !== "done" ? (
         <Card className="flex flex-col gap-3 p-5">
           <div className="flex items-start gap-3">
-            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/15 text-primary">
-              <ScanSearch className="size-5" strokeWidth={2.2} />
-            </span>
+            <ScanSearch className="size-5 shrink-0 text-muted-foreground" strokeWidth={1.75} />
             <div className="flex min-w-0 flex-col gap-0.5">
-              <h3 className="text-[16px] font-semibold">
+              <h3 className="text-[16px] font-medium">
                 {format.plural(result.days, "day")} · {format.plural(result.exercises, "exercise")}
               </h3>
-              <p className="text-[13.5px] leading-snug text-muted-foreground">Checks weekly sets, sets per session, frequency, push/pull balance, exercise choice, rest, rep ranges and stalled lifts against the research, then finds the smallest changes that fix them.</p>
+              <p className="text-[13px] leading-snug text-muted-foreground">Checks weekly sets, sets per session, frequency, push/pull balance, exercise choice, rest, rep ranges and stalled lifts against the research, then finds the smallest changes that fix them.</p>
             </div>
           </div>
           {phase === "scanning" ? (
             <span className="relative h-1.5 overflow-hidden rounded-full bg-muted">
-              <motion.span animate={{ width: "100%" }} className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-[var(--tint-2)] to-[var(--tint)]" initial={{ width: 0 }} transition={{ duration: 0.7, ease: "easeInOut" }} />
+              <motion.span animate={{ width: "100%" }} className="absolute inset-y-0 left-0 rounded-full bg-primary" initial={{ width: 0 }} transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }} />
             </span>
           ) : null}
           <Button disabled={phase === "scanning"} onClick={analyze}>
-            <ScanSearch className="size-4" strokeWidth={2.4} /> {phase === "scanning" ? "Analyzing…" : "Analyze my split"}
+            <ScanSearch className="size-4" strokeWidth={1.75} /> {phase === "scanning" ? "Analyzing…" : "Analyze my split"}
           </Button>
           {stamp ? <p className="text-center text-[12px] text-muted-foreground">Last analyzed {format.ago(stamp).replace(/^[A-Z]/, (c) => c.toLowerCase())}</p> : null}
         </Card>
@@ -189,22 +187,22 @@ function SplitAnalysis() {
               <span className="text-[13px] text-muted-foreground">{result.suggestions.length ? `${format.plural(result.suggestions.length, "change")} suggested` : "Nothing to change"}</span>
             </div>
             <div className="flex items-baseline gap-2">
-              <span className="text-[34px] leading-none font-semibold tracking-tight tabular">{result.score.before}</span>
-              {result.score.after > result.score.before ? <span className="text-[17px] font-semibold text-primary tabular">→ {result.score.after} after changes</span> : null}
+              <span className="text-[34px] leading-none font-medium tabular">{result.score.before}</span>
+              {result.score.after > result.score.before ? <span className="text-[17px] font-medium text-primary tabular">→ {result.score.after} after changes</span> : null}
             </div>
             <span className="relative h-2 overflow-hidden rounded-full bg-muted">
               <motion.span animate={{ width: `${result.score.after}%` }} className="absolute inset-y-0 left-0 rounded-full bg-primary/30" initial={{ width: 0 }} transition={softSpring} />
-              <motion.span animate={{ width: `${result.score.before}%` }} className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-[var(--tint-2)] to-[var(--tint)]" initial={{ width: 0 }} transition={softSpring} />
+              <motion.span animate={{ width: `${result.score.before}%` }} className="absolute inset-y-0 left-0 rounded-full bg-primary" initial={{ width: 0 }} transition={softSpring} />
             </span>
-            <p className="text-[12.5px] leading-snug text-muted-foreground">Out of 100: half for 10–20 weekly sets per muscle, then training each muscle about twice a week, pulling as much as pushing, and rest and rep ranges.</p>
+            <p className="text-[12px] leading-snug text-muted-foreground">Out of 100: half for 10–20 weekly sets per muscle, then training each muscle about twice a week, pulling as much as pushing, and rest and rep ranges.</p>
           </Card>
 
           <AnimatePresence>
             {undo ? (
               <motion.div animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} initial={{ opacity: 0, y: -8 }} transition={softSpring}>
                 <Card className="flex items-center gap-3 px-4 py-3">
-                  <Check className="size-4 text-success" strokeWidth={2.6} />
-                  <span className="flex-1 text-[14.5px]">Split updated</span>
+                  <Check className="size-4 text-success" strokeWidth={1.75} />
+                  <span className="flex-1 text-[14px]">Split updated</span>
                   <Button onClick={revert} size="sm" variant="ghost">
                     <Undo2 className="size-4" /> Undo
                   </Button>
@@ -215,7 +213,7 @@ function SplitAnalysis() {
 
           {byDay.map(({ day, list }: any) => (
             <div className="flex flex-col gap-1.5" key={day.id}>
-              <span className="px-1 text-[13px] font-semibold text-muted-foreground">{day.name}</span>
+              <span className="px-1 text-[13px] font-medium text-muted-foreground">{day.name}</span>
               <Card className="divide-y divide-border overflow-hidden">
                 <AnimatePresence initial={false}>
                   {list.map((suggestion: any) => (
@@ -227,17 +225,15 @@ function SplitAnalysis() {
           ))}
           {!result.suggestions.length ? (
             <Card className="flex items-center gap-3 p-4">
-              <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-success/15 text-success">
-                <Check className="size-[18px]" strokeWidth={2.4} />
-              </span>
-              <p className="text-[14.5px] leading-snug">Your split is in line with the research. Keep pushing each set close to failure and adding weight or reps over time.</p>
+              <Check className="size-[18px] shrink-0 text-success" strokeWidth={1.75} />
+              <p className="text-[14px] leading-snug">Your split is in line with the research. Keep pushing each set close to failure and adding weight or reps over time.</p>
             </Card>
           ) : null}
 
-          <span className="px-1 pt-1 text-[13px] font-semibold text-muted-foreground">Sets per muscle a week{result.suggestions.length ? ", now → after changes" : ""}</span>
+          <span className="px-1 pt-1 text-[13px] font-medium text-muted-foreground">Sets per muscle a week{result.suggestions.length ? ", now → after changes" : ""}</span>
           <MuscleBars rows={result.muscles.map((row: any) => ({ muscle: row.muscle, sets: row.before, after: result.suggestions.length ? row.after : undefined }))} />
           <Button onClick={() => setPhase("idle")} variant="tinted">
-            <ScanSearch className="size-4" strokeWidth={2.4} /> Done
+            <ScanSearch className="size-4" strokeWidth={1.75} /> Done
           </Button>
         </FadeIn>
       )}
@@ -305,12 +301,12 @@ export function CoachPage() {
         <Card className="divide-y divide-border">
           {SOURCES.map(([who, where, finding]) => (
             <div className="flex gap-3 px-4 py-3" key={who}>
-              <BookOpen className="mt-0.5 size-4 shrink-0 text-muted-foreground" strokeWidth={2.2} />
+              <BookOpen className="mt-0.5 size-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
               <div className="flex min-w-0 flex-col gap-0.5">
                 <span className="text-[14px] font-medium">
                   {who} <span className="font-normal text-muted-foreground">· {where}</span>
                 </span>
-                <span className="text-[13.5px] leading-snug text-muted-foreground">{finding}</span>
+                <span className="text-[13px] leading-snug text-muted-foreground">{finding}</span>
               </div>
             </div>
           ))}

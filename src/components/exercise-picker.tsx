@@ -107,15 +107,15 @@ export function ExercisePicker({ open, onClose, onPick, title = "Add Exercise", 
       open={open}
       right={
         <button aria-label="New exercise" className="grid size-9 place-items-center rounded-full text-primary active:bg-accent" onClick={() => setCreating({ name: q, muscle: muscle || "chest", equipment: "barbell" })} type="button">
-          <Plus className="size-5" strokeWidth={2.4} />
+          <Plus className="size-5" strokeWidth={1.75} />
         </button>
       }
       tall
       title={title}
     >
       <div className="flex flex-col gap-3">
-        <label className="flex h-11 items-center gap-2 rounded-2xl bg-muted px-3.5 text-muted-foreground focus-within:ring-2 focus-within:ring-primary/40">
-          <Search className="size-[18px] shrink-0" strokeWidth={2.2} />
+        <label className="flex h-11 items-center gap-2 rounded-2xl bg-muted px-3 text-muted-foreground focus-within:ring-2 focus-within:ring-primary/40">
+          <Search className="size-[18px] shrink-0" strokeWidth={1.75} />
           <input
             autoComplete="off"
             className="h-full min-w-0 flex-1 bg-transparent text-[16px] text-foreground outline-none placeholder:text-muted-foreground"
@@ -126,7 +126,7 @@ export function ExercisePicker({ open, onClose, onPick, title = "Add Exercise", 
           />
           {query ? (
             <button aria-label="Clear search" className="grid size-6 place-items-center rounded-full bg-muted-foreground/30 text-background" onClick={() => setQuery("")} type="button">
-              <X className="size-3.5" strokeWidth={3} />
+              <X className="size-3.5" strokeWidth={2} />
             </button>
           ) : null}
         </label>
@@ -154,7 +154,7 @@ export function ExercisePicker({ open, onClose, onPick, title = "Add Exercise", 
             <Card className="divide-y divide-border">{ranked.slice(0, 40).map((x) => row(x.e, x.m!.matches))}</Card>
           </Section>
         ) : (
-          <p className="py-8 text-center text-[14.5px] text-muted-foreground">No exercises match “{q}”.</p>
+          <p className="py-8 text-center text-[14px] text-muted-foreground">No exercises match “{q}”.</p>
         )
       ) : (
         <>
@@ -165,7 +165,7 @@ export function ExercisePicker({ open, onClose, onPick, title = "Add Exercise", 
           ) : null}
           {[...byLetter.entries()].map(([letter, list]) => (
             <motion.section animate={{ opacity: 1 }} className="flex flex-col gap-2" initial={{ opacity: 0 }} key={letter}>
-              <h3 className="px-1 text-[13px] font-semibold text-muted-foreground">{letter}</h3>
+              <h3 className="px-1 text-[13px] font-medium text-muted-foreground">{letter}</h3>
               <Card className="divide-y divide-border">{list.map((e) => row(e))}</Card>
             </motion.section>
           ))}

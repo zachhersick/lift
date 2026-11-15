@@ -2,7 +2,7 @@
 // your goal, micronutrients against their Daily Values, the maintenance Lift
 // works out from your log and weigh-ins, the last two weeks of calories and
 // the Coach.
-import { ChevronLeft, ChevronRight, Plus, Sparkles, Utensils } from "lucide-react";
+import { ChevronLeft, ChevronRight, MessageSquareText, Plus, Utensils } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import { CoachSection } from "@/components/insights";
@@ -36,7 +36,7 @@ function Ring({ value, target, size = 120, stroke = 12 }: { value: number; targe
         stroke={over ? "var(--pr)" : "var(--tint)"}
         strokeLinecap="round"
         strokeWidth={stroke}
-        transition={{ type: "spring", stiffness: 70, damping: 18 }}
+        transition={{ duration: 0.36, ease: [0.22, 1, 0.36, 1] }}
       />
     </svg>
   );
@@ -54,7 +54,7 @@ function MacroBar({ label, value, target, color }: { label: string; value: numbe
         </span>
       </div>
       <span className="relative h-2 overflow-hidden rounded-full bg-muted">
-        <motion.span animate={{ width: `${fraction * 100}%` }} className="absolute inset-y-0 left-0 rounded-full" initial={{ width: 0 }} style={{ background: color }} transition={{ type: "spring", stiffness: 120, damping: 20 }} />
+        <motion.span animate={{ width: `${fraction * 100}%` }} className="absolute inset-y-0 left-0 rounded-full" initial={{ width: 0 }} style={{ background: color }} transition={{ duration: 0.36, ease: [0.22, 1, 0.36, 1] }} />
       </span>
     </div>
   );
@@ -69,8 +69,8 @@ function DaySummary({ totals, compact = false }: { totals: any; compact?: boolea
       <div className="relative grid shrink-0 place-items-center">
         <Ring size={compact ? 104 : 124} target={t.calories} value={totals.calories} />
         <div className="absolute flex flex-col items-center leading-tight">
-          <span className={cn("font-semibold tracking-tight tabular", compact ? "text-[22px]" : "text-[26px]")}>{kcal(totals.calories)}</span>
-          <span className="text-[11.5px] text-muted-foreground">{t.calories ? `of ${kcal(t.calories)}` : "kcal"}</span>
+          <span className={cn("font-medium tabular", compact ? "text-[22px]" : "text-[26px]")}>{kcal(totals.calories)}</span>
+          <span className="text-[12px] text-muted-foreground">{t.calories ? `of ${kcal(t.calories)}` : "kcal"}</span>
         </div>
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-2.5">
@@ -78,8 +78,8 @@ function DaySummary({ totals, compact = false }: { totals: any; compact?: boolea
           <span className={cn("text-[13px] font-medium", left < 0 ? "text-pr" : "text-muted-foreground")}>{left >= 0 ? `${kcal(left)} kcal left` : `${kcal(-left)} kcal over`}</span>
         ) : null}
         <MacroBar color="var(--tint)" label="Protein" target={t.protein} value={totals.protein} />
-        <MacroBar color="var(--tint-2)" label="Carbs" target={t.carbs} value={totals.carbs} />
-        <MacroBar color="var(--tint-3)" label="Fat" target={t.fat} value={totals.fat} />
+        <MacroBar color="color-mix(in oklab, var(--foreground) 45%, transparent)" label="Carbs" target={t.carbs} value={totals.carbs} />
+        <MacroBar color="color-mix(in oklab, var(--foreground) 25%, transparent)" label="Fat" target={t.fat} value={totals.fat} />
       </div>
     </div>
   );
@@ -96,10 +96,10 @@ export function FuelCard() {
   const chat = list.find(fromAssistant);
   return (
     <Section action={<a className="text-primary" href="#/nutrition">Details</a>} title="Fuel">
-      <a className="surface block overflow-hidden rounded-3xl active:scale-[0.99]" href="#/nutrition">
+      <a className="surface block overflow-hidden rounded-2xl" href="#/nutrition">
         <DaySummary compact totals={totals} />
         <div className="flex items-center gap-1.5 border-t border-border px-4 py-2.5 text-[13px] text-muted-foreground">
-          {chat ? <Sparkles className="size-3.5 text-primary" strokeWidth={2.4} /> : <Utensils className="size-3.5" strokeWidth={2.4} />}
+          {chat ? <MessageSquareText className="size-3.5" strokeWidth={1.75} /> : <Utensils className="size-3.5" strokeWidth={1.75} />}
           <span className="truncate">
             {last ? `${format.plural(todays.length, "meal")} today · last ${format.time(last.eatenAt || last.updatedAt)}` : list.length ? "Nothing logged yet today" : "Log meals from Claude or ChatGPT, or add them here"}
           </span>
@@ -122,7 +122,7 @@ function CalorieBars({ end, selected, onSelect }: { end: string; selected: strin
       <div className="relative">
         {t.calories ? (
           <div className="pointer-events-none absolute inset-x-0 z-10 border-t border-dashed border-muted-foreground/50" style={{ bottom: `${(t.calories / top) * 100}%` }}>
-            <span className="absolute -top-4 right-0 text-[10.5px] text-muted-foreground tabular">{kcal(t.calories)}</span>
+            <span className="absolute -top-4 right-0 text-[11px] text-muted-foreground tabular">{kcal(t.calories)}</span>
           </div>
         ) : null}
         <div className="grid h-32 grid-cols-14 items-end gap-1.5">
@@ -138,7 +138,7 @@ function CalorieBars({ end, selected, onSelect }: { end: string; selected: strin
                     animate={{ height: `${Math.max(4, (v / top) * 100)}%` }}
                     className={cn("block w-full rounded-md", on ? "bg-primary" : t.calories && v > t.calories * 1.1 ? "bg-pr/60" : "bg-primary/35")}
                     initial={{ height: 0 }}
-                    transition={{ type: "spring", stiffness: 140, damping: 20, delay: i * 0.02 }}
+                    transition={{ duration: 0.36, ease: [0.22, 1, 0.36, 1], delay: i * 0.02 }}
                   />
                 )}
               </button>
@@ -146,9 +146,9 @@ function CalorieBars({ end, selected, onSelect }: { end: string; selected: strin
           })}
         </div>
       </div>
-      <div className="mt-1.5 grid grid-cols-14 gap-1.5 text-center text-[10.5px] text-muted-foreground">
+      <div className="mt-1.5 grid grid-cols-14 gap-1.5 text-center text-[11px] text-muted-foreground">
         {days.map((d) => (
-          <span className={d === selected ? "font-semibold text-foreground" : undefined} key={d}>
+          <span className={d === selected ? "font-medium text-foreground" : undefined} key={d}>
             {format.date(fromDateKey(d), { weekday: "narrow" })}
           </span>
         ))}
@@ -183,7 +183,7 @@ function Micronutrients({ day }: { day: string }) {
       title="Micros"
     >
       {rows.length ? (
-        <Card className="flex flex-col gap-3.5 p-4">
+        <Card className="flex flex-col gap-3 p-4">
           {rows.map((m: any) => {
             const pct = m.dv ? (m.value / m.dv) * 100 : null;
             const over = m.kind === "limit" && pct !== null && pct > 100;
@@ -196,7 +196,7 @@ function Micronutrients({ day }: { day: string }) {
                   </span>
                   <span className="shrink-0 text-muted-foreground tabular">
                     {microAmount(m.value)} {m.unit}
-                    {pct !== null ? <span className={cn("ml-2 font-semibold", over ? "text-pr" : "text-foreground")}>{Math.round(pct)}%</span> : null}
+                    {pct !== null ? <span className={cn("ml-2 font-medium", over ? "text-pr" : "text-foreground")}>{Math.round(pct)}%</span> : null}
                   </span>
                 </div>
                 {pct !== null ? (
@@ -205,7 +205,7 @@ function Micronutrients({ day }: { day: string }) {
                       animate={{ width: `${Math.min(100, pct)}%` }}
                       className={cn("absolute inset-y-0 left-0 rounded-full", over ? "bg-pr" : m.kind === "limit" ? "bg-muted-foreground/50" : "bg-primary")}
                       initial={{ width: 0 }}
-                      transition={{ type: "spring", stiffness: 120, damping: 20 }}
+                      transition={{ duration: 0.36, ease: [0.22, 1, 0.36, 1] }}
                     />
                   </span>
                 ) : null}
@@ -214,7 +214,7 @@ function Micronutrients({ day }: { day: string }) {
           })}
         </Card>
       ) : (
-        <Card className="p-4 text-[14.5px] text-muted-foreground">
+        <Card className="p-4 text-[14px] text-muted-foreground">
           {range === "day" ? "No micronutrients logged for this day." : "No micronutrients logged this week."} Ask your assistant to include sodium, potassium, fiber, vitamins and minerals when it logs a meal, or add them in a meal under Micronutrients.
         </Card>
       )}
@@ -235,7 +235,7 @@ function MaintenanceCard() {
   const pct = (n: number) => `${n > 0 ? "+" : ""}${Math.round(n * 100) / 100}%`;
   if (!m.calories) {
     return (
-      <Card className="p-4 text-[14.5px] text-muted-foreground">Log your bodyweight to get a maintenance estimate. After 10 days of meals and weigh-ins Lift works out what you actually burn.</Card>
+      <Card className="p-4 text-[14px] text-muted-foreground">Log your bodyweight to get a maintenance estimate. After 10 days of meals and weigh-ins Lift works out what you actually burn.</Card>
     );
   }
   return (
@@ -243,11 +243,11 @@ function MaintenanceCard() {
       <div className="flex flex-col gap-1 p-4">
         <div className="flex items-center justify-between gap-2">
           <span className="text-[13px] font-medium text-muted-foreground">Maintenance</span>
-          <span className={cn("rounded-full px-2 py-0.5 text-[11.5px] font-semibold", m.confidence === "high" ? "bg-success/15 text-success" : m.confidence === "medium" ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground")}>
+          <span className={cn("text-[12px]", m.confidence === "high" ? "text-success" : "text-muted-foreground")}>
             {CONFIDENCE[m.confidence]}
           </span>
         </div>
-        <span className="text-[30px] leading-tight font-semibold tracking-tight tabular">
+        <span className="text-[30px] leading-tight font-medium tabular">
           {kcal(m.calories)}
           <span className="ml-1 text-[14px] font-medium text-muted-foreground">kcal/day</span>
         </span>
@@ -296,7 +296,7 @@ export function NutritionPage() {
         title="Fuel"
         trailing={
           <button aria-label="Add meal" className="grid size-9 place-items-center rounded-full bg-primary text-primary-foreground" onClick={() => setSheet("new")} type="button">
-            <Plus className="size-5" strokeWidth={2.6} />
+            <Plus className="size-5" strokeWidth={1.75} />
           </button>
         }
       />
@@ -310,11 +310,11 @@ export function NutritionPage() {
       <FadeIn className="flex flex-col gap-3">
         <div className="flex items-center justify-between px-1">
           <button aria-label="Previous day" className="grid size-9 place-items-center rounded-full bg-muted active:bg-accent" onClick={() => setDay(shiftDateKey(day, -1))} type="button">
-            <ChevronLeft className="size-5" strokeWidth={2.4} />
+            <ChevronLeft className="size-5" strokeWidth={1.75} />
           </button>
-          <span className="text-[16px] font-semibold">{label}</span>
+          <span className="text-[16px] font-medium">{label}</span>
           <button aria-label="Next day" className="grid size-9 place-items-center rounded-full bg-muted active:bg-accent disabled:opacity-30" disabled={day >= today} onClick={() => setDay(shiftDateKey(day, 1))} type="button">
-            <ChevronRight className="size-5" strokeWidth={2.4} />
+            <ChevronRight className="size-5" strokeWidth={1.75} />
           </button>
         </div>
         <Card>
@@ -328,7 +328,7 @@ export function NutritionPage() {
             {[...todays].sort((a, b) => (a.eatenAt || 0) - (b.eatenAt || 0)).map((m) => (
               <Row
                 chevron
-                icon={fromAssistant(m) ? Sparkles : Utensils}
+                icon={fromAssistant(m) ? MessageSquareText : Utensils}
                 key={m.id}
                 onClick={() => setSheet(m)}
                 subtitle={`${m.eatenAt ? `${format.time(m.eatenAt)} · ` : ""}P ${Math.round(m.protein || 0)} · C ${Math.round(m.carbs || 0)} · F ${Math.round(m.fat || 0)}`}

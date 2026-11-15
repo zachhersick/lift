@@ -52,7 +52,7 @@ export interface StatusIslandProps {
   className?: string;
 }
 
-const MORPH: Transition = { type: "spring", duration: 0.45, bounce: 0.18 };
+const MORPH: Transition = { duration: 0.36, ease: [0.22, 1, 0.36, 1] };
 const SWAP: Transition = { duration: 0.22, ease: [0.23, 1, 0.32, 1] };
 const EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
 // Tasks that peek out behind the island when it is closed.

@@ -4,9 +4,9 @@ A workout tracker for your gym split. Log the sets, weight and reps for every ex
 
 ## What it does
 
-The look is dark-first and layered: glass surfaces, your accent color as soft gradients, a live shader behind the Up Next card and the Workout Complete screen, springy motion, animated numbers and activity rings. It's built with React, Tailwind, [motion](https://motion.dev), [Kokonut UI](https://kokonutui.com) components and [Paper Shaders](https://shaders.paper.design). Light mode and six accent colors are in Settings.
+The look is a quiet logbook: graphite surfaces with hairlines, one flat accent for the action and the selection, sets written in a monospaced face (`225 × 5`), and the color saved for what you lift, like the plates loaded on the bar for your next top set. It's built with React, Tailwind, [motion](https://motion.dev) and [Kokonut UI](https://kokonutui.com) components. Light mode and six accent colors are in Settings.
 
-- **Today** shows the next day in your rotation (Push → Pull → Legs → Rest → repeat) on a live gradient, with last time's top set for each exercise and **Start**. Below that: **activity rings** for the week (workouts against your weekly goal, sets and volume against last week), **sets per muscle** against a 10–20 set band, a 3D **consistency** terrain of the last four months with your streak, your **bodyweight**, and recent PRs. Doing a different day than suggested just moves the rotation along.
+- **Today** shows the next day in your rotation (Push → Pull → Legs → Rest → repeat) with the first barbell lift loaded on a drawn bar, last time's top set for each exercise and **Start**. Below that: **this week** in four numbers (workouts against your weekly goal, sets, volume and cardio against last week), **sets per muscle** against a 10–20 set band, a 3D **consistency** terrain of the last four months with your streak, your **bodyweight**, and recent PRs. Doing a different day than suggested just moves the rotation along.
 - **Workout**: a live workout shows **one exercise at a time** (a superset's exercises share a screen) with `SET · PREVIOUS · LB · REPS · ✓`.
   - **Focus screen.**
     - A strip at the top shows every exercise and how far along it is; tap one to jump to it.
@@ -237,7 +237,7 @@ server/                     auth (Apple/Google/GitHub OAuth, signed cookie), acc
 index.html, vite.config.ts  Vite entry; the config also mounts the API for dev/preview and builds the service worker
 src/lib/                    model.js (pure, tested logic), store/db/sync (IndexedDB + signals + sync), keypad, timer, theme
 src/components/kokonutui/   Kokonut UI components, restyled to the app's tokens
-src/components/             kit (page frame, cards, rows, sheets), keypad, plates, islands, charts, shader hero, picker,
+src/components/             kit (page frame, cards, rows, sheets), keypad, plates, islands, charts, picker,
                             meal sheet, insights (Coach cards and weekly review), badges (badge grid, profile header)
 src/pages/                  Today, Workout, History, Progress, Bodyweight, Fuel (nutrition), Split, Coach, Profile, Friend, Settings
 src/styles.css              Tailwind v4 theme: dark/light tokens and accent colors

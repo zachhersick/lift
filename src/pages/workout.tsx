@@ -1,5 +1,5 @@
 // The workout logger: one card per exercise with set rows that show last
-// time's numbers, a progression hint, PR bursts and the rest timer. Weight
+// time's numbers, a progression hint, PR marks and the rest timer. Weight
 // and reps go through the docked number pad. Also edits finished workouts.
 import NumberFlow from "@number-flow/react";
 import {
@@ -9,11 +9,10 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import HoldButton from "@/components/kokonutui/hold-button";
-import { Burst } from "@/components/kokonutui/particle-button";
 import WheelPicker from "@/components/kokonutui/wheel-picker";
 import { LineChart } from "@/components/chart";
 import { EditExerciseSheet, ExercisePicker } from "@/components/exercise-picker";
-import { Card, Empty, Page, Row, Section, Sheet, SheetAction, spring, StatTiles, Stepper, TopBar } from "@/components/kit";
+import { Card, Empty, Page, Row, Section, Sheet, SheetAction, softSpring, spring, StatTiles, Stepper, TopBar } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { ask, choose } from "@/lib/dialogs";
 import { haptic } from "@/lib/haptics.js";
@@ -35,7 +34,7 @@ import { cn } from "@/lib/utils";
 const REST_OPTIONS = [0, 30, 45, 60, 75, 90, 120, 150, 180, 240, 300];
 const TYPE_LABEL: Record<string, string> = { warmup: "W", drop: "D", failure: "F" };
 const TYPE_NAME: Record<string, string> = { working: "Working set", warmup: "Warm-up", drop: "Drop set", failure: "To failure" };
-const TYPE_COLOR: Record<string, string> = { warmup: "text-amber-500", drop: "text-violet-400", failure: "text-red-400" };
+const TYPE_COLOR: Record<string, string> = { warmup: "text-pr", drop: "text-primary", failure: "text-destructive" };
 
 // Which exercise the focus screen is on, per workout, so iOS reloading the
 // home-screen app doesn't lose your place.
@@ -57,9 +56,9 @@ function writeFocus(workoutId: string, entryId: string | null) {
 }
 
 const SLIDE = {
-  enter: (direction: number) => ({ x: 48 * direction, opacity: 0 }),
+  enter: (direction: number) => ({ x: 24 * direction, opacity: 0 }),
   center: { x: 0, opacity: 1 },
-  exit: (direction: number) => ({ x: -48 * direction, opacity: 0 })
+  exit: (direction: number) => ({ x: -24 * direction, opacity: 0 })
 };
 
 // A live workout opens on one exercise at a time (a superset's exercises
@@ -246,7 +245,7 @@ export function WorkoutPage({ id }: { id: string }) {
                 }}
                 type="button"
               >
-                <List className="size-[18px]" strokeWidth={2.4} />
+                <List className="size-[18px]" strokeWidth={1.75} />
               </button>
               <Button onClick={finish} size="sm">
                 Finish
@@ -259,7 +258,7 @@ export function WorkoutPage({ id }: { id: string }) {
           <>
             <div className="flex flex-col gap-1.5 px-1">
               <div className="flex items-baseline justify-between gap-3 text-[13px] text-muted-foreground">
-                <span className="font-semibold text-foreground">
+                <span className="font-medium text-foreground">
                   Exercise {stepIndex + 1} of {steps.length}
                 </span>
                 <span className="tabular">
@@ -290,13 +289,13 @@ export function WorkoutPage({ id }: { id: string }) {
                   );
                 })}
                 <button aria-label="Add exercise" className="ml-1 grid size-7 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground active:bg-accent" onClick={openPicker} type="button">
-                  <Plus className="size-4" strokeWidth={2.6} />
+                  <Plus className="size-4" strokeWidth={1.75} />
                 </button>
               </div>
             </div>
 
             <AnimatePresence custom={direction} initial={false} mode="popLayout">
-              <motion.div animate="center" className="flex flex-col gap-4" custom={direction} exit="exit" initial="enter" key={step.entryIds[0]} transition={{ type: "spring", stiffness: 380, damping: 36 }} variants={SLIDE}>
+              <motion.div animate="center" className="flex flex-col gap-4" custom={direction} exit="exit" initial="enter" key={step.entryIds[0]} transition={softSpring} variants={SLIDE}>
                 {entries.slice(step.start, step.end + 1).map((entry, offset) => (
                   <ExerciseCard change={change} entry={entry} index={step.start + offset} key={entry.id} label={labels[step.start + offset]} live workout={workout} />
                 ))}
@@ -305,23 +304,23 @@ export function WorkoutPage({ id }: { id: string }) {
 
             <div className="flex flex-col gap-3">
               {nextStep ? (
-                <button className="surface flex items-center gap-3 rounded-2xl px-4 py-3 text-left active:scale-[0.99]" onClick={() => goStep(stepIndex + 1)} type="button">
-                  <span className="text-[11.5px] font-semibold tracking-wide text-muted-foreground uppercase">Up next</span>
+                <button className="surface flex items-center gap-3 rounded-2xl px-4 py-3 text-left" onClick={() => goStep(stepIndex + 1)} type="button">
+                  <span className="text-[12px] font-medium text-muted-foreground">Up next</span>
                   <span className="min-w-0 flex-1 truncate text-[15px] font-medium">{names(nextStep.entryIds)}</span>
-                  {lastTop ? <span className="shrink-0 text-[13px] text-muted-foreground tabular">{format.shortSet(lastTop, nextTrack)}</span> : null}
+                  {lastTop ? <span className="sets shrink-0 text-[13px] text-muted-foreground">{format.shortSet(lastTop, nextTrack)}</span> : null}
                 </button>
               ) : null}
               <div className="flex gap-2">
                 <Button aria-label="Previous exercise" className="w-[92px]" disabled={stepIndex === 0} onClick={() => goStep(stepIndex - 1)} size="lg" variant="secondary">
-                  <ChevronLeft className="size-5" strokeWidth={2.6} /> Back
+                  <ChevronLeft className="size-5" strokeWidth={1.75} /> Back
                 </Button>
                 {nextStep ? (
                   <Button className="flex-1" onClick={() => goStep(stepIndex + 1)} size="lg" variant={progress?.complete ? "default" : "tinted"}>
-                    Next exercise <ArrowRight className="size-5" strokeWidth={2.6} />
+                    Next exercise <ArrowRight className="size-5" strokeWidth={1.75} />
                   </Button>
                 ) : (
                   <Button className="flex-1" onClick={finish} size="lg" variant={progress?.complete ? "default" : "tinted"}>
-                    <Check className="size-5" strokeWidth={2.8} /> Finish workout
+                    <Check className="size-5" strokeWidth={1.75} /> Finish workout
                   </Button>
                 )}
               </div>
@@ -365,7 +364,7 @@ export function WorkoutPage({ id }: { id: string }) {
         }
       >
         <button aria-label="Workout details" className="flex w-full flex-col items-start text-left" onClick={() => setDetails(true)} type="button">
-          <h1 className="text-[34px] leading-[1.1] font-semibold tracking-[-0.03em]">{workout.name}</h1>
+          <h1 className="text-[34px] leading-[1.1] font-medium">{workout.name}</h1>
         </button>
       </TopBar>
 
@@ -412,13 +411,13 @@ export function WorkoutPage({ id }: { id: string }) {
       )}
 
       <Button onClick={openPicker} size="lg" variant="tinted">
-        <Plus className="size-5" strokeWidth={2.6} /> Add exercise
+        <Plus className="size-5" strokeWidth={1.75} /> Add exercise
       </Button>
 
       <Section title="Notes">
         <Card className="p-4">
           <textarea
-            className="min-h-16 w-full resize-none bg-transparent text-[15.5px] outline-none placeholder:text-muted-foreground"
+            className="min-h-16 w-full resize-none bg-transparent text-[15px] outline-none placeholder:text-muted-foreground"
             defaultValue={workout.notes || ""}
             onBlur={(e) => {
               const value = e.currentTarget.value;
@@ -431,7 +430,7 @@ export function WorkoutPage({ id }: { id: string }) {
 
       <div className="flex flex-col gap-2 pt-1">
         {live ? (
-          <HoldButton className="h-14 w-full rounded-2xl text-[15.5px]" completeLabel="Finished" holdDuration={900} holdingLabel="Keep holding…" icon={Check} onHoldComplete={() => (doneSets ? setTimeout(finishNow, 450) : finish())} resetAfter={0} variant="green">
+          <HoldButton className="h-14 w-full rounded-2xl text-[15px]" completeLabel="Finished" holdDuration={900} holdingLabel="Keep holding…" icon={Check} onHoldComplete={() => (doneSets ? setTimeout(finishNow, 450) : finish())} resetAfter={0} variant="green">
             Hold to finish
           </HoldButton>
         ) : null}
@@ -490,12 +489,12 @@ function DetailsSheet({ open, onClose, workout, change }: { open: boolean; onClo
     });
     onClose();
   };
-  const field = "bg-transparent text-right text-[15.5px] text-primary outline-none";
+  const field = "bg-transparent text-right text-[15px] text-primary outline-none";
   return (
     <Sheet left={<SheetAction onClick={onClose}>Cancel</SheetAction>} onClose={onClose} open={open} right={<SheetAction bold onClick={saveDetails}>Done</SheetAction>} title="Workout details">
       <Card className="divide-y divide-border">
         <Row title="Name">
-          <input aria-label="Workout name" className="w-40 bg-transparent text-right text-[15.5px] text-muted-foreground outline-none" onChange={(e) => setName(e.currentTarget.value)} value={name} />
+          <input aria-label="Workout name" className="w-40 bg-transparent text-right text-[15px] text-muted-foreground outline-none" onChange={(e) => setName(e.currentTarget.value)} value={name} />
         </Row>
         <Row title="Date">
           <input aria-label="Date" className={field} max={dateKey()} onChange={(e) => setDate(e.currentTarget.value)} type="date" value={date} />
@@ -520,7 +519,6 @@ type SheetKind = null | "menu" | "rest" | "note" | "swap" | "peek" | "edit" | { 
 // back into focus on this exercise).
 function ExerciseCard({ workout, entry, index, label, live, change, onTitle }: { workout: any; entry: any; index: number; label: any; live: boolean; change: (fn: (d: any) => void) => void; onTitle?: () => void }) {
   const [sheet, setSheet] = useState<SheetKind>(null);
-  const [burst, setBurst] = useState<string | null>(null);
   const index_ = useValue(exerciseIndex) as Map<string, any>;
   const history = useValue(sessions) as any[];
   const s = useValue(settings) as any;
@@ -544,8 +542,7 @@ function ExerciseCard({ workout, entry, index, label, live, change, onTitle }: {
   const toggle = (setIndex: number) => {
     const set = entry.sets[setIndex];
     if (set.done) return changeEntry((t) => (t.sets[setIndex].done = false));
-    const result = completeSet(workout.id, entry.id, set.id);
-    if (result.pr) setBurst(set.id);
+    completeSet(workout.id, entry.id, set.id);
   };
 
   // Cardio and timed sets: count down from the time you typed (or last
@@ -621,7 +618,7 @@ function ExerciseCard({ workout, entry, index, label, live, change, onTitle }: {
 
   return (
     <div className={cn("relative", label && "pl-4")}>
-      {label ? <span className={cn("absolute top-5 bottom-5 left-0 w-1 rounded-full bg-gradient-to-b from-[var(--tint)] to-[var(--tint-2)]", !label.first && "-top-5", !label.last && "-bottom-5")} /> : null}
+      {label ? <span className={cn("absolute top-5 bottom-5 left-0 w-0.5 rounded-full bg-primary", !label.first && "-top-5", !label.last && "-bottom-5")} /> : null}
       <Card className="p-3 pt-4">
         <div className="flex items-start gap-2 px-1.5">
           <button
@@ -635,12 +632,12 @@ function ExerciseCard({ workout, entry, index, label, live, change, onTitle }: {
           >
             <span className="flex items-center gap-2">
               {label ? (
-                <span className="rounded-md bg-primary/15 px-1.5 py-0.5 text-[11px] font-bold text-primary tabular">
+                <span className="sets rounded-[4px] bg-muted px-1 text-[12px] text-muted-foreground">
                   {label.group}
                   {label.position}
                 </span>
               ) : null}
-              <span className="truncate text-[17px] font-semibold tracking-tight text-primary">{exercise.name}</span>
+              <span className="truncate text-[17px] font-medium">{exercise.name}</span>
             </span>
             <span className="text-[13px] text-muted-foreground">{[range, entry.restSec ? `Rest ${format.rest(entry.restSec)}` : "No rest timer", label ? "Superset" : ""].filter(Boolean).join(" · ")}</span>
           </button>
@@ -653,28 +650,28 @@ function ExerciseCard({ workout, entry, index, label, live, change, onTitle }: {
             }}
             type="button"
           >
-            <MoreHorizontal className="size-5" strokeWidth={2.4} />
+            <MoreHorizontal className="size-5" strokeWidth={1.75} />
           </button>
         </div>
 
         {exercise.note ? (
-          <button className="mx-1.5 mt-3 flex w-[calc(100%-12px)] items-start gap-2 rounded-xl bg-amber-400/12 px-3 py-2 text-left text-[14px] leading-snug ring-1 ring-amber-400/20" onClick={() => setSheet("note")} type="button">
-            <NotebookPen className="mt-0.5 size-4 shrink-0 text-amber-500" strokeWidth={2.2} />
+          <button className="mx-1.5 mt-3 flex w-[calc(100%-12px)] items-start gap-2 rounded-[10px] bg-muted px-3 py-2 text-left text-[14px] leading-snug" onClick={() => setSheet("note")} type="button">
+            <NotebookPen className="mt-0.5 size-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
             <span>{exercise.note}</span>
           </button>
         ) : null}
-        {entry.notes ? <p className="mx-1.5 mt-2 rounded-xl bg-muted px-3 py-2 text-[14px]">{entry.notes}</p> : null}
+        {entry.notes ? <p className="mx-1.5 mt-2 rounded-[10px] bg-muted px-3 py-2 text-[14px]">{entry.notes}</p> : null}
 
-        <p className={cn("mx-1.5 mt-3 flex items-center gap-1.5 text-[13px]", hint?.kind === "up" ? "font-semibold text-success" : "text-muted-foreground")}>
+        <p className={cn("mx-1.5 mt-3 flex items-center gap-1.5 text-[13px]", hint?.kind === "up" ? "font-medium text-success" : "text-muted-foreground")}>
           {hint ? (
-            hint.kind === "up" ? <ArrowUp className="size-3.5" strokeWidth={3} /> : <ArrowRight className="size-3.5" strokeWidth={2.6} />
+            hint.kind === "up" ? <ArrowUp className="size-3.5" strokeWidth={2} /> : <ArrowRight className="size-3.5" strokeWidth={1.75} />
           ) : (
-            <Flame className="size-3.5" strokeWidth={2.4} />
+            <Flame className="size-3.5" strokeWidth={1.75} />
           )}
           {hint ? hint.text : "First time. This sets your baseline."}
         </p>
 
-        <div aria-hidden="true" className={cn("mt-3 grid gap-1.5 px-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase", grid)}>
+        <div aria-hidden="true" className={cn("mt-3 grid gap-1.5 px-1.5 text-[12px] text-muted-foreground", grid)}>
           {headers.map((h, i) => (
             <span className={i >= (track === "cardio" ? 1 : 2) ? "text-center" : undefined} key={h}>
               {h}
@@ -700,16 +697,16 @@ function ExerciseCard({ workout, entry, index, label, live, change, onTitle }: {
                     aria-label={`${LABELS[name]}, set ${setIndex + 1}`}
                     key={name}
                     className={cn(
-                      "relative grid h-10 place-items-center rounded-xl text-[17px] font-semibold tabular transition-colors",
+                      "sets relative grid h-10 place-items-center rounded-lg text-[17px] transition-colors",
                       set.done ? "bg-transparent" : "bg-muted",
-                      value == null && "font-medium text-muted-foreground/55"
+                      value == null && "text-muted-foreground/60"
                     )}
                     data-cell={`${set.id}-${name}`}
                     data-placeholder={ph[name] ?? ""}
                     onClick={() => openPad({ workoutId: workout.id, entryId: entry.id, setId: set.id, field: name, value: set[name], placeholder: ph[name] })}
                     type="button"
                   >
-                    {active ? <motion.span className="absolute inset-0 rounded-xl bg-card ring-2 ring-primary" layoutId="pad-focus" transition={spring} /> : null}
+                    {active ? <motion.span className="absolute inset-0 rounded-lg bg-card ring-2 ring-primary" layoutId="pad-focus" transition={spring} /> : null}
                     <span className="relative">{value ?? (ph[name] != null ? show(name, ph[name]) : "")}</span>
                   </button>
                 );
@@ -717,7 +714,7 @@ function ExerciseCard({ workout, entry, index, label, live, change, onTitle }: {
               return (
                 <motion.div
                   animate={{ opacity: 1, height: "auto" }}
-                  className={cn("relative -mx-1.5 grid items-center gap-1.5 rounded-2xl px-3 py-1 transition-colors duration-300", grid, set.done && "bg-success/12", timing && "bg-primary/12")}
+                  className={cn("relative -mx-1.5 grid items-center gap-1.5 rounded-xl px-3 py-1 transition-colors duration-300", grid, set.done && "bg-success/10", timing && "bg-primary/10")}
                   exit={{ opacity: 0, height: 0 }}
                   initial={{ opacity: 0, height: 0 }}
                   key={set.id}
@@ -725,7 +722,7 @@ function ExerciseCard({ workout, entry, index, label, live, change, onTitle }: {
                 >
                   <button
                     aria-label={`Set ${setIndex + 1}, ${TYPE_NAME[set.type || "working"]}`}
-                    className={cn("grid h-9 place-items-center rounded-xl text-[15px] font-semibold tabular", set.done ? "bg-transparent" : "bg-muted", TYPE_COLOR[set.type])}
+                    className={cn("sets grid h-9 place-items-center rounded-lg text-[15px]", set.done ? "bg-transparent" : "bg-muted", TYPE_COLOR[set.type])}
                     onClick={() => {
                       closePad();
                       setSheet({ type: setIndex });
@@ -737,7 +734,7 @@ function ExerciseCard({ workout, entry, index, label, live, change, onTitle }: {
                   {track !== "cardio" ? (
                     <button
                       aria-label={ph.prev ? `Copy last time, ${format.shortSet(ph.prev, track)}` : "No previous set"}
-                      className="h-10 truncate pl-1 text-left text-[14.5px] text-muted-foreground tabular disabled:text-muted-foreground/40"
+                      className="sets h-10 truncate pl-1 text-left text-[14px] text-muted-foreground disabled:text-muted-foreground/40"
                       disabled={!ph.prev}
                       onClick={() =>
                         ph.prev &&
@@ -752,45 +749,37 @@ function ExerciseCard({ workout, entry, index, label, live, change, onTitle }: {
                   ) : null}
                   {fields.map((name) => field(name))}
                   {timing ? (
-                    <motion.button
-                      animate={{ scale: [1, 1.06, 1] }}
+                    <button
                       aria-label="Stop timer and log this set"
-                      className="relative grid h-10 place-items-center rounded-xl bg-primary text-primary-foreground"
-                      onClick={() => {
-                        const result = finishSetTimer();
-                        if (result?.pr) setBurst(set.id);
-                      }}
-                      transition={{ duration: 1.2, repeat: Infinity }}
+                      className="relative grid h-10 place-items-center rounded-lg bg-primary text-primary-foreground transition-transform active:scale-[0.97]"
+                      onClick={() => finishSetTimer()}
                       type="button"
                     >
-                      <Square className="size-4 fill-current" strokeWidth={2.4} />
-                    </motion.button>
+                      <Square className="size-4 fill-current" strokeWidth={1.75} />
+                    </button>
                   ) : track !== "strength" && !set.done && set.seconds == null ? (
                     <motion.button
                       aria-label={ph.seconds ? `Start a ${format.clock(ph.seconds)} countdown` : "Start a stopwatch"}
-                      className="relative grid h-10 place-items-center rounded-xl bg-primary/15 text-primary"
+                      className="relative grid h-10 place-items-center rounded-lg bg-muted text-primary"
                       onClick={() => startTimer(setIndex)}
                       type="button"
-                      whileTap={{ scale: 0.88 }}
+                      whileTap={{ scale: 0.97 }}
                     >
-                      <Play className="size-[18px] fill-current" strokeWidth={2.4} />
+                      <Play className="size-[18px] fill-current" strokeWidth={1.75} />
                     </motion.button>
                   ) : (
                     <motion.button
-                      animate={{ scale: set.done ? [1, 1.18, 1] : 1 }}
-                      aria-label={set.done ? "Mark set not done" : "Complete set"}
+                      aria-label={set.done ? (pr ? "Personal record, mark set not done" : "Mark set not done") : "Complete set"}
                       aria-pressed={set.done}
                       className={cn(
-                        "relative grid h-10 place-items-center rounded-xl transition-colors",
-                        pr ? "bg-gradient-to-br from-amber-300 to-orange-500 text-white shadow-[0_6px_16px_-6px_#f59e0b]" : set.done ? "bg-success text-white" : "bg-muted text-muted-foreground/60"
+                        "relative grid h-10 place-items-center rounded-lg transition-colors duration-150",
+                        pr ? "bg-pr text-background" : set.done ? "bg-success text-background" : "bg-muted text-muted-foreground"
                       )}
                       onClick={() => toggle(setIndex)}
-                      transition={{ duration: 0.35 }}
                       type="button"
-                      whileTap={{ scale: 0.88 }}
+                      whileTap={{ scale: 0.97 }}
                     >
-                      {pr ? <Trophy className="size-[18px]" strokeWidth={2.4} /> : <Check className="size-5" strokeWidth={3} />}
-                      {burst === set.id ? <Burst color="#f59e0b" onDone={() => setBurst(null)} originX={22} /> : null}
+                      {pr ? <Trophy className="size-[18px]" strokeWidth={1.75} /> : <Check className="size-5" strokeWidth={2} />}
                     </motion.button>
                   )}
                 </motion.div>
@@ -798,8 +787,8 @@ function ExerciseCard({ workout, entry, index, label, live, change, onTitle }: {
             })}
           </AnimatePresence>
         </div>
-        <button className="mt-1 flex h-11 w-full items-center justify-center gap-1.5 rounded-2xl text-[14.5px] font-semibold text-primary active:bg-accent" onClick={addSet} type="button">
-          <Plus className="size-4" strokeWidth={2.8} /> Add set
+        <button className="mt-1 flex h-11 w-full items-center justify-center gap-1.5 rounded-2xl text-[14px] font-medium text-primary active:bg-accent" onClick={addSet} type="button">
+          <Plus className="size-4" strokeWidth={1.75} /> Add set
         </button>
       </Card>
 
@@ -808,7 +797,6 @@ function ExerciseCard({ workout, entry, index, label, live, change, onTitle }: {
           {track === "strength" ? (
             <Row
               icon={Flame}
-              iconClass="bg-amber-500/15 text-amber-500"
               onClick={() => {
                 setSheet(null);
                 addWarmups();
@@ -838,17 +826,16 @@ function ExerciseCard({ workout, entry, index, label, live, change, onTitle }: {
               title="Remove from superset"
             />
           ) : null}
-          <Row icon={Timer} iconClass="bg-violet-500/15 text-violet-400" onClick={() => setSheet("rest")} title="Rest timer" value={entry.restSec ? format.rest(entry.restSec) : "Off"} />
-          <Row icon={NotebookPen} iconClass="bg-amber-400/15 text-amber-500" onClick={() => setSheet("note")} title={exercise.note ? "Edit note" : "Add note"} />
+          <Row icon={Timer} onClick={() => setSheet("rest")} title="Rest timer" value={entry.restSec ? format.rest(entry.restSec) : "Off"} />
+          <Row icon={NotebookPen} onClick={() => setSheet("note")} title={exercise.note ? "Edit note" : "Add note"} />
         </Card>
         <Card className="divide-y divide-border">
-          <Row icon={Eye} iconClass="bg-emerald-500/15 text-emerald-500" onClick={() => setSheet("peek")} title="History" />
-          <Row icon={Repeat2} iconClass="bg-muted text-foreground" onClick={() => setSheet("swap")} title="Swap exercise" />
-          {exercise.id ? <Row icon={Pencil} iconClass="bg-muted text-foreground" onClick={() => setSheet("edit")} title="Edit exercise" /> : null}
+          <Row icon={Eye} onClick={() => setSheet("peek")} title="History" />
+          <Row icon={Repeat2} onClick={() => setSheet("swap")} title="Swap exercise" />
+          {exercise.id ? <Row icon={Pencil} onClick={() => setSheet("edit")} title="Edit exercise" /> : null}
           <Row
             disabled={index === 0}
             icon={ChevronUp}
-            iconClass="bg-muted text-foreground"
             onClick={() => {
               move(-1);
               setSheet(null);
@@ -858,7 +845,6 @@ function ExerciseCard({ workout, entry, index, label, live, change, onTitle }: {
           <Row
             disabled={index === entries.length - 1}
             icon={ChevronDown}
-            iconClass="bg-muted text-foreground"
             onClick={() => {
               move(1);
               setSheet(null);
@@ -867,7 +853,7 @@ function ExerciseCard({ workout, entry, index, label, live, change, onTitle }: {
           />
         </Card>
         <Card>
-          <Row icon={Trash2} iconClass="bg-destructive/15 text-destructive" onClick={removeEntry} title="Remove exercise" tone="danger" />
+          <Row icon={Trash2} iconClass="text-destructive" onClick={removeEntry} title="Remove exercise" tone="danger" />
         </Card>
       </Sheet>
 
@@ -893,8 +879,8 @@ function ExerciseCard({ workout, entry, index, label, live, change, onTitle }: {
                   }}
                   title={name}
                 >
-                  <span className={cn("grid size-8 place-items-center rounded-lg bg-muted text-[13px] font-bold", TYPE_COLOR[type])}>{TYPE_LABEL[type] || "1"}</span>
-                  {(entry.sets[sheet.type].type || "working") === type ? <Check className="size-5 text-primary" strokeWidth={2.8} /> : <span className="size-5" />}
+                  <span className={cn("sets grid size-8 place-items-center rounded-md bg-muted text-[13px]", TYPE_COLOR[type])}>{TYPE_LABEL[type] || "1"}</span>
+                  {(entry.sets[sheet.type].type || "working") === type ? <Check className="size-5 text-primary" strokeWidth={1.75} /> : <span className="size-5" />}
                 </Row>
               ))}
             </Card>
@@ -917,7 +903,7 @@ function ExerciseCard({ workout, entry, index, label, live, change, onTitle }: {
               <Row
                 disabled={entry.sets.length <= 1}
                 icon={X}
-                iconClass="bg-destructive/15 text-destructive"
+                iconClass="text-destructive"
                 onClick={() => {
                   closePad();
                   changeEntry((t) => t.sets.splice(sheet.type, 1));
