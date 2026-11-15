@@ -100,6 +100,7 @@ npm install
 npm run dev        # http://localhost:4330, with the API built in
 npm test
 npm run build      # production build in dist/; npm run preview serves it
+npm run check      # tests, AGENTS.md paths, typecheck and build in one go
 ```
 
 Locally it uses an in-memory database, and **Sign in** skips Google and GitHub: you're the admin `dev@lift.test`. Use `/api/auth/login?provider=dev&as=friend@example.com` to try an invited account. The service worker is off so every reload gets the latest code (add `?sw` to the URL to test offline mode).
@@ -235,7 +236,7 @@ server/                     auth (Apple/Google/GitHub OAuth, signed cookie), acc
                             oauth.js + mcp.js (the Claude and ChatGPT connector), coach.js (weekly AI review), social.js (friends, profiles),
                             blocks and reports
 index.html, vite.config.ts  Vite entry; the config also mounts the API for dev/preview and builds the service worker
-src/lib/                    model.js (pure, tested logic), store/db/sync (IndexedDB + signals + sync), keypad, timer, theme
+src/lib/                    model.js + model/ (pure, tested logic by area), store/db/sync (IndexedDB + signals + sync), keypad, timer, theme
 src/components/kokonutui/   Kokonut UI components, restyled to the app's tokens
 src/components/             kit (page frame, cards, rows, sheets), keypad, plates, islands, charts, picker,
                             meal sheet, insights (Coach cards and weekly review), badges (badge grid, profile header)
