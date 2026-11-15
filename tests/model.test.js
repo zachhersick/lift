@@ -1031,3 +1031,46 @@ test("only connector sources count as from an assistant", () => {
   for (const source of ["chatgpt", "claude"]) assert.equal(fromAssistant({ source }), true);
   for (const record of [{ source: "manual" }, {}, null]) assert.equal(fromAssistant(record), false);
 });
+
+test("sync keeps the newest edit of a record, and a tie keeps the local copy", async () => {
+  const { newer } = await import("../src/lib/model.js");
+  const local = { id: "a", updatedAt: 5 };
+  assert.equal(newer(local, { id: "a", updatedAt: 6 }).updatedAt, 6);
+  assert.equal(newer(local, { id: "a", updatedAt: 4 }), local);
+  assert.equal(newer(local, { id: "a", updatedAt: 5 }), local, "a tie keeps what's here");
+  assert.equal(newer(undefined, local), local);
+  assert.equal(newer(local, null), local);
+  assert.equal(newer({ id: "a" }, { id: "a", updatedAt: 1 }).updatedAt, 1, "a missing stamp counts as zero");
+});
+
+test("weights convert between kg and lb and back", async () => {
+  const { convertWeight } = await import("../src/lib/model.js");
+  assert.equal(convertWeight(100, "lb", "lb"), 100);
+  assert.ok(Math.abs(convertWeight(100, "kg", "lb") - 220.462) < 1e-9);
+  assert.ok(Math.abs(convertWeight(convertWeight(225, "lb", "kg"), "kg", "lb") - 225) < 1e-9);
+});
+
+test("keepIfSame hands back the old array only when every item is the same object", async () => {
+  const { keepIfSame } = await import("../src/lib/model.js");
+  const a = { id: "a" };
+  const b = { id: "b" };
+  const previous = [a, b];
+  assert.equal(keepIfSame(previous, [a, b]), previous);
+  const reordered = [b, a];
+  assert.equal(keepIfSame(previous, reordered), reordered);
+  const copied = [a, { ...b }];
+  assert.equal(keepIfSame(previous, copied), copied, "an edited record is a new object");
+  const shorter = [a];
+  assert.equal(keepIfSame(previous, shorter), shorter);
+});
+
+test("the exercise index puts stored records over the library, deleted ones included", async () => {
+  const { indexExercises } = await import("../src/lib/exercises.js");
+  const bench = BUILT_IN.find((e) => e.id === "b_bench-press");
+  const index = indexExercises([{ id: bench.id, kind: "exercise", note: "Seat 4" }, { id: "x_mine", kind: "exercise", name: "Mine", deleted: true }]);
+  assert.equal(index.size, BUILT_IN.length + 1);
+  assert.equal(index.get(bench.id).name, bench.name, "an override keeps the library fields it doesn't change");
+  assert.equal(index.get(bench.id).note, "Seat 4");
+  assert.equal(index.get("x_mine").deleted, true);
+  assert.equal(indexExercises().size, BUILT_IN.length);
+});

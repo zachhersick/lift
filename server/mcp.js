@@ -315,7 +315,7 @@ const publicMeal = (meal) => ({ id: meal.id, date: meal.date, name: meal.name, e
 // `app` is the assistant the connection approved (see tokenPair in oauth.js).
 export function createMcp({ store, app = null }) {
   async function data() {
-    const [meals, bodyweights, settingsDoc] = await Promise.all([store.listKind("meal"), store.listKind("bodyweight"), store.get("settings")]);
+    const [{ meal: meals, bodyweight: bodyweights }, settingsDoc] = await Promise.all([store.listKinds(["meal", "bodyweight"]), store.get("settings")]);
     return { meals, bodyweights, settings: settingsDoc || {}, timeZone: settingsDoc?.timeZone || "UTC" };
   }
 
@@ -358,7 +358,7 @@ export function createMcp({ store, app = null }) {
   }
 
   async function splitData() {
-    const [splits, days, settings, exercises] = await Promise.all([store.listKind("split"), store.listKind("splitDay"), store.get("settings"), store.listKind("exercise")]);
+    const [{ split: splits, splitDay: days, exercise: exercises }, settings] = await Promise.all([store.listKinds(["split", "splitDay", "exercise"]), store.get("settings")]);
     return { splits: listSplits(splits, days, settings || {}), defaultRest: settings?.defaultRest ?? 120, exercises: indexExercises(exercises) };
   }
 

@@ -17,9 +17,10 @@ Format: plain text, no markdown headings, bold or tables. Open with one sentence
 // Everything the Coach reads, straight from the store. Only the current
 // split's days: the others aren't what you're training.
 export async function loadTrainingData(store) {
-  const [meals, bodyweights, settingsDoc, workouts, exercises, splitDays, splits] = await Promise.all(
-    ["meal", "bodyweight", null, "workout", "exercise", "splitDay", "split"].map((kind) => (kind ? store.listKind(kind) : store.get("settings")))
-  );
+  const [{ meal: meals, bodyweight: bodyweights, workout: workouts, exercise: exercises, splitDay: splitDays, split: splits }, settingsDoc] = await Promise.all([
+    store.listKinds(["meal", "bodyweight", "workout", "exercise", "splitDay", "split"]),
+    store.get("settings")
+  ]);
   const split = findCurrentSplit(splits, splitDays, settingsDoc || {});
   return { meals, bodyweights, settings: settingsDoc || {}, timeZone: settingsDoc?.timeZone || "UTC", workouts, exerciseIndex: indexExercises(exercises), splitDays: split.days, splitName: split.name };
 }

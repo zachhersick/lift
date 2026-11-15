@@ -1179,3 +1179,28 @@ test("Stripe ids stay out of admin and social replies", async () => {
     assert.doesNotMatch(JSON.stringify(reply), /cus_1|stripeCustomer/);
   }
 });
+
+test("listKinds returns each kind's live records for one owner from one call", async () => {
+  const store = new MemoryStore();
+  const mine = store.forOwner("zach@example.com");
+  await mine.upsert([
+    { id: "m1", kind: "meal", updatedAt: 1 },
+    { id: "m2", kind: "meal", updatedAt: 1, deleted: true },
+    { id: "w1", kind: "workout", updatedAt: 1 },
+    { id: "s", kind: "settings", updatedAt: 1 }
+  ]);
+  await store.forOwner("friend@example.com").upsert([{ id: "m3", kind: "meal", updatedAt: 1 }]);
+  const lists = await mine.listKinds(["meal", "workout", "bodyweight"]);
+  assert.deepEqual(Object.keys(lists), ["meal", "workout", "bodyweight"]);
+  assert.deepEqual(lists.meal.map((r) => r.id), ["m1"], "deleted records and other owners' are left out");
+  assert.deepEqual(lists.workout.map((r) => r.id), ["w1"]);
+  assert.deepEqual(lists.bodyweight, [], "a kind with nothing logged is an empty list");
+  for (const kind of ["meal", "workout"]) assert.deepEqual(lists[kind], await mine.listKind(kind), "same as asking kind by kind");
+
+  const calls = [];
+  const fake = () => ({ query: async (text, params) => (calls.push({ text, params }), /select kind, doc/.test(text) ? [{ kind: "meal", doc: { id: "m1" } }] : []) });
+  const neon = new NeonStore("postgres://example", { neon: fake });
+  assert.deepEqual(await neon.forOwner("zach@example.com").listKinds(["meal", "split"]), { meal: [{ id: "m1" }], split: [] });
+  assert.ok(calls.at(-1).text.includes("where owner = $1 and kind = any($2::text[]) and not deleted"), "one query for every kind");
+  assert.deepEqual(calls.at(-1).params, ["zach@example.com", ["meal", "split"]], "scoped to the owner");
+});
