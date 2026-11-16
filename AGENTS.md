@@ -80,6 +80,7 @@ for social features, AI-sharing consent and the legal pages.
 | `vite.config.ts`, `vercel.json` | Local API integration, PWA build, the `vendor` chunk and deployment configuration |
 | `scripts/typecheck.mjs`, `check-docs.mjs` | The type-error ratchet and the check that every path in this file exists |
 | `assets/icon.svg`, `scripts/build-icons.mjs` | Source icon and PNG generation (web icons, plus the opaque iOS app icon and launch splash) |
+| `README.md`, `docs/deployment.md`, `docs/app-store.md` | The public overview; how production is deployed and configured (providers, variables, connector, iOS build, billing); publishing the iPhone app. Keep operator detail out of the README |
 | `SECURITY.md`, `scripts/check-secrets.mjs` | How to report vulnerabilities; the scan for secrets and personal data that runs in `npm run check` |
 | `.claude/launch.json` | Preview configurations `lift` (dev) and `lift-preview`, both on port 4330 |
 
@@ -353,7 +354,7 @@ and/or GitHub (`GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`) OAuth. Optional:
 disconnect ChatGPT) and `OAUTH_REDIRECT_HOSTS`. The Neon store initializes and
 migrates its schema on first use; records from before accounts go to the first
 admin. Follow the
-deployment and OAuth setup in `README.md`; keep values out of source control.
+deployment and OAuth setup in `docs/deployment.md`; keep values out of source control.
 Without `DATABASE_URL`, the API falls back to non-durable memory storage.
 
 Keep `AGENTS.md` current when commands or architecture change, and keep
