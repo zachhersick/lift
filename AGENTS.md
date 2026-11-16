@@ -16,6 +16,26 @@ single source of project guidance; `CLAUDE.md` imports it.
 - Never print credentials or commit secrets. Use variable names and placeholders
   when documenting configuration.
 
+## Public repository
+
+This repository is public, so anything committed is published for good, history
+included.
+
+- Never commit secrets, signing keys (`.p8`, `.p12`, `.pem`), real user records,
+  backups (`lift-backup*.json`) or screenshots with personal data. `.gitignore`
+  covers the usual files; don't force-add past it.
+- Test fixtures use `example.com`, `lift.test` or `privaterelay.appleid.com`
+  addresses and obviously fake secrets (with `test`, `fake` or `example` in them).
+  Zach's address appears only as the public contact on the legal and support pages
+  and in `docs/app-store.md`.
+- Run `npm.cmd run check:secrets` before every PR (it's part of `npm.cmd run check`).
+  If it flags a test value, rename the value; widen the allowlist in
+  `scripts/check-secrets.mjs` only for test or deliberately public values.
+- If a secret is ever committed, treat it as leaked: rotate it first, then remove it.
+  Pushing a fix doesn't unpublish history.
+- Report vulnerabilities privately (`SECURITY.md`); the code is all rights reserved
+  (no license, `"license": "UNLICENSED"`).
+
 ## Project overview and map
 
 Lift is an offline-capable workout tracker and installable PWA, with rotating
@@ -60,6 +80,7 @@ for social features, AI-sharing consent and the legal pages.
 | `vite.config.ts`, `vercel.json` | Local API integration, PWA build, the `vendor` chunk and deployment configuration |
 | `scripts/typecheck.mjs`, `check-docs.mjs` | The type-error ratchet and the check that every path in this file exists |
 | `assets/icon.svg`, `scripts/build-icons.mjs` | Source icon and PNG generation (web icons, plus the opaque iOS app icon and launch splash) |
+| `SECURITY.md`, `scripts/check-secrets.mjs` | How to report vulnerabilities; the scan for secrets and personal data that runs in `npm run check` |
 | `.claude/launch.json` | Preview configurations `lift` (dev) and `lift-preview`, both on port 4330 |
 
 A bare file name in a row is in the same directory as the path before it (or the
@@ -75,7 +96,8 @@ On Windows PowerShell use `npm.cmd`; elsewhere use `npm`.
 | --- | --- |
 | Install locked dependencies in a fresh checkout | `npm.cmd ci` |
 | Start development with hot reload | `npm.cmd run dev` |
-| Run everything before handing off: tests, docs paths, typecheck, build | `npm.cmd run check` |
+| Run everything before handing off: tests, docs paths, secrets, typecheck, build | `npm.cmd run check` |
+| Scan tracked files for secrets and personal data (`--history` for every past version) | `npm.cmd run check:secrets` |
 | Run all tests | `npm.cmd test` |
 | Run only domain tests | `node --test tests/model.test.js` |
 | Run only API tests | `node --test tests/app.test.js` |
@@ -90,8 +112,8 @@ Development uses `http://localhost:4330` with a strict port. Stop the owned serv
 before starting another on that port. Preview also defaults to port 4330.
 Both mount the API through Vite. By default, local sign-in bypasses Google and
 GitHub (admin `dev@lift.test`; `/api/auth/login?provider=dev&as=<email>` for an
-invited test account) and storage is in memory; a `DATABASE_URL` in the process environment selects Neon.
-Do not point local testing at a real user database. No database or secrets are
+invited test account) and storage is in memory; a `DATABASE_URL` in the process environment selects Neon
+and turns the dev sign-in off. Do not point local testing at a real user database. No database or secrets are
 required for the default local workflow or tests.
 
 The local server's memory store resets on restart; browser IndexedDB persists.

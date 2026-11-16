@@ -5,3 +5,17 @@ dev-dist/
 .env*
 *.log
 web-dist/
+# Signing keys and certificates (Apple .p8, push and distribution)
+*.p8
+*.p12
+*.pem
+*.key
+*.cer
+*.mobileprovision
+# Lift backups hold real workouts, meals and bodyweight
+lift-backup*.json
+lift-*.json
+# Local tool settings and OS files
+.claude/settings.local.json
+.DS_Store
+coverage/

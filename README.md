@@ -246,6 +246,13 @@ public/                     icons, manifest, theme-init.js (applies the theme be
 tests/                      node --test
 ```
 
+## Security and license
+
+Lift's source is public so people can read it, but it is not open source: all
+rights are reserved. Please report vulnerabilities privately as described in
+[SECURITY.md](SECURITY.md). No secrets live in this repository; configuration
+comes from environment variables, listed by name in the tables above.
+
 ## Lift Pro subscriptions
 
 Billing is off until you set it up, and everything works as before until then.
