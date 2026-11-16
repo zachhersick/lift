@@ -16,6 +16,6 @@ Include what you found, how to reproduce it, and what it affects. You'll get a r
 
 ## What isn't in this repository
 
-No secrets live here. Every key, OAuth credential, database URL and session secret comes from the deployment's environment variables, which are listed in the README by name only. Values in the tests and in `vite.config.ts` are local test values that don't work anywhere else.
+No secrets live here. Every key, OAuth credential, database URL and session secret comes from the deployment's environment variables, which are listed in `docs/deployment.md` by name only. Values in the tests and in `vite.config.ts` are local test values that don't work anywhere else.
 
 `npm run check:secrets` scans the tracked files, and `node scripts/check-secrets.mjs --history` scans every past version, for keys, tokens and personal data.
