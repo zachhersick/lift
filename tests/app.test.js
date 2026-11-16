@@ -222,6 +222,12 @@ test("dev sign-in is refused on Vercel", () => {
   assert.equal(app.config.devLogin, false);
 });
 
+test("dev sign-in is refused against a real database", () => {
+  const app = createApp({ store: new MemoryStore(), env: { ...env, LIFT_DEV_LOGIN: "1", DATABASE_URL: "postgres://neon.example/lift" } });
+  assert.equal(app.config.devLogin, false);
+  assert.equal(app.config.providers.includes("dev"), false);
+});
+
 test("missing configuration is reported instead of half-working", async () => {
   const app = createApp({ store: new MemoryStore(), env: {} });
   const response = await request(app, { path: "/api/session" });

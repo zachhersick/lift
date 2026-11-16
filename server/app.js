@@ -55,8 +55,9 @@ export function appConfig(env = process.env) {
     openSignup: env.OPEN_SIGNUP === "1",
     // Lift Pro subscriptions, once all the Stripe variables are set.
     billing: billingConfig(env),
-    // Local testing only: sign in without Google or GitHub. Refused on Vercel.
-    devLogin: env.LIFT_DEV_LOGIN === "1" && !env.VERCEL
+    // Local testing only: sign in without Google or GitHub. Refused on Vercel,
+    // and against a real database, where it would let anyone be anyone.
+    devLogin: env.LIFT_DEV_LOGIN === "1" && !env.VERCEL && !env.DATABASE_URL
   };
   config.providers = [config.apple && "apple", config.google && "google", config.github && "github", config.devLogin && "dev"].filter(Boolean);
   const missing = [];
